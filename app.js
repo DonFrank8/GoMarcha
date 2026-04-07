@@ -74,6 +74,8 @@ const state = {
   }
 };
 
+const GENRE_OPTIONS = ["Latin", "Salsa", "Rock"];
+
 const dom = {
   status: document.getElementById("status"),
   eventList: document.getElementById("eventList"),
@@ -184,9 +186,6 @@ function updateFilterOptions() {
   const cities = [...new Set(state.allEvents.map((event) => event.city).filter(Boolean))].sort((a, b) =>
     a.localeCompare(b, "de")
   );
-  const genres = [...new Set(state.allEvents.map((event) => event.genre).filter(Boolean))].sort((a, b) =>
-    a.localeCompare(b, "de")
-  );
 
   dom.cityFilter.innerHTML = '<option value="">Alle Städte</option>';
   cities.forEach((city) => {
@@ -197,7 +196,7 @@ function updateFilterOptions() {
   });
 
   dom.genreFilter.innerHTML = '<option value="">Alle Genres</option>';
-  genres.forEach((genre) => {
+  GENRE_OPTIONS.forEach((genre) => {
     const option = document.createElement("option");
     option.value = genre;
     option.textContent = genre;
@@ -209,8 +208,7 @@ function getActiveFilters() {
   return {
     search: dom.searchInput.value.trim().toLowerCase(),
     city: dom.cityFilter.value,
-    genre: dom.genreFilter.value,
-    date: dom.dateFilter.value
+    genre: dom.genreFilter.value
   };
 }
 
@@ -224,7 +222,6 @@ function applyFilters() {
   state.filteredEvents = state.allEvents.filter((event) => {
     if (filters.city && event.city !== filters.city) return false;
     if (filters.genre && event.genre !== filters.genre) return false;
-    if (filters.date && event.event_date !== filters.date) return false;
     if (filters.search && !eventSearchText(event).includes(filters.search)) return false;
     return true;
   });
@@ -390,14 +387,13 @@ function resetFilters() {
   dom.searchInput.value = "";
   dom.cityFilter.value = "";
   dom.genreFilter.value = "";
-  dom.dateFilter.value = "";
   state.selectedEventId = null;
   applyFilters();
   renderEventDetails(null);
 }
 
 function bindEvents() {
-  const inputs = [dom.searchInput, dom.cityFilter, dom.genreFilter, dom.dateFilter];
+  const inputs = [dom.searchInput, dom.cityFilter, dom.genreFilter];
   inputs.forEach((input) => input.addEventListener("input", applyFilters));
   dom.cityFilter.addEventListener("change", applyFilters);
   dom.genreFilter.addEventListener("change", applyFilters);

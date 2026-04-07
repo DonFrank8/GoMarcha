@@ -29,10 +29,27 @@
       <section class="panel">
         <h2>Events entdecken</h2>
         <p class="panel__intro">
-          Filtere nach Stadt, Genre, Datum oder Suchbegriff.
+          Entdecke lokale Musik-Events mit Live-Karte und Event-Liste.
         </p>
 
-        <form id="filtersForm" class="filters" autocomplete="off">
+        <p id="status" class="status status--loading">Initialisiere Anwendung...</p>
+      </section>
+
+      <section class="panel">
+        <div class="panel__heading">
+          <h3>Debug-Modus</h3>
+          <span id="debugModeBadge">Aktiv</span>
+        </div>
+        <div id="debugPanel" class="debug-box">
+          <p><strong>Tabelle:</strong> <span id="debugTableName">events</span></p>
+          <p><strong>Supabase Events:</strong> <span id="debugLoadedCount">Initialisiere...</span></p>
+          <p><strong>Fehler:</strong> <span id="debugErrorState">Initialisiere...</span></p>
+          <p><strong>Hinweis:</strong> <span id="debugFallbackReason">Initialisiere Debug-Daten...</span></p>
+        </div>
+      </section>
+
+      <section class="panel panel--list">
+        <div class="filters filters--list" autocomplete="off">
           <label class="field">
             <span>Suche</span>
             <input id="searchInput" type="search" placeholder="Band, Event, Location...">
@@ -52,31 +69,9 @@
             </select>
           </label>
 
-          <label class="field">
-            <span>Datum</span>
-            <input id="dateFilter" type="date">
-          </label>
-
           <button id="resetFilters" type="button" class="button-secondary">Filter zurücksetzen</button>
-        </form>
-
-        <p id="status" class="status status--loading">Initialisiere Anwendung...</p>
-      </section>
-
-      <section class="panel">
-        <div class="panel__heading">
-          <h3>Debug-Modus</h3>
-          <span id="debugModeBadge">Aktiv</span>
         </div>
-        <div id="debugPanel" class="debug-box">
-          <p><strong>Tabelle:</strong> <span id="debugTableName">events</span></p>
-          <p><strong>Supabase Events:</strong> <span id="debugLoadedCount">Initialisiere...</span></p>
-          <p><strong>Fehler:</strong> <span id="debugErrorState">Initialisiere...</span></p>
-          <p><strong>Hinweis:</strong> <span id="debugFallbackReason">Initialisiere Debug-Daten...</span></p>
-        </div>
-      </section>
 
-      <section class="panel panel--list">
         <div class="panel__heading">
           <h3>Event-Liste</h3>
           <span id="resultCount">0 Treffer</span>

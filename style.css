@@ -222,6 +222,12 @@ body {
   font-size: 0.83rem;
 }
 
+.list-filters {
+  display: grid;
+  gap: 0.65rem;
+  margin-bottom: 0.8rem;
+}
+
 .event-list {
   display: grid;
   gap: 0.66rem;
