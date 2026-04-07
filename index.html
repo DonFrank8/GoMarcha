@@ -1,256 +1,153 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PartyRadar</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PartyRadar</title>
 
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 
-  <style>
-    body {
-      margin: 0;
-      font-family: Arial, sans-serif;
-      background: #0b0b0f;
-      color: white;
-    }
+<style>
+body {
+  margin:0;
+  font-family:Arial;
+  background:#0b0b0f;
+  color:white;
+}
 
-    header {
-      text-align: center;
-      padding: 60px 20px 30px;
-    }
+header {
+  text-align:center;
+  padding:50px 20px;
+}
 
-    h1 {
-      margin: 0 0 10px;
-      font-size: 48px;
-    }
+h1 {
+  font-size:48px;
+}
 
-    .subtitle {
-      color: #cfcfcf;
-      margin: 0;
-    }
+.container {
+  display:grid;
+  grid-template-columns:400px 1fr;
+}
 
-    .container {
-      display: grid;
-      grid-template-columns: 420px 1fr;
-      gap: 0;
-      min-height: calc(100vh - 140px);
-    }
+.sidebar {
+  background:#1b1f2d;
+  padding:20px;
+  overflow-y:auto;
+  height:calc(100vh - 120px);
+}
 
-    .sidebar {
-      background: #1b1f2d;
-      padding: 20px;
-      border-right: 1px solid #2f3550;
-      overflow-y: auto;
-    }
+.event {
+  background:#202638;
+  padding:15px;
+  border-radius:12px;
+  margin-bottom:10px;
+  cursor:pointer;
+}
 
-    .sidebar h2 {
-      margin-top: 0;
-      font-size: 28px;
-    }
+.event:hover {
+  border:1px solid #ff0055;
+}
 
-    .status {
-      background: #202638;
-      border: 1px solid #38415d;
-      border-radius: 10px;
-      padding: 12px;
-      margin-bottom: 16px;
-      color: #c8cada;
-      font-size: 14px;
-    }
-
-    .event {
-      background: #202638;
-      border: 1px solid #2f3550;
-      padding: 14px;
-      margin-bottom: 12px;
-      border-radius: 12px;
-      cursor: pointer;
-      transition: 0.2s ease;
-    }
-
-    .event:hover {
-      border-color: #ff0055;
-      transform: translateY(-2px);
-    }
-
-    .event h3 {
-      margin: 0 0 8px;
-      font-size: 18px;
-    }
-
-    .event p {
-      margin: 4px 0;
-      color: #c8cada;
-      font-size: 14px;
-    }
-
-    #map {
-      height: calc(100vh - 140px);
-      width: 100%;
-    }
-
-    @media (max-width: 900px) {
-      .container {
-        grid-template-columns: 1fr;
-      }
-
-      #map {
-        height: 420px;
-      }
-    }
-  </style>
+#map {
+  height:calc(100vh - 120px);
+}
+</style>
 </head>
+
 <body>
 
-  <header>
-    <h1>PartyRadar</h1>
-    <p class="subtitle">Live Events, Bands & Locations auf echter Karte</p>
-  </header>
+<header>
+<h1>PartyRadar</h1>
+<p>Live Events & Bands auf Karte</p>
+</header>
 
-  <div class="container">
-    <div class="sidebar">
-      <h2>Events</h2>
-      <div id="status" class="status">Lade Events...</div>
-      <div id="events"></div>
-    </div>
-
-    <div id="map"></div>
+<div class="container">
+  <div class="sidebar">
+    <h2>Events</h2>
+    <div id="status">Lade...</div>
+    <div id="events"></div>
   </div>
 
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <div id="map"></div>
+</div>
 
-  <script>
-    // WICHTIG: HIER DEINE ECHTEN DATEN EINTRAGEN
-    const SUPABASE_URL = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
-    const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR3eWhwaXJ0YmpmbW9oY25oZGFrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1OTM2MzEsImV4cCI6MjA5MTE2OTYzMX0.FAUJSiEMVa7P5y7hLcaBMFDuHmiFceqIy8z9mTJeUOQ";
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-    const statusBox = document.getElementById("status");
-    const eventsBox = document.getElementById("events");
+<script>
 
-    function showStatus(message) {
-      statusBox.innerHTML = message;
+const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR3eWhwaXJ0YmpmbW9oY25oZGFrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1OTM2MzEsImV4cCI6MjA5MTE2OTYzMX0.FAUJSiEMVa7P5y7hLcaBMFDuHmiFceqIy8z9mTJeUOQ";
+
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const statusBox = document.getElementById("status");
+const eventsBox = document.getElementById("events");
+
+const map = L.map("map").setView([36.55,-4.75],10);
+
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  attribution: "© OpenStreetMap"
+}).addTo(map);
+
+let markers=[];
+
+function clearMarkers(){
+  markers.forEach(m=>map.removeLayer(m));
+  markers=[];
+}
+
+async function loadEvents(){
+
+  statusBox.innerText="Lade Events...";
+
+  const {data,error} = await supabase.from("events").select("*");
+
+  if(error){
+    statusBox.innerText="Fehler: "+error.message;
+    return;
+  }
+
+  if(!data || data.length===0){
+    statusBox.innerText="Keine Events";
+    return;
+  }
+
+  statusBox.innerText=data.length+" Events geladen";
+
+  eventsBox.innerHTML="";
+  clearMarkers();
+
+  data.forEach(event=>{
+
+    const div=document.createElement("div");
+    div.className="event";
+
+    div.innerHTML=`
+      <b>${event.name}</b><br>
+      ${event.city}<br>
+      ${event.genre}
+    `;
+
+    div.onclick=()=>{
+      map.setView([event.lat,event.lng],13);
     }
 
-    function isConfigValid() {
-      if (!SUPABASE_URL || !SUPABASE_URL.includes("https://dwyhpirtbjfmohcnhdak.supabase.co")) {
-        showStatus("Fehler: Die Supabase URL fehlt oder ist falsch.");
-        return false;
-      }
+    eventsBox.appendChild(div);
 
-      if (!SUPABASE_KEY || SUPABASE_KEY.length < 20) {
-        showStatus("Fehler: Der Supabase anon public key fehlt oder ist falsch.");
-        return false;
-      }
+    if(event.lat && event.lng){
+      const marker=L.marker([event.lat,event.lng]).addTo(map)
+      .bindPopup(event.name);
 
-      return true;
+      markers.push(marker);
     }
 
-    const map = L.map("map").setView([36.55, -4.75], 10);
+  });
+}
 
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution: "&copy; OpenStreetMap contributors"
-    }).addTo(map);
+loadEvents();
 
-    let markers = [];
-
-    function clearMarkers() {
-      markers.forEach(marker => map.removeLayer(marker));
-      markers = [];
-    }
-
-    function createSupabaseClient() {
-      return window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-    }
-
-    async function loadEvents() {
-      if (!isConfigValid()) return;
-
-      showStatus("Lade Events aus Supabase...");
-
-      const supabase = createSupabaseClient();
-
-      const { data, error } = await supabase
-        .from("events")
-        .select("*")
-        .order("event_date", { ascending: true });
-
-      if (error) {
-        console.error("Supabase error:", error);
-        showStatus("Supabase-Fehler: " + error.message);
-        return;
-      }
-
-      if (!data || data.length === 0) {
-        showStatus("Keine Events gefunden.");
-        eventsBox.innerHTML = "";
-        clearMarkers();
-        return;
-      }
-
-      showStatus(data.length + " Event(s) geladen.");
-      eventsBox.innerHTML = "";
-      clearMarkers();
-
-      const bounds = [];
-
-      data.forEach(event => {
-        const card = document.createElement("div");
-        card.className = "event";
-
-        const priceText =
-          event.price_text && event.price_text.toLowerCase() !== "free"
-            ? event.price_text
-            : "Eintritt frei";
-
-        card.innerHTML = `
-          <h3>${event.name || "Ohne Titel"}</h3>
-          <p>📍 ${event.location_name || ""}${event.city ? ", " + event.city : ""}</p>
-          <p>📅 ${event.event_date || ""}${event.event_time ? " | ⏰ " + event.event_time : ""}</p>
-          <p>🎵 ${event.genre || ""}</p>
-          <p>💶 ${priceText}</p>
-        `;
-
-        card.onclick = () => {
-          if (event.lat && event.lng) {
-            map.setView([event.lat, event.lng], 13);
-          }
-        };
-
-        eventsBox.appendChild(card);
-
-        if (event.lat && event.lng) {
-          const marker = L.marker([event.lat, event.lng]).addTo(map);
-
-          marker.bindPopup(`
-            <strong>${event.name || "Ohne Titel"}</strong><br>
-            ${event.location_name || ""}${event.city ? ", " + event.city : ""}<br>
-            ${event.event_date || ""}${event.event_time ? " " + event.event_time : ""}<br>
-            ${event.genre || ""}
-          `);
-
-          marker.on("click", () => {
-            map.setView([event.lat, event.lng], 13);
-          });
-
-          card.addEventListener("click", () => {
-            marker.openPopup();
-          });
-
-          markers.push(marker);
-          bounds.push([event.lat, event.lng]);
-        }
-      });
-
-      if (bounds.length > 0) {
-        map.fitBounds(bounds, { padding: [30, 30] });
-      }
-    }
-
-    loadEvents();
-  </script>
+</script>
 
 </body>
 </html>
