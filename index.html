@@ -4,7 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PartyRadar</title>
-
   <style>
     * { box-sizing: border-box; }
 
@@ -16,11 +15,12 @@
     }
 
     .lang-switcher {
-      position: absolute;
+      position: fixed;
       top: 20px;
       right: 20px;
       display: flex;
       gap: 10px;
+      z-index: 1000;
     }
 
     .lang-switcher button {
@@ -30,27 +30,39 @@
       color: white;
       border-radius: 8px;
       cursor: pointer;
+      font-weight: bold;
+    }
+
+    .lang-switcher button:hover {
+      background: #2d3248;
     }
 
     header {
-      padding: 80px 20px 50px;
+      padding: 80px 20px 40px;
       text-align: center;
+      max-width: 1100px;
+      margin: 0 auto;
     }
 
     h1 {
       font-size: 56px;
+      margin: 0 0 20px;
     }
 
-    p {
+    .subtitle {
       color: #cfcfd6;
+      max-width: 800px;
+      margin: 0 auto 30px;
+      font-size: 22px;
+      line-height: 1.5;
     }
 
-    .buttons {
-      margin-top: 20px;
+    .hero-buttons {
       display: flex;
       justify-content: center;
       gap: 15px;
       flex-wrap: wrap;
+      margin-top: 25px;
     }
 
     .btn {
@@ -59,23 +71,33 @@
       font-weight: bold;
       border: none;
       cursor: pointer;
+      font-size: 16px;
     }
 
-    .btn-primary { background: #ff0055; color: white; }
-    .btn-secondary { background: #222637; color: white; }
+    .btn-primary {
+      background: #ff0055;
+      color: white;
+    }
 
-    section {
-      padding: 40px 20px;
+    .btn-secondary {
+      background: #222637;
+      color: white;
+      border: 1px solid #3a3f57;
+    }
+
+    section.info {
       max-width: 1100px;
-      margin: auto;
+      margin: 0 auto;
+      padding: 20px 20px 50px;
     }
 
-    h2 {
+    section.info h2 {
       text-align: center;
-      margin-bottom: 20px;
+      font-size: 40px;
+      margin-bottom: 30px;
     }
 
-    .grid {
+    .info-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
       gap: 20px;
@@ -83,180 +105,617 @@
 
     .card {
       background: #1b1f2d;
+      padding: 24px;
+      border-radius: 16px;
+      border: 1px solid #2f3550;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+    }
+
+    .card h3 {
+      margin-top: 0;
+      font-size: 28px;
+    }
+
+    .card p {
+      color: #c8cada;
+      line-height: 1.6;
+      font-size: 18px;
+    }
+
+    .platform-section {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 20px 20px 60px;
+    }
+
+    .platform-section h2 {
+      text-align: center;
+      font-size: 40px;
+      margin-bottom: 25px;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 430px 1fr;
+      gap: 24px;
+      align-items: start;
+    }
+
+    .sidebar {
+      background: rgba(27, 31, 45, 0.9);
+      border: 1px solid #2f3550;
+      border-radius: 18px;
       padding: 20px;
-      border-radius: 12px;
+      position: sticky;
+      top: 90px;
+    }
+
+    .sidebar h3 {
+      margin-top: 0;
+      margin-bottom: 15px;
+      font-size: 26px;
+    }
+
+    .filters {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+
+    .filter-btn {
+      padding: 10px 14px;
+      border-radius: 10px;
+      border: 1px solid #3a3f57;
+      background: #222637;
+      color: white;
+      cursor: pointer;
+      font-weight: bold;
+    }
+
+    .filter-btn.active {
+      background: #ff0055;
+      border-color: #ff0055;
+    }
+
+    .event-list {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      max-height: 700px;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+
+    .event-item {
+      background: #202638;
+      border: 1px solid #2f3550;
+      border-radius: 14px;
+      padding: 16px;
+      cursor: pointer;
+      transition: 0.2s ease;
+    }
+
+    .event-item:hover {
+      transform: translateY(-2px);
+      border-color: #ff0055;
+    }
+
+    .event-item.active {
+      border-color: #ff0055;
+      box-shadow: 0 0 0 1px #ff0055 inset;
+    }
+
+    .event-item h4 {
+      margin: 0 0 10px;
+      font-size: 20px;
+    }
+
+    .event-meta {
+      color: #c8cada;
+      font-size: 15px;
+      line-height: 1.6;
+    }
+
+    .map-panel {
+      background: rgba(27, 31, 45, 0.9);
+      border: 1px solid #2f3550;
+      border-radius: 18px;
+      padding: 20px;
+      min-height: 760px;
+    }
+
+    .map-toolbar {
+      display: flex;
+      justify-content: space-between;
+      gap: 15px;
+      align-items: center;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+
+    .map-toolbar h3 {
+      margin: 0;
+      font-size: 26px;
+    }
+
+    .map-box {
+      position: relative;
+      height: 520px;
+      border-radius: 18px;
+      background:
+        linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px),
+        linear-gradient(180deg, #1c2436, #111723);
+      background-size: 60px 60px, 60px 60px, cover;
+      overflow: hidden;
+      border: 1px solid #2f3550;
+    }
+
+    .map-label {
+      position: absolute;
+      top: 18px;
+      left: 18px;
+      background: rgba(10,12,18,0.7);
+      padding: 8px 12px;
+      border-radius: 10px;
+      color: #d7dbe8;
+      font-size: 14px;
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+
+    .marker {
+      position: absolute;
+      width: 22px;
+      height: 22px;
+      background: #ff0055;
+      border-radius: 50% 50% 50% 0;
+      transform: rotate(-45deg);
+      cursor: pointer;
+      border: 2px solid white;
+      box-shadow: 0 6px 16px rgba(0,0,0,0.35);
+    }
+
+    .marker::after {
+      content: "";
+      position: absolute;
+      width: 8px;
+      height: 8px;
+      background: white;
+      border-radius: 50%;
+      top: 5px;
+      left: 5px;
+    }
+
+    .marker.active {
+      background: #00d4ff;
+      transform: rotate(-45deg) scale(1.15);
+    }
+
+    .selected-event {
+      margin-top: 20px;
+      background: #202638;
+      border: 1px solid #2f3550;
+      border-radius: 16px;
+      padding: 20px;
+    }
+
+    .selected-event h4 {
+      margin: 0 0 12px;
+      font-size: 26px;
+    }
+
+    .selected-event p {
+      margin: 8px 0;
+      color: #c8cada;
+      font-size: 17px;
     }
 
     footer {
       text-align: center;
       padding: 30px;
       color: #999;
+      font-size: 15px;
+    }
+
+    @media (max-width: 1024px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar {
+        position: static;
+      }
+
+      .map-panel {
+        min-height: auto;
+      }
+    }
+
+    @media (max-width: 768px) {
+      .lang-switcher {
+        position: static;
+        justify-content: center;
+        padding-top: 20px;
+      }
+
+      header {
+        padding-top: 30px;
+      }
+
+      h1 {
+        font-size: 42px;
+      }
+
+      .subtitle {
+        font-size: 18px;
+      }
+
+      section.info h2,
+      .platform-section h2 {
+        font-size: 32px;
+      }
+
+      .map-box {
+        height: 380px;
+      }
     }
   </style>
 </head>
-
 <body>
 
-<header>
   <div class="lang-switcher">
     <button onclick="setLang('de')">DE</button>
     <button onclick="setLang('es')">ES</button>
     <button onclick="setLang('en')">EN</button>
   </div>
 
-  <h1 id="title">PartyRadar</h1>
-  <p id="subtitle">Finde lokale Bands, Live-Events & DJs</p>
+  <header>
+    <h1 id="title">PartyRadar</h1>
+    <p class="subtitle" id="subtitle">
+      Entdecke lokale Bands, Live-Events, DJs, Beachbars und besondere Musik-Locations. Alles an einem Ort.
+    </p>
 
-  <div class="buttons">
-    <button class="btn btn-primary" id="btnEvents">Events entdecken</button>
-    <button class="btn btn-secondary" id="btnBands">Bands suchen</button>
-  </div>
-</header>
-
-<section>
-  <h2 id="sectionTitle">Was du findest</h2>
-
-  <div class="grid">
-    <div class="card">
-      <h3 id="card1Title">Live-Events</h3>
-      <p id="card1Text">Konzerte & Events</p>
+    <div class="hero-buttons">
+      <button class="btn btn-primary" id="btnEvents">Events entdecken</button>
+      <button class="btn btn-secondary" id="btnBands">Bands suchen</button>
     </div>
+  </header>
 
-    <div class="card">
-      <h3 id="card2Title">Bands</h3>
-      <p id="card2Text">Alle Musikrichtungen</p>
+  <section class="info">
+    <h2 id="sectionTitle">Was du auf PartyRadar findest</h2>
+
+    <div class="info-grid">
+      <div class="card">
+        <h3 id="card1Title">Live-Events</h3>
+        <p id="card1Text">Finde Konzerte, lokale Events, Beach-Partys und Musiknächte in deiner Umgebung.</p>
+      </div>
+
+      <div class="card">
+        <h3 id="card2Title">Bands & Künstler</h3>
+        <p id="card2Text">Suche nach Latino-Bands, Flamenco, Rock, DJs und vielen anderen Musikrichtungen.</p>
+      </div>
+
+      <div class="card">
+        <h3 id="card3Title">Locations</h3>
+        <p id="card3Text">Entdecke Bars, Clubs, Beachbars und Veranstaltungsorte mit Live-Musik und gutem Vibe.</p>
+      </div>
     </div>
+  </section>
 
-    <div class="card">
-      <h3 id="card3Title">Locations</h3>
-      <p id="card3Text">Clubs & Bars</p>
+  <section class="platform-section">
+    <h2 id="eventsTitle">Events auf der Karte</h2>
+
+    <div class="layout">
+      <aside class="sidebar">
+        <h3 id="listTitle">Event-Liste</h3>
+
+        <div class="filters">
+          <button class="filter-btn active" onclick="filterEvents('All')" id="filterAll">Alle</button>
+          <button class="filter-btn" onclick="filterEvents('Latin')" id="filterLatin">Latin</button>
+          <button class="filter-btn" onclick="filterEvents('Flamenco')" id="filterFlamenco">Flamenco</button>
+          <button class="filter-btn" onclick="filterEvents('DJ')" id="filterDJ">DJ</button>
+        </div>
+
+        <div class="event-list" id="eventsContainer"></div>
+      </aside>
+
+      <div class="map-panel">
+        <div class="map-toolbar">
+          <h3 id="mapTitle">Kartenansicht</h3>
+          <div id="mapAreaLabel" style="color:#c8cada;">Costa del Sol Demo Map</div>
+        </div>
+
+        <div class="map-box" id="mapBox">
+          <div class="map-label" id="mapHint">Klicke links auf ein Event</div>
+        </div>
+
+        <div class="selected-event" id="selectedEventBox">
+          <h4 id="selectedTitle">Noch kein Event ausgewählt</h4>
+          <p id="selectedLocation">📍 Wähle links ein Event aus der Liste.</p>
+          <p id="selectedDate">📅 Danach erscheinen die Details hier.</p>
+          <p id="selectedType">🎵 Musikrichtung wird ebenfalls angezeigt.</p>
+        </div>
+      </div>
     </div>
-  </div>
-</section>
+  </section>
 
-<section>
-  <h2 id="eventsTitle">Events</h2>
+  <footer id="footerText">
+    © 2026 PartyRadar — Entdecke lokale Musik & Events
+  </footer>
 
-  <div class="buttons">
-    <button onclick="filterEvents('All')" id="filterAll">Alle</button>
-    <button onclick="filterEvents('Latin')" id="filterLatin">Latin</button>
-    <button onclick="filterEvents('Flamenco')" id="filterFlamenco">Flamenco</button>
-    <button onclick="filterEvents('DJ')" id="filterDJ">DJ</button>
-  </div>
+  <script>
+    const translations = {
+      de: {
+        title: "PartyRadar",
+        subtitle: "Entdecke lokale Bands, Live-Events, DJs, Beachbars und besondere Musik-Locations. Alles an einem Ort.",
+        btnEvents: "Events entdecken",
+        btnBands: "Bands suchen",
+        sectionTitle: "Was du auf PartyRadar findest",
+        card1Title: "Live-Events",
+        card1Text: "Finde Konzerte, lokale Events, Beach-Partys und Musiknächte in deiner Umgebung.",
+        card2Title: "Bands & Künstler",
+        card2Text: "Suche nach Latino-Bands, Flamenco, Rock, DJs und vielen anderen Musikrichtungen.",
+        card3Title: "Locations",
+        card3Text: "Entdecke Bars, Clubs, Beachbars und Veranstaltungsorte mit Live-Musik und gutem Vibe.",
+        eventsTitle: "Events auf der Karte",
+        listTitle: "Event-Liste",
+        mapTitle: "Kartenansicht",
+        mapHint: "Klicke links auf ein Event",
+        filterAll: "Alle",
+        filterLatin: "Latin",
+        filterFlamenco: "Flamenco",
+        filterDJ: "DJ",
+        selectedEmptyTitle: "Noch kein Event ausgewählt",
+        selectedEmptyLocation: "📍 Wähle links ein Event aus der Liste.",
+        selectedEmptyDate: "📅 Danach erscheinen die Details hier.",
+        selectedEmptyType: "🎵 Musikrichtung wird ebenfalls angezeigt.",
+        footerText: "© 2026 PartyRadar — Entdecke lokale Musik & Events"
+      },
+      es: {
+        title: "PartyRadar",
+        subtitle: "Descubre bandas locales, eventos en vivo, DJs, beach clubs y lugares especiales con música. Todo en un solo lugar.",
+        btnEvents: "Descubrir eventos",
+        btnBands: "Buscar bandas",
+        sectionTitle: "Lo que encuentras en PartyRadar",
+        card1Title: "Eventos en vivo",
+        card1Text: "Encuentra conciertos, eventos locales, fiestas en la playa y noches musicales cerca de ti.",
+        card2Title: "Bandas y artistas",
+        card2Text: "Busca bandas latinas, flamenco, rock, DJs y muchos otros estilos musicales.",
+        card3Title: "Locations",
+        card3Text: "Descubre bares, clubes, beach bars y espacios con música en vivo y buen ambiente.",
+        eventsTitle: "Eventos en el mapa",
+        listTitle: "Lista de eventos",
+        mapTitle: "Vista de mapa",
+        mapHint: "Haz clic en un evento de la izquierda",
+        filterAll: "Todos",
+        filterLatin: "Latino",
+        filterFlamenco: "Flamenco",
+        filterDJ: "DJ",
+        selectedEmptyTitle: "Todavía no has seleccionado un evento",
+        selectedEmptyLocation: "📍 Elige un evento de la lista de la izquierda.",
+        selectedEmptyDate: "📅 Después verás aquí los detalles.",
+        selectedEmptyType: "🎵 Aquí también aparecerá el estilo musical.",
+        footerText: "© 2026 PartyRadar — Descubre música local y eventos"
+      },
+      en: {
+        title: "PartyRadar",
+        subtitle: "Discover local bands, live events, DJs, beach clubs and special music venues. All in one place.",
+        btnEvents: "Discover events",
+        btnBands: "Search bands",
+        sectionTitle: "What you can find on PartyRadar",
+        card1Title: "Live events",
+        card1Text: "Find concerts, local events, beach parties and music nights near you.",
+        card2Title: "Bands & artists",
+        card2Text: "Search for Latino bands, flamenco, rock, DJs and many other music genres.",
+        card3Title: "Locations",
+        card3Text: "Discover bars, clubs, beach bars and venues with live music and great vibes.",
+        eventsTitle: "Events on the map",
+        listTitle: "Event list",
+        mapTitle: "Map view",
+        mapHint: "Click an event on the left",
+        filterAll: "All",
+        filterLatin: "Latin",
+        filterFlamenco: "Flamenco",
+        filterDJ: "DJ",
+        selectedEmptyTitle: "No event selected yet",
+        selectedEmptyLocation: "📍 Choose an event from the list on the left.",
+        selectedEmptyDate: "📅 The details will appear here afterwards.",
+        selectedEmptyType: "🎵 The music type will also be shown here.",
+        footerText: "© 2026 PartyRadar — Discover local music & events"
+      }
+    };
 
-  <div class="grid" id="eventsContainer"></div>
-</section>
+    const events = [
+      {
+        id: 1,
+        name: "Latin Night Marbella",
+        location: "Max Beach, Mijas Costa",
+        date: "12.07.2026",
+        type: "Latin",
+        x: 72,
+        y: 58
+      },
+      {
+        id: 2,
+        name: "Flamenco Live Show",
+        location: "Estepona Old Town",
+        date: "15.07.2026",
+        type: "Flamenco",
+        x: 28,
+        y: 68
+      },
+      {
+        id: 3,
+        name: "Deep House Sunset",
+        location: "Nikki Beach, Marbella",
+        date: "18.07.2026",
+        type: "DJ",
+        x: 63,
+        y: 44
+      },
+      {
+        id: 4,
+        name: "Latin Beach Party",
+        location: "La Plage Casanis, Marbella",
+        date: "20.07.2026",
+        type: "Latin",
+        x: 59,
+        y: 40
+      },
+      {
+        id: 5,
+        name: "Flamenco Dinner Night",
+        location: "Benalmádena Pueblo",
+        date: "22.07.2026",
+        type: "Flamenco",
+        x: 82,
+        y: 34
+      }
+    ];
 
-<footer id="footerText">
-  © 2026 PartyRadar
-</footer>
+    let currentLang = "de";
+    let currentFilter = "All";
+    let currentSelectedId = null;
 
-<script>
-const translations = {
-  de: {
-    title: "PartyRadar",
-    subtitle: "Finde lokale Bands, Live-Events & DJs",
-    btnEvents: "Events entdecken",
-    btnBands: "Bands suchen",
-    sectionTitle: "Was du findest",
-    card1Title: "Live-Events",
-    card1Text: "Konzerte & Events",
-    card2Title: "Bands",
-    card2Text: "Alle Musikrichtungen",
-    card3Title: "Locations",
-    card3Text: "Clubs & Bars",
-    footerText: "© 2026 PartyRadar",
-    eventsTitle: "Aktuelle Events",
-    filterAll: "Alle",
-    filterLatin: "Latin",
-    filterFlamenco: "Flamenco",
-    filterDJ: "DJ"
-  },
-  es: {
-    title: "PartyRadar",
-    subtitle: "Encuentra eventos y DJs",
-    btnEvents: "Eventos",
-    btnBands: "Bandas",
-    sectionTitle: "Qué encontrarás",
-    card1Title: "Eventos",
-    card1Text: "Conciertos",
-    card2Title: "Bandas",
-    card2Text: "Música",
-    card3Title: "Lugares",
-    card3Text: "Clubs",
-    footerText: "© 2026 PartyRadar",
-    eventsTitle: "Eventos actuales",
-    filterAll: "Todos",
-    filterLatin: "Latino",
-    filterFlamenco: "Flamenco",
-    filterDJ: "DJ"
-  },
-  en: {
-    title: "PartyRadar",
-    subtitle: "Find local events",
-    btnEvents: "Events",
-    btnBands: "Bands",
-    sectionTitle: "What you find",
-    card1Title: "Events",
-    card1Text: "Concerts",
-    card2Title: "Bands",
-    card2Text: "Music",
-    card3Title: "Locations",
-    card3Text: "Clubs",
-    footerText: "© 2026 PartyRadar",
-    eventsTitle: "Current events",
-    filterAll: "All",
-    filterLatin: "Latin",
-    filterFlamenco: "Flamenco",
-    filterDJ: "DJ"
-  }
-};
+    function setLang(lang) {
+      currentLang = lang;
+      document.documentElement.lang = lang;
 
-const events = [
-  { name: "Latin Night Marbella", location: "Max Beach", date: "12.07.2026", type: "Latin" },
-  { name: "Flamenco Show", location: "Estepona", date: "15.07.2026", type: "Flamenco" },
-  { name: "House Sunset", location: "Nikki Beach", date: "18.07.2026", type: "DJ" }
-];
+      const t = translations[lang];
 
-function setLang(lang) {
-  document.getElementById("title").innerText = translations[lang].title;
-  document.getElementById("subtitle").innerText = translations[lang].subtitle;
-  document.getElementById("btnEvents").innerText = translations[lang].btnEvents;
-  document.getElementById("btnBands").innerText = translations[lang].btnBands;
-  document.getElementById("sectionTitle").innerText = translations[lang].sectionTitle;
-  document.getElementById("card1Title").innerText = translations[lang].card1Title;
-  document.getElementById("card1Text").innerText = translations[lang].card1Text;
-  document.getElementById("card2Title").innerText = translations[lang].card2Title;
-  document.getElementById("card2Text").innerText = translations[lang].card2Text;
-  document.getElementById("card3Title").innerText = translations[lang].card3Title;
-  document.getElementById("card3Text").innerText = translations[lang].card3Text;
-  document.getElementById("footerText").innerText = translations[lang].footerText;
-  document.getElementById("eventsTitle").innerText = translations[lang].eventsTitle;
-  document.getElementById("filterAll").innerText = translations[lang].filterAll;
-  document.getElementById("filterLatin").innerText = translations[lang].filterLatin;
-  document.getElementById("filterFlamenco").innerText = translations[lang].filterFlamenco;
-  document.getElementById("filterDJ").innerText = translations[lang].filterDJ;
-}
+      document.getElementById("title").innerText = t.title;
+      document.getElementById("subtitle").innerText = t.subtitle;
+      document.getElementById("btnEvents").innerText = t.btnEvents;
+      document.getElementById("btnBands").innerText = t.btnBands;
+      document.getElementById("sectionTitle").innerText = t.sectionTitle;
+      document.getElementById("card1Title").innerText = t.card1Title;
+      document.getElementById("card1Text").innerText = t.card1Text;
+      document.getElementById("card2Title").innerText = t.card2Title;
+      document.getElementById("card2Text").innerText = t.card2Text;
+      document.getElementById("card3Title").innerText = t.card3Title;
+      document.getElementById("card3Text").innerText = t.card3Text;
+      document.getElementById("eventsTitle").innerText = t.eventsTitle;
+      document.getElementById("listTitle").innerText = t.listTitle;
+      document.getElementById("mapTitle").innerText = t.mapTitle;
+      document.getElementById("mapHint").innerText = t.mapHint;
+      document.getElementById("filterAll").innerText = t.filterAll;
+      document.getElementById("filterLatin").innerText = t.filterLatin;
+      document.getElementById("filterFlamenco").innerText = t.filterFlamenco;
+      document.getElementById("filterDJ").innerText = t.filterDJ;
+      document.getElementById("footerText").innerText = t.footerText;
 
-function loadEvents(list) {
-  const container = document.getElementById("eventsContainer");
-  container.innerHTML = "";
+      if (currentSelectedId === null) {
+        showEmptyState();
+      } else {
+        const selected = events.find(e => e.id === currentSelectedId);
+        if (selected) showSelectedEvent(selected);
+      }
+    }
 
-  list.forEach(e => {
-    const div = document.createElement("div");
-    div.className = "card";
-    div.innerHTML = `<h3>${e.name}</h3><p>${e.location}</p><p>${e.date}</p><p>${e.type}</p>`;
-    container.appendChild(div);
-  });
-}
+    function getFilteredEvents() {
+      if (currentFilter === "All") return events;
+      return events.filter(event => event.type === currentFilter);
+    }
 
-function filterEvents(type) {
-  if (type === "All") return loadEvents(events);
-  loadEvents(events.filter(e => e.type === type));
-}
+    function filterEvents(type) {
+      currentFilter = type;
+      currentSelectedId = null;
 
-loadEvents(events);
-</script>
+      document.querySelectorAll(".filter-btn").forEach(btn => {
+        btn.classList.remove("active");
+      });
+
+      const buttonMap = {
+        All: "filterAll",
+        Latin: "filterLatin",
+        Flamenco: "filterFlamenco",
+        DJ: "filterDJ"
+      };
+
+      document.getElementById(buttonMap[type]).classList.add("active");
+
+      renderEvents();
+      renderMap();
+      showEmptyState();
+    }
+
+    function renderEvents() {
+      const container = document.getElementById("eventsContainer");
+      const filteredEvents = getFilteredEvents();
+
+      container.innerHTML = "";
+
+      filteredEvents.forEach(event => {
+        const div = document.createElement("div");
+        div.className = "event-item";
+        if (event.id === currentSelectedId) div.classList.add("active");
+
+        div.innerHTML = `
+          <h4>${event.name}</h4>
+          <div class="event-meta">
+            <div>📍 ${event.location}</div>
+            <div>📅 ${event.date}</div>
+            <div>🎵 ${event.type}</div>
+          </div>
+        `;
+
+        div.onclick = () => selectEvent(event.id);
+        container.appendChild(div);
+      });
+    }
+
+    function renderMap() {
+      const mapBox = document.getElementById("mapBox");
+      const oldMarkers = mapBox.querySelectorAll(".marker");
+      oldMarkers.forEach(marker => marker.remove());
+
+      const filteredEvents = getFilteredEvents();
+
+      filteredEvents.forEach(event => {
+        const marker = document.createElement("div");
+        marker.className = "marker";
+        if (event.id === currentSelectedId) marker.classList.add("active");
+
+        marker.style.left = event.x + "%";
+        marker.style.top = event.y + "%";
+        marker.title = event.name;
+
+        marker.onclick = () => selectEvent(event.id);
+        mapBox.appendChild(marker);
+      });
+    }
+
+    function selectEvent(id) {
+      currentSelectedId = id;
+      const event = events.find(e => e.id === id);
+      if (!event) return;
+
+      renderEvents();
+      renderMap();
+      showSelectedEvent(event);
+    }
+
+    function showEmptyState() {
+      const t = translations[currentLang];
+      document.getElementById("selectedTitle").innerText = t.selectedEmptyTitle;
+      document.getElementById("selectedLocation").innerText = t.selectedEmptyLocation;
+      document.getElementById("selectedDate").innerText = t.selectedEmptyDate;
+      document.getElementById("selectedType").innerText = t.selectedEmptyType;
+    }
+
+    function showSelectedEvent(event) {
+      document.getElementById("selectedTitle").innerText = event.name;
+      document.getElementById("selectedLocation").innerText = "📍 " + event.location;
+      document.getElementById("selectedDate").innerText = "📅 " + event.date;
+      document.getElementById("selectedType").innerText = "🎵 " + event.type;
+    }
+
+    renderEvents();
+    renderMap();
+    showEmptyState();
+    setLang("de");
+  </script>
 
 </body>
 </html>
