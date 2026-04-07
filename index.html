@@ -123,7 +123,7 @@
     }
 
     .platform-section {
-      max-width: 1400px;
+      max-width: 1450px;
       margin: 0 auto;
       padding: 20px 20px 60px;
     }
@@ -136,13 +136,13 @@
 
     .layout {
       display: grid;
-      grid-template-columns: 430px 1fr;
+      grid-template-columns: 470px 1fr;
       gap: 24px;
       align-items: start;
     }
 
     .sidebar {
-      background: rgba(27, 31, 45, 0.9);
+      background: rgba(27, 31, 45, 0.94);
       border: 1px solid #2f3550;
       border-radius: 18px;
       padding: 20px;
@@ -152,8 +152,27 @@
 
     .sidebar h3 {
       margin-top: 0;
-      margin-bottom: 15px;
+      margin-bottom: 16px;
       font-size: 26px;
+    }
+
+    .search-box {
+      margin-bottom: 18px;
+    }
+
+    .search-box input {
+      width: 100%;
+      padding: 14px 16px;
+      border-radius: 12px;
+      border: 1px solid #3a3f57;
+      background: #202638;
+      color: white;
+      font-size: 15px;
+      outline: none;
+    }
+
+    .search-box input::placeholder {
+      color: #a8b0c5;
     }
 
     .filters {
@@ -171,6 +190,7 @@
       color: white;
       cursor: pointer;
       font-weight: bold;
+      font-size: 14px;
     }
 
     .filter-btn.active {
@@ -182,7 +202,7 @@
       display: flex;
       flex-direction: column;
       gap: 14px;
-      max-height: 700px;
+      max-height: 760px;
       overflow-y: auto;
       padding-right: 4px;
     }
@@ -214,15 +234,26 @@
     .event-meta {
       color: #c8cada;
       font-size: 15px;
-      line-height: 1.6;
+      line-height: 1.7;
+    }
+
+    .event-genre {
+      display: inline-block;
+      margin-top: 10px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: #2b3247;
+      color: #fff;
+      font-size: 13px;
+      border: 1px solid #434d6d;
     }
 
     .map-panel {
-      background: rgba(27, 31, 45, 0.9);
+      background: rgba(27, 31, 45, 0.94);
       border: 1px solid #2f3550;
       border-radius: 18px;
       padding: 20px;
-      min-height: 760px;
+      min-height: 820px;
     }
 
     .map-toolbar {
@@ -241,7 +272,7 @@
 
     .map-box {
       position: relative;
-      height: 520px;
+      height: 560px;
       border-radius: 18px;
       background:
         linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
@@ -262,6 +293,7 @@
       color: #d7dbe8;
       font-size: 14px;
       border: 1px solid rgba(255,255,255,0.08);
+      z-index: 2;
     }
 
     .marker {
@@ -274,6 +306,7 @@
       cursor: pointer;
       border: 2px solid white;
       box-shadow: 0 6px 16px rgba(0,0,0,0.35);
+      z-index: 1;
     }
 
     .marker::after {
@@ -311,6 +344,14 @@
       font-size: 17px;
     }
 
+    .empty-message {
+      background: #202638;
+      border: 1px dashed #46506e;
+      border-radius: 14px;
+      padding: 18px;
+      color: #c8cada;
+    }
+
     footer {
       text-align: center;
       padding: 30px;
@@ -318,7 +359,7 @@
       font-size: 15px;
     }
 
-    @media (max-width: 1024px) {
+    @media (max-width: 1100px) {
       .layout {
         grid-template-columns: 1fr;
       }
@@ -357,7 +398,7 @@
       }
 
       .map-box {
-        height: 380px;
+        height: 400px;
       }
     }
   </style>
@@ -393,7 +434,7 @@
 
       <div class="card">
         <h3 id="card2Title">Bands & Künstler</h3>
-        <p id="card2Text">Suche nach Latino-Bands, Flamenco, Rock, DJs und vielen anderen Musikrichtungen.</p>
+        <p id="card2Text">Suche nach Salsa, Rock, Electro, House, Techno, R&B, Flamenco, Latin und vielen weiteren Genres.</p>
       </div>
 
       <div class="card">
@@ -410,12 +451,11 @@
       <aside class="sidebar">
         <h3 id="listTitle">Event-Liste</h3>
 
-        <div class="filters">
-          <button class="filter-btn active" onclick="filterEvents('All')" id="filterAll">Alle</button>
-          <button class="filter-btn" onclick="filterEvents('Latin')" id="filterLatin">Latin</button>
-          <button class="filter-btn" onclick="filterEvents('Flamenco')" id="filterFlamenco">Flamenco</button>
-          <button class="filter-btn" onclick="filterEvents('DJ')" id="filterDJ">DJ</button>
+        <div class="search-box">
+          <input type="text" id="searchInput" placeholder="Suche nach Event, Ort oder Genre" oninput="updateView()">
         </div>
+
+        <div class="filters" id="genreFilters"></div>
 
         <div class="event-list" id="eventsContainer"></div>
       </aside>
@@ -434,7 +474,7 @@
           <h4 id="selectedTitle">Noch kein Event ausgewählt</h4>
           <p id="selectedLocation">📍 Wähle links ein Event aus der Liste.</p>
           <p id="selectedDate">📅 Danach erscheinen die Details hier.</p>
-          <p id="selectedType">🎵 Musikrichtung wird ebenfalls angezeigt.</p>
+          <p id="selectedGenre">🎵 Genre wird ebenfalls angezeigt.</p>
         </div>
       </div>
     </div>
@@ -455,21 +495,20 @@
         card1Title: "Live-Events",
         card1Text: "Finde Konzerte, lokale Events, Beach-Partys und Musiknächte in deiner Umgebung.",
         card2Title: "Bands & Künstler",
-        card2Text: "Suche nach Latino-Bands, Flamenco, Rock, DJs und vielen anderen Musikrichtungen.",
+        card2Text: "Suche nach Salsa, Rock, Electro, House, Techno, R&B, Flamenco, Latin und vielen weiteren Genres.",
         card3Title: "Locations",
         card3Text: "Entdecke Bars, Clubs, Beachbars und Veranstaltungsorte mit Live-Musik und gutem Vibe.",
         eventsTitle: "Events auf der Karte",
         listTitle: "Event-Liste",
         mapTitle: "Kartenansicht",
         mapHint: "Klicke links auf ein Event",
-        filterAll: "Alle",
-        filterLatin: "Latin",
-        filterFlamenco: "Flamenco",
-        filterDJ: "DJ",
+        searchPlaceholder: "Suche nach Event, Ort oder Genre",
         selectedEmptyTitle: "Noch kein Event ausgewählt",
         selectedEmptyLocation: "📍 Wähle links ein Event aus der Liste.",
         selectedEmptyDate: "📅 Danach erscheinen die Details hier.",
-        selectedEmptyType: "🎵 Musikrichtung wird ebenfalls angezeigt.",
+        selectedEmptyGenre: "🎵 Genre wird ebenfalls angezeigt.",
+        noResults: "Keine passenden Events gefunden.",
+        allGenres: "Alle",
         footerText: "© 2026 PartyRadar — Entdecke lokale Musik & Events"
       },
       es: {
@@ -481,21 +520,20 @@
         card1Title: "Eventos en vivo",
         card1Text: "Encuentra conciertos, eventos locales, fiestas en la playa y noches musicales cerca de ti.",
         card2Title: "Bandas y artistas",
-        card2Text: "Busca bandas latinas, flamenco, rock, DJs y muchos otros estilos musicales.",
+        card2Text: "Busca salsa, rock, electro, house, techno, R&B, flamenco, latin y muchos más géneros.",
         card3Title: "Locations",
         card3Text: "Descubre bares, clubes, beach bars y espacios con música en vivo y buen ambiente.",
         eventsTitle: "Eventos en el mapa",
         listTitle: "Lista de eventos",
         mapTitle: "Vista de mapa",
         mapHint: "Haz clic en un evento de la izquierda",
-        filterAll: "Todos",
-        filterLatin: "Latino",
-        filterFlamenco: "Flamenco",
-        filterDJ: "DJ",
+        searchPlaceholder: "Busca evento, lugar o género",
         selectedEmptyTitle: "Todavía no has seleccionado un evento",
         selectedEmptyLocation: "📍 Elige un evento de la lista de la izquierda.",
         selectedEmptyDate: "📅 Después verás aquí los detalles.",
-        selectedEmptyType: "🎵 Aquí también aparecerá el estilo musical.",
+        selectedEmptyGenre: "🎵 Aquí también aparecerá el género musical.",
+        noResults: "No se han encontrado eventos.",
+        allGenres: "Todos",
         footerText: "© 2026 PartyRadar — Descubre música local y eventos"
       },
       en: {
@@ -507,24 +545,34 @@
         card1Title: "Live events",
         card1Text: "Find concerts, local events, beach parties and music nights near you.",
         card2Title: "Bands & artists",
-        card2Text: "Search for Latino bands, flamenco, rock, DJs and many other music genres.",
+        card2Text: "Search salsa, rock, electro, house, techno, R&B, flamenco, latin and many more genres.",
         card3Title: "Locations",
         card3Text: "Discover bars, clubs, beach bars and venues with live music and great vibes.",
         eventsTitle: "Events on the map",
         listTitle: "Event list",
         mapTitle: "Map view",
         mapHint: "Click an event on the left",
-        filterAll: "All",
-        filterLatin: "Latin",
-        filterFlamenco: "Flamenco",
-        filterDJ: "DJ",
+        searchPlaceholder: "Search event, location or genre",
         selectedEmptyTitle: "No event selected yet",
         selectedEmptyLocation: "📍 Choose an event from the list on the left.",
         selectedEmptyDate: "📅 The details will appear here afterwards.",
-        selectedEmptyType: "🎵 The music type will also be shown here.",
+        selectedEmptyGenre: "🎵 The genre will also be shown here.",
+        noResults: "No matching events found.",
+        allGenres: "All",
         footerText: "© 2026 PartyRadar — Discover local music & events"
       }
     };
+
+    const genres = [
+      "Latin",
+      "Salsa",
+      "Rock",
+      "Electro",
+      "House",
+      "Techno",
+      "R&B",
+      "Flamenco"
+    ];
 
     const events = [
       {
@@ -532,50 +580,77 @@
         name: "Latin Night Marbella",
         location: "Max Beach, Mijas Costa",
         date: "12.07.2026",
-        type: "Latin",
+        genre: "Latin",
         x: 72,
         y: 58
       },
       {
         id: 2,
-        name: "Flamenco Live Show",
-        location: "Estepona Old Town",
-        date: "15.07.2026",
-        type: "Flamenco",
-        x: 28,
-        y: 68
+        name: "Salsa Sunset Party",
+        location: "Ocean Club, Marbella",
+        date: "13.07.2026",
+        genre: "Salsa",
+        x: 66,
+        y: 46
       },
       {
         id: 3,
-        name: "Deep House Sunset",
-        location: "Nikki Beach, Marbella",
-        date: "18.07.2026",
-        type: "DJ",
-        x: 63,
-        y: 44
+        name: "Rock by the Sea",
+        location: "Fuengirola Port",
+        date: "14.07.2026",
+        genre: "Rock",
+        x: 84,
+        y: 38
       },
       {
         id: 4,
-        name: "Latin Beach Party",
+        name: "Electro Beach Vibes",
         location: "La Plage Casanis, Marbella",
-        date: "20.07.2026",
-        type: "Latin",
+        date: "15.07.2026",
+        genre: "Electro",
         x: 59,
         y: 40
       },
       {
         id: 5,
-        name: "Flamenco Dinner Night",
-        location: "Benalmádena Pueblo",
-        date: "22.07.2026",
-        type: "Flamenco",
-        x: 82,
-        y: 34
+        name: "House Sunset Session",
+        location: "Nikki Beach, Marbella",
+        date: "16.07.2026",
+        genre: "House",
+        x: 63,
+        y: 44
+      },
+      {
+        id: 6,
+        name: "Techno Underground Night",
+        location: "Málaga Center",
+        date: "17.07.2026",
+        genre: "Techno",
+        x: 92,
+        y: 24
+      },
+      {
+        id: 7,
+        name: "R&B Lounge Evening",
+        location: "Puerto Banús",
+        date: "18.07.2026",
+        genre: "R&B",
+        x: 54,
+        y: 50
+      },
+      {
+        id: 8,
+        name: "Flamenco Live Show",
+        location: "Estepona Old Town",
+        date: "19.07.2026",
+        genre: "Flamenco",
+        x: 28,
+        y: 68
       }
     ];
 
     let currentLang = "de";
-    let currentFilter = "All";
+    let currentGenre = "All";
     let currentSelectedId = null;
 
     function setLang(lang) {
@@ -599,54 +674,95 @@
       document.getElementById("listTitle").innerText = t.listTitle;
       document.getElementById("mapTitle").innerText = t.mapTitle;
       document.getElementById("mapHint").innerText = t.mapHint;
-      document.getElementById("filterAll").innerText = t.filterAll;
-      document.getElementById("filterLatin").innerText = t.filterLatin;
-      document.getElementById("filterFlamenco").innerText = t.filterFlamenco;
-      document.getElementById("filterDJ").innerText = t.filterDJ;
+      document.getElementById("searchInput").placeholder = t.searchPlaceholder;
       document.getElementById("footerText").innerText = t.footerText;
+
+      renderGenreFilters();
+      updateView();
 
       if (currentSelectedId === null) {
         showEmptyState();
       } else {
         const selected = events.find(e => e.id === currentSelectedId);
-        if (selected) showSelectedEvent(selected);
+        if (selected) {
+          const stillVisible = getVisibleEvents().some(e => e.id === selected.id);
+          if (stillVisible) {
+            showSelectedEvent(selected);
+          } else {
+            currentSelectedId = null;
+            showEmptyState();
+          }
+        }
       }
     }
 
-    function getFilteredEvents() {
-      if (currentFilter === "All") return events;
-      return events.filter(event => event.type === currentFilter);
+    function renderGenreFilters() {
+      const container = document.getElementById("genreFilters");
+      const t = translations[currentLang];
+      container.innerHTML = "";
+
+      const allButton = document.createElement("button");
+      allButton.className = "filter-btn" + (currentGenre === "All" ? " active" : "");
+      allButton.innerText = t.allGenres;
+      allButton.onclick = () => {
+        currentGenre = "All";
+        currentSelectedId = null;
+        updateView();
+        showEmptyState();
+      };
+      container.appendChild(allButton);
+
+      genres.forEach(genre => {
+        const btn = document.createElement("button");
+        btn.className = "filter-btn" + (currentGenre === genre ? " active" : "");
+        btn.innerText = genre;
+        btn.onclick = () => {
+          currentGenre = genre;
+          currentSelectedId = null;
+          updateView();
+          showEmptyState();
+        };
+        container.appendChild(btn);
+      });
     }
 
-    function filterEvents(type) {
-      currentFilter = type;
-      currentSelectedId = null;
+    function getVisibleEvents() {
+      const searchValue = document.getElementById("searchInput").value.trim().toLowerCase();
 
-      document.querySelectorAll(".filter-btn").forEach(btn => {
-        btn.classList.remove("active");
+      return events.filter(event => {
+        const matchesGenre = currentGenre === "All" || event.genre === currentGenre;
+
+        const haystack = (
+          event.name + " " +
+          event.location + " " +
+          event.genre
+        ).toLowerCase();
+
+        const matchesSearch = haystack.includes(searchValue);
+
+        return matchesGenre && matchesSearch;
       });
+    }
 
-      const buttonMap = {
-        All: "filterAll",
-        Latin: "filterLatin",
-        Flamenco: "filterFlamenco",
-        DJ: "filterDJ"
-      };
-
-      document.getElementById(buttonMap[type]).classList.add("active");
-
+    function updateView() {
+      renderGenreFilters();
       renderEvents();
       renderMap();
-      showEmptyState();
     }
 
     function renderEvents() {
       const container = document.getElementById("eventsContainer");
-      const filteredEvents = getFilteredEvents();
+      const visibleEvents = getVisibleEvents();
+      const t = translations[currentLang];
 
       container.innerHTML = "";
 
-      filteredEvents.forEach(event => {
+      if (visibleEvents.length === 0) {
+        container.innerHTML = `<div class="empty-message">${t.noResults}</div>`;
+        return;
+      }
+
+      visibleEvents.forEach(event => {
         const div = document.createElement("div");
         div.className = "event-item";
         if (event.id === currentSelectedId) div.classList.add("active");
@@ -656,8 +772,8 @@
           <div class="event-meta">
             <div>📍 ${event.location}</div>
             <div>📅 ${event.date}</div>
-            <div>🎵 ${event.type}</div>
           </div>
+          <div class="event-genre">${event.genre}</div>
         `;
 
         div.onclick = () => selectEvent(event.id);
@@ -670,9 +786,9 @@
       const oldMarkers = mapBox.querySelectorAll(".marker");
       oldMarkers.forEach(marker => marker.remove());
 
-      const filteredEvents = getFilteredEvents();
+      const visibleEvents = getVisibleEvents();
 
-      filteredEvents.forEach(event => {
+      visibleEvents.forEach(event => {
         const marker = document.createElement("div");
         marker.className = "marker";
         if (event.id === currentSelectedId) marker.classList.add("active");
@@ -680,8 +796,8 @@
         marker.style.left = event.x + "%";
         marker.style.top = event.y + "%";
         marker.title = event.name;
-
         marker.onclick = () => selectEvent(event.id);
+
         mapBox.appendChild(marker);
       });
     }
@@ -701,18 +817,18 @@
       document.getElementById("selectedTitle").innerText = t.selectedEmptyTitle;
       document.getElementById("selectedLocation").innerText = t.selectedEmptyLocation;
       document.getElementById("selectedDate").innerText = t.selectedEmptyDate;
-      document.getElementById("selectedType").innerText = t.selectedEmptyType;
+      document.getElementById("selectedGenre").innerText = t.selectedEmptyGenre;
     }
 
     function showSelectedEvent(event) {
       document.getElementById("selectedTitle").innerText = event.name;
       document.getElementById("selectedLocation").innerText = "📍 " + event.location;
       document.getElementById("selectedDate").innerText = "📅 " + event.date;
-      document.getElementById("selectedType").innerText = "🎵 " + event.type;
+      document.getElementById("selectedGenre").innerText = "🎵 " + event.genre;
     }
 
-    renderEvents();
-    renderMap();
+    renderGenreFilters();
+    updateView();
     showEmptyState();
     setLang("de");
   </script>
