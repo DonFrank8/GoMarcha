@@ -192,66 +192,118 @@
   </footer>
 
   <script>
-    const translations = {
-      de: {
-        title: "PartyRadar",
-        subtitle: "Entdecke lokale Bands, Live-Events, DJs, Beachbars und besondere Musik-Locations. Alles an einem Ort.",
-        btnEvents: "Events entdecken",
-        btnBands: "Bands suchen",
-        sectionTitle: "Was du auf PartyRadar findest",
-        card1Title: "Live-Events",
-        card1Text: "Finde Konzerte, lokale Events, Beach-Partys und Musiknächte in deiner Umgebung.",
-        card2Title: "Bands & Künstler",
-        card2Text: "Suche nach Latino-Bands, Flamenco, Rock, DJs und vielen anderen Musikrichtungen.",
-        card3Title: "Locations",
-        card3Text: "Entdecke Bars, Clubs, Beachbars und Veranstaltungsorte mit Live-Musik und gutem Vibe.",
-        footerText: "© 2026 PartyRadar — Entdecke lokale Musik & Events"
-      },
-      es: {
-        title: "PartyRadar",
-        subtitle: "Descubre bandas locales, eventos en vivo, DJs, beach clubs y lugares especiales con música. Todo en un solo lugar.",
-        btnEvents: "Descubrir eventos",
-        btnBands: "Buscar bandas",
-        sectionTitle: "Lo que encuentras en PartyRadar",
-        card1Title: "Eventos en vivo",
-        card1Text: "Encuentra conciertos, eventos locales, fiestas en la playa y noches musicales cerca de ti.",
-        card2Title: "Bandas y artistas",
-        card2Text: "Busca bandas latinas, flamenco, rock, DJs y muchos otros estilos musicales.",
-        card3Title: "Locations",
-        card3Text: "Descubre bares, clubes, beach bars y espacios con música en vivo y buen ambiente.",
-        footerText: "© 2026 PartyRadar — Descubre música local y eventos"
-      },
-      en: {
-        title: "PartyRadar",
-        subtitle: "Discover local bands, live events, DJs, beach clubs and special music venues. All in one place.",
-        btnEvents: "Discover events",
-        btnBands: "Search bands",
-        sectionTitle: "What you can find on PartyRadar",
-        card1Title: "Live events",
-        card1Text: "Find concerts, local events, beach parties and music nights near you.",
-        card2Title: "Bands & artists",
-        card2Text: "Search for Latino bands, flamenco, rock, DJs and many other music genres.",
-        card3Title: "Locations",
-        card3Text: "Discover bars, clubs, beach bars and venues with live music and great vibes.",
-        footerText: "© 2026 PartyRadar — Discover local music & events"
-      }
-    };
+    <script>
+const translations = {
+  de: {
+    title: "PartyRadar",
+    subtitle: "Entdecke lokale Bands, Live-Events, DJs, Beachbars und besondere Musik-Locations. Alles an einem Ort.",
+    btnEvents: "Events entdecken",
+    btnBands: "Bands suchen",
+    sectionTitle: "Was du auf PartyRadar findest",
+    card1Title: "Live-Events",
+    card1Text: "Finde Konzerte, lokale Events, Beach-Partys und Musiknächte in deiner Umgebung.",
+    card2Title: "Bands & Künstler",
+    card2Text: "Suche nach Latino-Bands, Flamenco, Rock, DJs und vielen anderen Musikrichtungen.",
+    card3Title: "Locations",
+    card3Text: "Entdecke Bars, Clubs, Beachbars und Veranstaltungsorte mit Live-Musik und gutem Vibe.",
+    footerText: "© 2026 PartyRadar — Entdecke lokale Musik & Events",
+    eventsTitle: "Aktuelle Events"
+  },
+  es: {
+    title: "PartyRadar",
+    subtitle: "Descubre bandas locales, eventos en vivo, DJs, beach clubs y lugares especiales con música. Todo en un solo lugar.",
+    btnEvents: "Descubrir eventos",
+    btnBands: "Buscar bandas",
+    sectionTitle: "Lo que encuentras en PartyRadar",
+    card1Title: "Eventos en vivo",
+    card1Text: "Encuentra conciertos, eventos locales, fiestas en la playa y noches musicales cerca de ti.",
+    card2Title: "Bandas y artistas",
+    card2Text: "Busca bandas latinas, flamenco, rock, DJs y muchos otros estilos musicales.",
+    card3Title: "Locations",
+    card3Text: "Descubre bares, clubes, beach bars y espacios con música en vivo y buen ambiente.",
+    footerText: "© 2026 PartyRadar — Descubre música local y eventos",
+    eventsTitle: "Eventos actuales"
+  },
+  en: {
+    title: "PartyRadar",
+    subtitle: "Discover local bands, live events, DJs, beach clubs and special music venues. All in one place.",
+    btnEvents: "Discover events",
+    btnBands: "Search bands",
+    sectionTitle: "What you can find on PartyRadar",
+    card1Title: "Live events",
+    card1Text: "Find concerts, local events, beach parties and music nights near you.",
+    card2Title: "Bands & artists",
+    card2Text: "Search for Latino bands, flamenco, rock, DJs and many other music genres.",
+    card3Title: "Locations",
+    card3Text: "Discover bars, clubs, beach bars and venues with live music and great vibes.",
+    footerText: "© 2026 PartyRadar — Discover local music & events",
+    eventsTitle: "Current events"
+  }
+};
 
-    function setLang(lang) {
-      document.documentElement.lang = lang;
-      document.getElementById("title").innerText = translations[lang].title;
-      document.getElementById("subtitle").innerText = translations[lang].subtitle;
-      document.getElementById("btnEvents").innerText = translations[lang].btnEvents;
-      document.getElementById("btnBands").innerText = translations[lang].btnBands;
-      document.getElementById("sectionTitle").innerText = translations[lang].sectionTitle;
-      document.getElementById("card1Title").innerText = translations[lang].card1Title;
-      document.getElementById("card1Text").innerText = translations[lang].card1Text;
-      document.getElementById("card2Title").innerText = translations[lang].card2Title;
-      document.getElementById("card2Text").innerText = translations[lang].card2Text;
-      document.getElementById("card3Title").innerText = translations[lang].card3Title;
-      document.getElementById("card3Text").innerText = translations[lang].card3Text;
-      document.getElementById("footerText").innerText = translations[lang].footerText;
-    }
+function setLang(lang) {
+  document.documentElement.lang = lang;
+
+  document.getElementById("title").innerText = translations[lang].title;
+  document.getElementById("subtitle").innerText = translations[lang].subtitle;
+  document.getElementById("btnEvents").innerText = translations[lang].btnEvents;
+  document.getElementById("btnBands").innerText = translations[lang].btnBands;
+  document.getElementById("sectionTitle").innerText = translations[lang].sectionTitle;
+  document.getElementById("card1Title").innerText = translations[lang].card1Title;
+  document.getElementById("card1Text").innerText = translations[lang].card1Text;
+  document.getElementById("card2Title").innerText = translations[lang].card2Title;
+  document.getElementById("card2Text").innerText = translations[lang].card2Text;
+  document.getElementById("card3Title").innerText = translations[lang].card3Title;
+  document.getElementById("card3Text").innerText = translations[lang].card3Text;
+  document.getElementById("footerText").innerText = translations[lang].footerText;
+  document.getElementById("eventsTitle").innerText = translations[lang].eventsTitle;
+}
+
+const events = [
+  {
+    name: "Latin Night Marbella",
+    location: "Max Beach",
+    date: "12.07.2026",
+    type: "Latin"
+  },
+  {
+    name: "Flamenco Live Show",
+    location: "Estepona Old Town",
+    date: "15.07.2026",
+    type: "Flamenco"
+  },
+  {
+    name: "Deep House Sunset",
+    location: "Nikki Beach",
+    date: "18.07.2026",
+    type: "DJ"
+  }
+];
+
+function loadEvents() {
+  const container = document.getElementById("eventsContainer");
+  if (!container) return;
+
+  container.innerHTML = "";
+
+  events.forEach(event => {
+    const div = document.createElement("div");
+    div.className = "card";
+
+    div.innerHTML = `
+      <h3>${event.name}</h3>
+      <p>📍 ${event.location}</p>
+      <p>📅 ${event.date}</p>
+      <p>🎵 ${event.type}</p>
+    `;
+
+    container.appendChild(div);
+  });
+}
+
+// Seite laden
+loadEvents();
+</script>
   </script>
 
 </body>
