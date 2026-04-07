@@ -63,6 +63,19 @@
         <p id="status" class="status status--loading">Initialisiere Anwendung...</p>
       </section>
 
+      <section class="panel">
+        <div class="panel__heading">
+          <h3>Debug-Modus</h3>
+          <span id="debugModeBadge">Aktiv</span>
+        </div>
+        <div id="debugPanel" class="debug-box">
+          <p><strong>Tabelle:</strong> <span id="debugTableName">events</span></p>
+          <p><strong>Supabase Events:</strong> <span id="debugLoadedCount">Initialisiere...</span></p>
+          <p><strong>Fehler:</strong> <span id="debugErrorState">Initialisiere...</span></p>
+          <p><strong>Hinweis:</strong> <span id="debugFallbackReason">Initialisiere Debug-Daten...</span></p>
+        </div>
+      </section>
+
       <section class="panel panel--list">
         <div class="panel__heading">
           <h3>Event-Liste</h3>

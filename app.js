@@ -63,7 +63,15 @@ const state = {
   allEvents: [],
   filteredEvents: [],
   selectedEventId: null,
-  sourceLabel: "Unbekannt"
+  sourceLabel: "Unbekannt",
+  debug: {
+    enabled: true,
+    tableName: "events",
+    supabaseLoadedCount: 0,
+    hasError: false,
+    errorMessage: "Kein Fehler",
+    fallbackReason: "Noch nicht geladen"
+  }
 };
 
 const dom = {
@@ -75,7 +83,12 @@ const dom = {
   cityFilter: document.getElementById("cityFilter"),
   genreFilter: document.getElementById("genreFilter"),
   dateFilter: document.getElementById("dateFilter"),
-  resetFilters: document.getElementById("resetFilters")
+  resetFilters: document.getElementById("resetFilters"),
+  debugPanel: document.getElementById("debugPanel"),
+  debugLoadedCount: document.getElementById("debugLoadedCount"),
+  debugErrorState: document.getElementById("debugErrorState"),
+  debugTableName: document.getElementById("debugTableName"),
+  debugFallbackReason: document.getElementById("debugFallbackReason")
 };
 
 let map;
@@ -85,6 +98,31 @@ const markersByEventId = new Map();
 function setStatus(message, tone = "loading") {
   dom.status.className = `status status--${tone}`;
   dom.status.textContent = message;
+}
+
+function updateDebugPanel() {
+  if (!dom.debugPanel) return;
+  dom.debugPanel.classList.remove("debug-panel--error");
+  dom.debugPanel.classList.add("debug-panel--active");
+
+  if (dom.debugTableName) {
+    dom.debugTableName.textContent = state.debug.tableName;
+  }
+  if (dom.debugLoadedCount) {
+    dom.debugLoadedCount.textContent = String(state.debug.supabaseLoadedCount);
+  }
+  if (dom.debugErrorState) {
+    dom.debugErrorState.textContent = state.debug.hasError
+      ? `Ja - ${state.debug.errorMessage}`
+      : "Nein";
+  }
+  if (dom.debugFallbackReason) {
+    dom.debugFallbackReason.textContent = state.debug.fallbackReason;
+  }
+
+  if (state.debug.hasError) {
+    dom.debugPanel.classList.add("debug-panel--error");
+  }
 }
 
 function normalizeEvent(event, index) {
@@ -375,10 +413,15 @@ async function fetchEventsFromSupabase() {
   }
 
   const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const tableName = state.debug.tableName || "events";
   const { data, error } = await client
-    .from("events")
+    .from(tableName)
     .select("*")
     .order("event_date", { ascending: true });
+
+  console.log("[PartyRadar Debug] Supabase table:", tableName);
+  console.log("[PartyRadar Debug] Supabase data:", data);
+  console.log("[PartyRadar Debug] Supabase error:", error);
 
   if (error) {
     throw new Error(error.message);
@@ -389,25 +432,41 @@ async function fetchEventsFromSupabase() {
 
 async function loadEvents() {
   setStatus("Lade Events aus Supabase...", "loading");
+  state.debug.hasError = false;
+  state.debug.errorMessage = "Kein Fehler";
+  state.debug.fallbackReason = "Noch keine Entscheidung";
+  state.debug.supabaseLoadedCount = 0;
+  updateDebugPanel();
 
   try {
     const data = await fetchEventsFromSupabase();
+    state.debug.supabaseLoadedCount = data.length;
+    state.debug.hasError = false;
+    state.debug.errorMessage = "Kein Fehler";
 
     if (!data.length) {
       state.allEvents = demoEvents.map(normalizeEvent);
-      state.sourceLabel = "Demo-Fallback (keine Datensätze in Supabase)";
-      setStatus("Keine Supabase-Events gefunden. Demo-Events geladen.", "warning");
+      state.sourceLabel = "Demo-Fallback (Keine Daten aus Supabase)";
+      state.debug.fallbackReason = "Keine Daten aus Supabase";
+      setStatus("Keine Daten aus Supabase. Demo-Events geladen.", "warning");
+      updateDebugPanel();
       return;
     }
 
     state.allEvents = data;
     state.sourceLabel = "Supabase";
+    state.debug.fallbackReason = "Kein Fallback - Daten aus Supabase aktiv";
     setStatus(`Supabase verbunden. ${data.length} Events geladen.`, "ok");
+    updateDebugPanel();
   } catch (error) {
     console.error("Supabase Fehler:", error);
     state.allEvents = demoEvents.map(normalizeEvent);
     state.sourceLabel = "Demo-Fallback (Supabase Fehler)";
+    state.debug.hasError = true;
+    state.debug.errorMessage = error.message;
+    state.debug.fallbackReason = "Supabase Fehler - Demo-Fallback aktiv";
     setStatus(`Supabase nicht verfügbar: ${error.message}. Demo-Events aktiv.`, "warning");
+    updateDebugPanel();
   }
 }
 
