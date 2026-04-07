@@ -1,5 +1,5 @@
 const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
-const SUPABASE_ANON_KEY = "[hier deinen anon key einsetzen]";
+const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
 
 const DEFAULT_CENTER = [51.1657, 10.4515];
 const DEFAULT_ZOOM = 6;
