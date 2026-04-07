@@ -51,7 +51,7 @@
 
     .subtitle {
       color: #cfcfd6;
-      max-width: 800px;
+      max-width: 820px;
       margin: 0 auto 30px;
       font-size: 22px;
       line-height: 1.5;
@@ -123,7 +123,7 @@
     }
 
     .platform-section {
-      max-width: 1450px;
+      max-width: 1500px;
       margin: 0 auto;
       padding: 20px 20px 60px;
     }
@@ -136,13 +136,13 @@
 
     .layout {
       display: grid;
-      grid-template-columns: 470px 1fr;
+      grid-template-columns: 520px 1fr;
       gap: 24px;
       align-items: start;
     }
 
     .sidebar {
-      background: rgba(27, 31, 45, 0.94);
+      background: rgba(27, 31, 45, 0.95);
       border: 1px solid #2f3550;
       border-radius: 18px;
       padding: 20px;
@@ -202,16 +202,19 @@
       display: flex;
       flex-direction: column;
       gap: 14px;
-      max-height: 760px;
+      max-height: 820px;
       overflow-y: auto;
       padding-right: 4px;
     }
 
     .event-item {
+      display: grid;
+      grid-template-columns: 130px 1fr;
+      gap: 14px;
       background: #202638;
       border: 1px solid #2f3550;
       border-radius: 14px;
-      padding: 16px;
+      padding: 12px;
       cursor: pointer;
       transition: 0.2s ease;
     }
@@ -226,34 +229,75 @@
       box-shadow: 0 0 0 1px #ff0055 inset;
     }
 
-    .event-item h4 {
-      margin: 0 0 10px;
+    .event-image {
+      width: 100%;
+      height: 120px;
+      border-radius: 12px;
+      background-size: cover;
+      background-position: center;
+      border: 1px solid #38415d;
+    }
+
+    .event-content h4 {
+      margin: 0 0 8px;
       font-size: 20px;
+      line-height: 1.3;
     }
 
     .event-meta {
       color: #c8cada;
-      font-size: 15px;
+      font-size: 14px;
       line-height: 1.7;
     }
 
-    .event-genre {
+    .event-bottom {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      margin-top: 12px;
+      flex-wrap: wrap;
+    }
+
+    .event-tags {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .event-genre,
+    .event-price {
       display: inline-block;
-      margin-top: 10px;
       padding: 6px 10px;
       border-radius: 999px;
       background: #2b3247;
       color: #fff;
-      font-size: 13px;
+      font-size: 12px;
       border: 1px solid #434d6d;
     }
 
+    .save-btn {
+      padding: 8px 12px;
+      border-radius: 10px;
+      border: 1px solid #4b5578;
+      background: #222637;
+      color: white;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: bold;
+    }
+
+    .save-btn.saved {
+      background: #ff0055;
+      border-color: #ff0055;
+    }
+
     .map-panel {
-      background: rgba(27, 31, 45, 0.94);
+      background: rgba(27, 31, 45, 0.95);
       border: 1px solid #2f3550;
       border-radius: 18px;
       padding: 20px;
-      min-height: 820px;
+      min-height: 880px;
     }
 
     .map-toolbar {
@@ -333,15 +377,47 @@
       padding: 20px;
     }
 
+    .selected-top {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      gap: 20px;
+      align-items: start;
+    }
+
+    .selected-image {
+      width: 100%;
+      height: 180px;
+      border-radius: 14px;
+      background-size: cover;
+      background-position: center;
+      border: 1px solid #38415d;
+    }
+
     .selected-event h4 {
       margin: 0 0 12px;
-      font-size: 26px;
+      font-size: 28px;
     }
 
     .selected-event p {
       margin: 8px 0;
       color: #c8cada;
       font-size: 17px;
+    }
+
+    .selected-tags {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+
+    .detail-tag {
+      display: inline-block;
+      padding: 7px 11px;
+      border-radius: 999px;
+      background: #2b3247;
+      border: 1px solid #434d6d;
+      font-size: 13px;
     }
 
     .empty-message {
@@ -359,7 +435,7 @@
       font-size: 15px;
     }
 
-    @media (max-width: 1100px) {
+    @media (max-width: 1150px) {
       .layout {
         grid-template-columns: 1fr;
       }
@@ -398,7 +474,15 @@
       }
 
       .map-box {
-        height: 400px;
+        height: 380px;
+      }
+
+      .event-item {
+        grid-template-columns: 1fr;
+      }
+
+      .selected-top {
+        grid-template-columns: 1fr;
       }
     }
   </style>
@@ -471,10 +555,18 @@
         </div>
 
         <div class="selected-event" id="selectedEventBox">
-          <h4 id="selectedTitle">Noch kein Event ausgewählt</h4>
-          <p id="selectedLocation">📍 Wähle links ein Event aus der Liste.</p>
-          <p id="selectedDate">📅 Danach erscheinen die Details hier.</p>
-          <p id="selectedGenre">🎵 Genre wird ebenfalls angezeigt.</p>
+          <div class="selected-top">
+            <div class="selected-image" id="selectedImage" style="background-image: linear-gradient(135deg, #28324c, #111723);"></div>
+            <div>
+              <h4 id="selectedTitle">Noch kein Event ausgewählt</h4>
+              <p id="selectedLocation">📍 Wähle links ein Event aus der Liste.</p>
+              <p id="selectedDate">📅 Danach erscheinen die Details hier.</p>
+              <p id="selectedTime">⏰ Die Uhrzeit wird hier angezeigt.</p>
+              <p id="selectedGenre">🎵 Genre wird ebenfalls angezeigt.</p>
+              <p id="selectedPrice">💶 Preis oder Eintritt frei erscheint hier.</p>
+              <div class="selected-tags" id="selectedTags"></div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -506,9 +598,14 @@
         selectedEmptyTitle: "Noch kein Event ausgewählt",
         selectedEmptyLocation: "📍 Wähle links ein Event aus der Liste.",
         selectedEmptyDate: "📅 Danach erscheinen die Details hier.",
+        selectedEmptyTime: "⏰ Die Uhrzeit wird hier angezeigt.",
         selectedEmptyGenre: "🎵 Genre wird ebenfalls angezeigt.",
+        selectedEmptyPrice: "💶 Preis oder Eintritt frei erscheint hier.",
         noResults: "Keine passenden Events gefunden.",
         allGenres: "Alle",
+        freeEntry: "Eintritt frei",
+        save: "Merken",
+        saved: "Gemerkt",
         footerText: "© 2026 PartyRadar — Entdecke lokale Musik & Events"
       },
       es: {
@@ -531,9 +628,14 @@
         selectedEmptyTitle: "Todavía no has seleccionado un evento",
         selectedEmptyLocation: "📍 Elige un evento de la lista de la izquierda.",
         selectedEmptyDate: "📅 Después verás aquí los detalles.",
+        selectedEmptyTime: "⏰ Aquí se mostrará la hora.",
         selectedEmptyGenre: "🎵 Aquí también aparecerá el género musical.",
+        selectedEmptyPrice: "💶 Aquí aparecerá el precio o entrada gratis.",
         noResults: "No se han encontrado eventos.",
         allGenres: "Todos",
+        freeEntry: "Entrada gratis",
+        save: "Guardar",
+        saved: "Guardado",
         footerText: "© 2026 PartyRadar — Descubre música local y eventos"
       },
       en: {
@@ -556,9 +658,14 @@
         selectedEmptyTitle: "No event selected yet",
         selectedEmptyLocation: "📍 Choose an event from the list on the left.",
         selectedEmptyDate: "📅 The details will appear here afterwards.",
+        selectedEmptyTime: "⏰ The time will be shown here.",
         selectedEmptyGenre: "🎵 The genre will also be shown here.",
+        selectedEmptyPrice: "💶 The price or free entry will appear here.",
         noResults: "No matching events found.",
         allGenres: "All",
+        freeEntry: "Free entry",
+        save: "Save",
+        saved: "Saved",
         footerText: "© 2026 PartyRadar — Discover local music & events"
       }
     };
@@ -580,7 +687,10 @@
         name: "Latin Night Marbella",
         location: "Max Beach, Mijas Costa",
         date: "12.07.2026",
+        time: "20:30",
         genre: "Latin",
+        price: "25 €",
+        image: "linear-gradient(135deg, #ff7a18, #af002d 70%)",
         x: 72,
         y: 58
       },
@@ -589,7 +699,10 @@
         name: "Salsa Sunset Party",
         location: "Ocean Club, Marbella",
         date: "13.07.2026",
+        time: "19:00",
         genre: "Salsa",
+        price: "30 €",
+        image: "linear-gradient(135deg, #f953c6, #b91d73)",
         x: 66,
         y: 46
       },
@@ -598,7 +711,10 @@
         name: "Rock by the Sea",
         location: "Fuengirola Port",
         date: "14.07.2026",
+        time: "21:30",
         genre: "Rock",
+        price: "18 €",
+        image: "linear-gradient(135deg, #232526, #414345)",
         x: 84,
         y: 38
       },
@@ -607,7 +723,10 @@
         name: "Electro Beach Vibes",
         location: "La Plage Casanis, Marbella",
         date: "15.07.2026",
+        time: "18:30",
         genre: "Electro",
+        price: "Free",
+        image: "linear-gradient(135deg, #00c6ff, #0072ff)",
         x: 59,
         y: 40
       },
@@ -616,7 +735,10 @@
         name: "House Sunset Session",
         location: "Nikki Beach, Marbella",
         date: "16.07.2026",
+        time: "17:00",
         genre: "House",
+        price: "40 €",
+        image: "linear-gradient(135deg, #fc466b, #3f5efb)",
         x: 63,
         y: 44
       },
@@ -625,7 +747,10 @@
         name: "Techno Underground Night",
         location: "Málaga Center",
         date: "17.07.2026",
+        time: "23:30",
         genre: "Techno",
+        price: "22 €",
+        image: "linear-gradient(135deg, #0f2027, #203a43, #2c5364)",
         x: 92,
         y: 24
       },
@@ -634,7 +759,10 @@
         name: "R&B Lounge Evening",
         location: "Puerto Banús",
         date: "18.07.2026",
+        time: "22:00",
         genre: "R&B",
+        price: "35 €",
+        image: "linear-gradient(135deg, #7f00ff, #e100ff)",
         x: 54,
         y: 50
       },
@@ -643,7 +771,10 @@
         name: "Flamenco Live Show",
         location: "Estepona Old Town",
         date: "19.07.2026",
+        time: "20:00",
         genre: "Flamenco",
+        price: "Free",
+        image: "linear-gradient(135deg, #d31027, #ea384d)",
         x: 28,
         y: 68
       }
@@ -652,6 +783,7 @@
     let currentLang = "de";
     let currentGenre = "All";
     let currentSelectedId = null;
+    let savedEvents = [];
 
     function setLang(lang) {
       currentLang = lang;
@@ -684,16 +816,18 @@
         showEmptyState();
       } else {
         const selected = events.find(e => e.id === currentSelectedId);
-        if (selected) {
-          const stillVisible = getVisibleEvents().some(e => e.id === selected.id);
-          if (stillVisible) {
-            showSelectedEvent(selected);
-          } else {
-            currentSelectedId = null;
-            showEmptyState();
-          }
+        if (selected && getVisibleEvents().some(e => e.id === selected.id)) {
+          showSelectedEvent(selected);
+        } else {
+          currentSelectedId = null;
+          showEmptyState();
         }
       }
+    }
+
+    function formatPrice(price) {
+      const t = translations[currentLang];
+      return price === "Free" ? t.freeEntry : price;
     }
 
     function renderGenreFilters() {
@@ -735,13 +869,27 @@
         const haystack = (
           event.name + " " +
           event.location + " " +
-          event.genre
+          event.genre + " " +
+          event.date
         ).toLowerCase();
 
         const matchesSearch = haystack.includes(searchValue);
-
         return matchesGenre && matchesSearch;
       });
+    }
+
+    function toggleSave(id, clickedButton) {
+      if (savedEvents.includes(id)) {
+        savedEvents = savedEvents.filter(item => item !== id);
+      } else {
+        savedEvents.push(id);
+      }
+
+      if (clickedButton) {
+        clickedButton.blur();
+      }
+
+      renderEvents();
     }
 
     function updateView() {
@@ -763,20 +911,40 @@
       }
 
       visibleEvents.forEach(event => {
+        const isSaved = savedEvents.includes(event.id);
         const div = document.createElement("div");
         div.className = "event-item";
         if (event.id === currentSelectedId) div.classList.add("active");
 
         div.innerHTML = `
-          <h4>${event.name}</h4>
-          <div class="event-meta">
-            <div>📍 ${event.location}</div>
-            <div>📅 ${event.date}</div>
+          <div class="event-image" style="background-image:${event.image};"></div>
+          <div class="event-content">
+            <h4>${event.name}</h4>
+            <div class="event-meta">
+              <div>📍 ${event.location}</div>
+              <div>📅 ${event.date}</div>
+              <div>⏰ ${event.time}</div>
+            </div>
+            <div class="event-bottom">
+              <div class="event-tags">
+                <span class="event-genre">${event.genre}</span>
+                <span class="event-price">${formatPrice(event.price)}</span>
+              </div>
+              <button class="save-btn ${isSaved ? "saved" : ""}" data-id="${event.id}">
+                ${isSaved ? t.saved : t.save}
+              </button>
+            </div>
           </div>
-          <div class="event-genre">${event.genre}</div>
         `;
 
         div.onclick = () => selectEvent(event.id);
+
+        const saveButton = div.querySelector(".save-btn");
+        saveButton.onclick = (e) => {
+          e.stopPropagation();
+          toggleSave(event.id, saveButton);
+        };
+
         container.appendChild(div);
       });
     }
@@ -814,17 +982,29 @@
 
     function showEmptyState() {
       const t = translations[currentLang];
+      document.getElementById("selectedImage").style.backgroundImage = "linear-gradient(135deg, #28324c, #111723)";
       document.getElementById("selectedTitle").innerText = t.selectedEmptyTitle;
       document.getElementById("selectedLocation").innerText = t.selectedEmptyLocation;
       document.getElementById("selectedDate").innerText = t.selectedEmptyDate;
+      document.getElementById("selectedTime").innerText = t.selectedEmptyTime;
       document.getElementById("selectedGenre").innerText = t.selectedEmptyGenre;
+      document.getElementById("selectedPrice").innerText = t.selectedEmptyPrice;
+      document.getElementById("selectedTags").innerHTML = "";
     }
 
     function showSelectedEvent(event) {
+      document.getElementById("selectedImage").style.backgroundImage = event.image;
       document.getElementById("selectedTitle").innerText = event.name;
       document.getElementById("selectedLocation").innerText = "📍 " + event.location;
       document.getElementById("selectedDate").innerText = "📅 " + event.date;
+      document.getElementById("selectedTime").innerText = "⏰ " + event.time;
       document.getElementById("selectedGenre").innerText = "🎵 " + event.genre;
+      document.getElementById("selectedPrice").innerText = "💶 " + formatPrice(event.price);
+      document.getElementById("selectedTags").innerHTML = `
+        <span class="detail-tag">${event.genre}</span>
+        <span class="detail-tag">${formatPrice(event.price)}</span>
+        <span class="detail-tag">${event.time}</span>
+      `;
     }
 
     renderGenreFilters();
