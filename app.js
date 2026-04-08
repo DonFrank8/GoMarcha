@@ -1346,6 +1346,7 @@ function openSubmitModal() {
   if (!dom.submitModal) return;
   dom.submitModal.hidden = false;
   dom.submitModal.setAttribute("aria-hidden", "false");
+  dom.submitModal.classList.add("is-open");
   document.body.classList.add("body--modal-open");
   window.setTimeout(() => {
     dom.formName?.focus();
@@ -1356,6 +1357,7 @@ function closeSubmitModal() {
   if (!dom.submitModal) return;
   dom.submitModal.hidden = true;
   dom.submitModal.setAttribute("aria-hidden", "true");
+  dom.submitModal.classList.remove("is-open");
   document.body.classList.remove("body--modal-open");
 }
 
@@ -1485,7 +1487,8 @@ function bindEvents() {
   if (dom.submitModal) {
     dom.submitModal.addEventListener("click", (event) => {
       const target = event.target instanceof Element ? event.target : null;
-      if (target && target.closest("[data-modal-close]")) {
+      const clickedBackdrop = target?.classList.contains("modal");
+      if (clickedBackdrop || (target && target.closest("[data-modal-close]"))) {
         closeSubmitModal();
       }
     });
