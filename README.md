@@ -62,6 +62,7 @@ If you see `new row violates row-level security policy for table "events"`:
 - make sure the **insert policy** exists exactly as in `supabase-rls.sql`
 - then re-run the SQL script to refresh policies
 - in PartyRadar, event submit inserts as `status = 'pending'` and does not require reading back the inserted row
+- if your DB has stricter ownership rules, also run the script section that explicitly allows `anon/authenticated` inserts with `status = 'pending'`
 
 ### Optional: Edge Function moderation endpoint
 

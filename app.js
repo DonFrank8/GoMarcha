@@ -1,6 +1,6 @@
 const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
-const APP_BUILD_VERSION = "2026.04.08-12";
+const APP_BUILD_VERSION = "2026.04.08-13";
 const ADMIN_REQUIRED_ROLE = "admin";
 const USE_MODERATION_EDGE_FUNCTION = false;
 const MODERATION_EDGE_FUNCTION_NAME = "moderate-event";
@@ -169,6 +169,8 @@ const I18N = {
     form_loading: "Speichere...",
     form_success: "Dein Event wurde eingereicht und wird vor der Veröffentlichung geprüft.",
     form_error_generic: "Event konnte nicht gespeichert werden.",
+    form_error_rls_submit:
+      "Zugriff durch Datenbank-Sicherheitsregel (RLS) blockiert. Bitte supabase-rls.sql ausführen/aktualisieren, damit pending Einreichungen erlaubt sind.",
     form_notice_geocoding_failed: "Adresse gespeichert, automatische Geocodierung war nicht möglich.",
     admin_title: "Moderation",
     admin_subtitle: "Prüfe eingereichte Events und entscheide über Veröffentlichung.",
@@ -294,6 +296,8 @@ const I18N = {
     form_loading: "Saving...",
     form_success: "Your event was submitted and will be reviewed before it is published.",
     form_error_generic: "Event could not be saved.",
+    form_error_rls_submit:
+      "Permission denied by database security (RLS). Please run/update supabase-rls.sql to allow pending event submissions.",
     form_notice_geocoding_failed: "Address saved, but automatic geocoding was not possible.",
     admin_title: "Moderation",
     admin_subtitle: "Review submitted events and decide publication.",
@@ -419,6 +423,8 @@ const I18N = {
     form_loading: "Guardando...",
     form_success: "Tu evento fue enviado y será revisado antes de publicarse.",
     form_error_generic: "No se pudo guardar el evento.",
+    form_error_rls_submit:
+      "Permiso denegado por la seguridad de base de datos (RLS). Ejecuta/actualiza supabase-rls.sql para permitir envíos en estado pending.",
     form_notice_geocoding_failed: "Dirección guardada, pero la geocodificación automática no fue posible.",
     admin_title: "Moderación",
     admin_subtitle: "Revisa eventos enviados y decide su publicación.",
@@ -692,6 +698,11 @@ function setFormFeedback(message, tone = "info") {
   dom.formFeedback.className = "add-event-message";
   if (message && tone === "error") dom.formFeedback.classList.add("is-error");
   if (message && tone === "success") dom.formFeedback.classList.add("is-success");
+}
+
+function isRlsInsertError(error) {
+  const text = String(error?.message || "").toLowerCase();
+  return text.includes("row-level security policy");
 }
 
 function setFormSubmitting(isSubmitting) {
@@ -1666,6 +1677,10 @@ async function handleCreateEventSubmit(submitEvent) {
     window.setTimeout(closeSubmitModal, 1800);
   } catch (error) {
     console.error("Event speichern fehlgeschlagen:", error);
+    if (isRlsInsertError(error)) {
+      setFormFeedback(`${t("form_error_generic")} ${t("form_error_rls_submit")}`.trim(), "error");
+      return;
+    }
     setFormFeedback(`${t("form_error_generic")} ${error.message || ""}`.trim(), "error");
   } finally {
     setFormSubmitting(false);
