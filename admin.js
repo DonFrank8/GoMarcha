@@ -2,53 +2,48 @@ const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
 const ADMIN_REQUIRED_ROLE = "admin";
 const ADMIN_ALLOWED_EMAILS = [];
-const ADMIN_DASHBOARD_BUILD = "2026.04.08-admin-1";
+const ADMIN_DASHBOARD_BUILD = "2026.04.08-admin-2";
 
-const STATUS_ORDER = ["pending", "approved", "rejected"];
+const VALID_STATUS = new Set(["pending", "approved", "rejected"]);
 
 const state = {
   allEvents: [],
   filteredEvents: [],
-  activeStatus: "pending",
+  activeTab: "all",
   search: "",
   city: "",
   genre: "",
+  statusFilter: "",
   adminSession: null,
   featureColumns: {
     featured: true,
     promoted: true
-  },
-  columnsMissingCache: new Set()
+  }
 };
 
 const dom = {
-  buildBadge: document.getElementById("buildBadge"),
-  statusMessage: document.getElementById("statusMessage"),
-  loginCard: document.getElementById("loginCard"),
-  dashboardContent: document.getElementById("dashboardContent"),
-  loginForm: document.getElementById("loginForm"),
-  loginEmail: document.getElementById("loginEmail"),
-  loginPassword: document.getElementById("loginPassword"),
-  loginFeedback: document.getElementById("loginFeedback"),
-  userEmail: document.getElementById("userEmail"),
-  signOutButton: document.getElementById("signOutButton"),
-  tabButtons: [...document.querySelectorAll(".status-tab")],
-  statPending: document.getElementById("statPending"),
-  statApproved: document.getElementById("statApproved"),
-  statRejected: document.getElementById("statRejected"),
-  searchInput: document.getElementById("searchInput"),
-  cityFilter: document.getElementById("cityFilter"),
-  genreFilter: document.getElementById("genreFilter"),
-  refreshButton: document.getElementById("refreshButton"),
-  resetFilterButton: document.getElementById("resetFilterButton"),
-  eventGrid: document.getElementById("eventGrid"),
-  emptyState: document.getElementById("emptyState"),
-  actionFeedback: document.getElementById("actionFeedback")
+  authCard: document.getElementById("adminAuthCard"),
+  workspace: document.getElementById("adminWorkspace"),
+  loginForm: document.getElementById("adminLoginForm"),
+  loginEmail: document.getElementById("adminEmail"),
+  loginPassword: document.getElementById("adminPassword"),
+  authFeedback: document.getElementById("adminAuthFeedback"),
+  globalFeedback: document.getElementById("adminGlobalFeedback"),
+  sessionInfo: document.getElementById("adminSessionInfo"),
+  signOutButton: document.getElementById("adminSignOutButton"),
+  tabs: [...document.querySelectorAll(".status-tab")],
+  countAll: document.getElementById("countAll"),
+  countPending: document.getElementById("countPending"),
+  countApproved: document.getElementById("countApproved"),
+  countRejected: document.getElementById("countRejected"),
+  searchInput: document.getElementById("filterSearch"),
+  cityFilter: document.getElementById("filterCity"),
+  genreFilter: document.getElementById("filterGenre"),
+  statusFilter: document.getElementById("filterStatus"),
+  resetFiltersButton: document.getElementById("resetFiltersButton"),
+  eventGrid: document.getElementById("adminEventGrid"),
+  emptyState: document.getElementById("adminEmptyState")
 };
-
-if (dom.buildBadge) {
-  dom.buildBadge.textContent = `Build ${ADMIN_DASHBOARD_BUILD}`;
-}
 
 function supabaseClient() {
   return window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -66,39 +61,65 @@ function sessionRole(session) {
 }
 
 function isSessionAdmin(session) {
-  const roleOk = sessionRole(session) === ADMIN_REQUIRED_ROLE;
-  const emailOk = isEmailAllowed(session?.user?.email || "");
-  return roleOk && emailOk;
+  return sessionRole(session) === ADMIN_REQUIRED_ROLE && isEmailAllowed(session?.user?.email || "");
 }
 
-function setStatus(message, tone = "info") {
-  if (!dom.statusMessage) return;
-  dom.statusMessage.textContent = message || "";
-  dom.statusMessage.className = `status-message status-message--${tone}`;
+function setFeedback(element, message, tone = "info") {
+  if (!element) return;
+  element.hidden = !message;
+  element.textContent = message || "";
+  element.className = "feedback";
+  if (tone === "error") element.classList.add("is-error");
+  if (tone === "success") element.classList.add("is-success");
 }
 
-function setLoginFeedback(message, tone = "info") {
-  if (!dom.loginFeedback) return;
-  dom.loginFeedback.hidden = !message;
-  dom.loginFeedback.textContent = message || "";
-  dom.loginFeedback.className = "feedback";
-  if (tone === "error") dom.loginFeedback.classList.add("is-error");
-  if (tone === "success") dom.loginFeedback.classList.add("is-success");
+function setGlobalFeedback(message, tone = "info") {
+  setFeedback(dom.globalFeedback, message, tone);
 }
 
-function setActionFeedback(message, tone = "info") {
-  if (!dom.actionFeedback) return;
-  dom.actionFeedback.hidden = !message;
-  dom.actionFeedback.textContent = message || "";
-  dom.actionFeedback.className = "feedback";
-  if (tone === "error") dom.actionFeedback.classList.add("is-error");
-  if (tone === "success") dom.actionFeedback.classList.add("is-success");
+function setAuthFeedback(message, tone = "info") {
+  setFeedback(dom.authFeedback, message, tone);
 }
 
-function formatDate(date) {
-  if (!date) return "-";
-  const parsed = new Date(date);
-  if (Number.isNaN(parsed.getTime())) return date;
+function escapeHtml(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function normalizeEvent(event) {
+  const status = String(event.status || "").toLowerCase();
+  return {
+    id: event.id,
+    name: event.name || "-",
+    location_name: event.location_name || "",
+    address: event.address || "",
+    city: event.city || "",
+    country: event.country || "",
+    event_date: event.event_date || "",
+    event_time: event.event_time || "",
+    genre: event.genre || "",
+    price_text: event.price_text || "",
+    description: event.description || "",
+    submitted_by: event.submitted_by || "",
+    contact_email: event.contact_email || "",
+    status: VALID_STATUS.has(status) ? status : "pending",
+    verification_notes: event.verification_notes || "",
+    image_url: event.image_url || "",
+    lat: Number.isFinite(event.lat) ? event.lat : null,
+    lng: Number.isFinite(event.lng) ? event.lng : null,
+    featured: Boolean(event.featured),
+    promoted: Boolean(event.promoted)
+  };
+}
+
+function formatDate(dateValue) {
+  if (!dateValue) return "-";
+  const parsed = new Date(dateValue);
+  if (Number.isNaN(parsed.getTime())) return dateValue;
   return new Intl.DateTimeFormat("de-DE", {
     day: "2-digit",
     month: "2-digit",
@@ -115,74 +136,49 @@ function eventPlace(event) {
   return [event.location_name, event.address, event.city, event.country].filter(Boolean).join(", ") || "-";
 }
 
-function statusBadgeClass(status) {
-  if (status === "approved") return "status-badge status-badge--approved";
-  if (status === "rejected") return "status-badge status-badge--rejected";
-  return "status-badge status-badge--pending";
+function statusPillClass(status) {
+  if (status === "approved") return "status-pill status-pill--approved";
+  if (status === "rejected") return "status-pill status-pill--rejected";
+  return "status-pill status-pill--pending";
 }
 
-function normalizeEvent(event) {
-  return {
-    id: event.id,
-    name: event.name || "-",
-    location_name: event.location_name || "",
-    address: event.address || "",
-    city: event.city || "",
-    country: event.country || "",
-    event_date: event.event_date || "",
-    event_time: event.event_time || "",
-    genre: event.genre || "",
-    price_text: event.price_text || "",
-    description: event.description || "",
-    submitted_by: event.submitted_by || "",
-    contact_email: event.contact_email || "",
-    status: STATUS_ORDER.includes(event.status) ? event.status : "pending",
-    verification_notes: event.verification_notes || "",
-    image_url: event.image_url || "",
-    lat: Number.isFinite(event.lat) ? event.lat : null,
-    lng: Number.isFinite(event.lng) ? event.lng : null,
-    featured: Boolean(event.featured),
-    promoted: Boolean(event.promoted)
-  };
+function updateCounts() {
+  if (dom.countAll) dom.countAll.textContent = String(state.allEvents.length);
+  if (dom.countPending) dom.countPending.textContent = String(state.allEvents.filter((event) => event.status === "pending").length);
+  if (dom.countApproved) dom.countApproved.textContent = String(state.allEvents.filter((event) => event.status === "approved").length);
+  if (dom.countRejected) dom.countRejected.textContent = String(state.allEvents.filter((event) => event.status === "rejected").length);
 }
 
-function updateStats() {
-  const pending = state.allEvents.filter((event) => event.status === "pending").length;
-  const approved = state.allEvents.filter((event) => event.status === "approved").length;
-  const rejected = state.allEvents.filter((event) => event.status === "rejected").length;
-  if (dom.statPending) dom.statPending.textContent = String(pending);
-  if (dom.statApproved) dom.statApproved.textContent = String(approved);
-  if (dom.statRejected) dom.statRejected.textContent = String(rejected);
-}
-
-function syncFilters() {
+function syncFilterOptions() {
+  if (!dom.cityFilter || !dom.genreFilter) return;
   const cities = [...new Set(state.allEvents.map((event) => event.city).filter(Boolean))].sort();
   const genres = [...new Set(state.allEvents.map((event) => event.genre).filter(Boolean))].sort();
 
-  const previousCity = dom.cityFilter.value;
-  const previousGenre = dom.genreFilter.value;
+  const prevCity = state.city;
+  const prevGenre = state.genre;
   dom.cityFilter.innerHTML = `<option value="">Alle Städte</option>${cities
     .map((city) => `<option value="${escapeHtml(city)}">${escapeHtml(city)}</option>`)
     .join("")}`;
   dom.genreFilter.innerHTML = `<option value="">Alle Genres</option>${genres
     .map((genre) => `<option value="${escapeHtml(genre)}">${escapeHtml(genre)}</option>`)
     .join("")}`;
-  dom.cityFilter.value = cities.includes(previousCity) ? previousCity : "";
-  dom.genreFilter.value = genres.includes(previousGenre) ? previousGenre : "";
+
+  state.city = cities.includes(prevCity) ? prevCity : "";
+  state.genre = genres.includes(prevGenre) ? prevGenre : "";
+  dom.cityFilter.value = state.city;
+  dom.genreFilter.value = state.genre;
 }
 
 function applyFilters() {
   const search = state.search.trim().toLowerCase();
-  const city = state.city;
-  const genre = state.genre;
-  const status = state.activeStatus;
-
   state.filteredEvents = state.allEvents.filter((event) => {
-    if (status && event.status !== status) return false;
-    if (city && event.city !== city) return false;
-    if (genre && event.genre !== genre) return false;
+    if (state.activeTab !== "all" && event.status !== state.activeTab) return false;
+    if (state.statusFilter && event.status !== state.statusFilter) return false;
+    if (state.city && event.city !== state.city) return false;
+    if (state.genre && event.genre !== state.genre) return false;
     if (!search) return true;
-    const searchText = [
+
+    const haystack = [
       event.name,
       event.location_name,
       event.address,
@@ -195,140 +191,127 @@ function applyFilters() {
     ]
       .join(" ")
       .toLowerCase();
-    return searchText.includes(search);
+    return haystack.includes(search);
   });
 }
 
 function renderTabs() {
-  dom.tabButtons.forEach((button) => {
-    const isActive = button.dataset.statusTab === state.activeStatus;
-    button.classList.toggle("is-active", isActive);
-    button.setAttribute("aria-selected", String(isActive));
+  dom.tabs.forEach((tab) => {
+    const isActive = tab.dataset.statusFilter === state.activeTab;
+    tab.classList.toggle("is-active", isActive);
+    tab.setAttribute("aria-selected", String(isActive));
   });
-}
-
-function escapeHtml(value) {
-  return String(value || "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
 }
 
 function renderEventCard(event) {
   const card = document.createElement("article");
-  card.className = "event-card-admin";
-  card.dataset.eventId = event.id;
-
+  card.className = "event-card";
+  card.dataset.eventId = String(event.id);
   card.innerHTML = `
-    <header class="event-card-admin__head">
+    <header class="event-card__head">
       <div>
         <h3>${escapeHtml(event.name)}</h3>
-        <p class="event-card-admin__place">${escapeHtml(eventPlace(event))}</p>
+        <p class="muted">${escapeHtml(eventPlace(event))}</p>
       </div>
-      <span class="${statusBadgeClass(event.status)}">${escapeHtml(event.status)}</span>
+      <span class="${statusPillClass(event.status)}">${escapeHtml(event.status)}</span>
     </header>
 
-    <div class="event-card-admin__meta">
-      <span><strong>Datum:</strong> ${escapeHtml(formatDateTime(event))}</span>
-      <span><strong>Genre:</strong> ${escapeHtml(event.genre || "-")}</span>
-      <span><strong>Preis:</strong> ${escapeHtml(event.price_text || "-")}</span>
-      <span><strong>Eingereicht von:</strong> ${escapeHtml(event.submitted_by || "-")}</span>
-      <span><strong>Kontakt:</strong> ${escapeHtml(event.contact_email || "-")}</span>
-      <span><strong>Koordinaten:</strong> ${
-        event.lat !== null && event.lng !== null
-          ? `${escapeHtml(String(event.lat))}, ${escapeHtml(String(event.lng))}`
-          : "-"
-      }</span>
-    </div>
+    <ul class="event-meta">
+      <li><strong>Datum:</strong> ${escapeHtml(formatDateTime(event))}</li>
+      <li><strong>Genre:</strong> ${escapeHtml(event.genre || "-")}</li>
+      <li><strong>Preis:</strong> ${escapeHtml(event.price_text || "-")}</li>
+      <li><strong>Eingereicht von:</strong> ${escapeHtml(event.submitted_by || "-")}</li>
+      <li><strong>Kontakt:</strong> ${escapeHtml(event.contact_email || "-")}</li>
+      <li><strong>Koordinaten:</strong> ${
+    event.lat !== null && event.lng !== null
+      ? `${escapeHtml(String(event.lat))}, ${escapeHtml(String(event.lng))}`
+      : "-"
+  }</li>
+    </ul>
 
     ${
       event.image_url
-        ? `<img class="event-card-admin__image" src="${escapeHtml(event.image_url)}" alt="${escapeHtml(event.name)}" loading="lazy">`
+        ? `<img class="event-card__image" src="${escapeHtml(event.image_url)}" alt="${escapeHtml(event.name)}" loading="lazy">`
         : ""
     }
-
-    <p class="event-card-admin__description">${escapeHtml(event.description || "Keine Beschreibung")}</p>
+    <p class="event-description">${escapeHtml(event.description || "Keine Beschreibung")}</p>
 
     <label class="field">
       <span>Verification Notes</span>
-      <textarea data-notes rows="2" placeholder="z. B. Instagram geprüft">${escapeHtml(
-        event.verification_notes || ""
-      )}</textarea>
+      <textarea data-notes rows="2" placeholder="z. B. Instagram geprüft">${escapeHtml(event.verification_notes)}</textarea>
     </label>
 
-    <div class="event-card-admin__toggles">
-      <label class="toggle">
+    <div class="toggle-row">
+      <label class="mini-toggle ${event.featured ? "is-on" : ""}">
         <input type="checkbox" data-featured ${event.featured ? "checked" : ""} ${
     !state.featureColumns.featured ? "disabled" : ""
   }>
-        <span>Featured</span>
+        Featured
       </label>
-      <label class="toggle">
+      <label class="mini-toggle ${event.promoted ? "is-on" : ""}">
         <input type="checkbox" data-promoted ${event.promoted ? "checked" : ""} ${
     !state.featureColumns.promoted ? "disabled" : ""
   }>
-        <span>Promoted</span>
+        Promoted
       </label>
     </div>
 
-    <div class="event-card-admin__actions">
-      <button type="button" class="action-button action-button--approve" data-action="approved">Approve</button>
-      <button type="button" class="action-button action-button--pending" data-action="pending">Back to Pending</button>
-      <button type="button" class="action-button action-button--reject" data-action="rejected">Reject</button>
-      <button type="button" class="action-button action-button--save" data-action="save-notes">Save notes</button>
+    <div class="card-actions">
+      <button type="button" class="button-secondary button-secondary--approve" data-action="approved">Approve</button>
+      <button type="button" class="button-secondary" data-action="pending">Back to Pending</button>
+      <button type="button" class="button-secondary button-secondary--reject" data-action="rejected">Reject</button>
+      <button type="button" class="button-secondary button-secondary--primary" data-action="save-notes">Save notes</button>
     </div>
   `;
-
   return card;
 }
 
 function renderEvents() {
+  if (!dom.eventGrid || !dom.emptyState) return;
   dom.eventGrid.innerHTML = "";
   if (!state.filteredEvents.length) {
     dom.emptyState.hidden = false;
     return;
   }
-
   dom.emptyState.hidden = true;
   state.filteredEvents.forEach((event) => dom.eventGrid.append(renderEventCard(event)));
 }
 
 function render() {
-  updateStats();
+  updateCounts();
   renderTabs();
   applyFilters();
   renderEvents();
 }
 
-function removeMissingColumnFromPayload(payload, error) {
+function parseMissingColumn(error) {
   const text = [error?.message, error?.details, error?.hint].filter(Boolean).join(" | ");
-  const missing = text.match(/could not find the ['"]([^'"]+)['"] column/i)?.[1]
+  const raw = text.match(/could not find the ['"]([^'"]+)['"] column/i)?.[1]
     || text.match(/column ["']([^"']+)["'] does not exist/i)?.[1];
-  if (!missing) return false;
-  const normalized = String(missing).split(".").pop().replace(/["']/g, "").trim();
-  if (!normalized || !Object.prototype.hasOwnProperty.call(payload, normalized)) return false;
-  delete payload[normalized];
-  state.columnsMissingCache.add(normalized);
-  if (normalized === "featured") state.featureColumns.featured = false;
-  if (normalized === "promoted") state.featureColumns.promoted = false;
+  if (!raw) return "";
+  return String(raw).split(".").pop().replace(/["']/g, "").trim();
+}
+
+function removeMissingColumnFromPayload(payload, error) {
+  const missing = parseMissingColumn(error);
+  if (!missing || !Object.prototype.hasOwnProperty.call(payload, missing)) return false;
+  delete payload[missing];
+  if (missing === "featured") state.featureColumns.featured = false;
+  if (missing === "promoted") state.featureColumns.promoted = false;
   return true;
 }
 
 async function updateEventWithFallback(eventId, updates) {
   const client = supabaseClient();
-  const table = "events";
   const payload = { ...updates };
   const maxAttempts = Object.keys(payload).length + 1;
   let lastError = null;
 
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const { error } = await client.from(table).update(payload).eq("id", eventId);
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const { error } = await client.from("events").update(payload).eq("id", eventId);
     if (!error) return;
     lastError = error;
-    const changed = removeMissingColumnFromPayload(payload, error);
-    if (!changed) break;
+    if (!removeMissingColumnFromPayload(payload, error)) break;
   }
 
   throw new Error(lastError?.message || "Update failed");
@@ -339,7 +322,7 @@ async function loadEvents() {
   const { data, error } = await client.from("events").select("*").order("event_date", { ascending: true });
   if (error) throw error;
   state.allEvents = (data || []).map(normalizeEvent);
-  syncFilters();
+  syncFilterOptions();
   render();
 }
 
@@ -349,13 +332,6 @@ async function checkSession() {
   if (error) throw error;
   state.adminSession = data?.session || null;
   return state.adminSession;
-}
-
-function renderAuthState() {
-  const isAdmin = isSessionAdmin(state.adminSession);
-  dom.loginCard.hidden = isAdmin;
-  dom.dashboardContent.hidden = !isAdmin;
-  dom.userEmail.textContent = state.adminSession?.user?.email || "-";
 }
 
 async function signInWithPassword(email, password) {
@@ -369,15 +345,26 @@ async function signOut() {
   await client.auth.signOut();
 }
 
+function renderAuthState() {
+  const isAdmin = isSessionAdmin(state.adminSession);
+  if (dom.authCard) dom.authCard.hidden = isAdmin;
+  if (dom.workspace) dom.workspace.hidden = !isAdmin;
+  if (dom.sessionInfo) {
+    dom.sessionInfo.textContent = isAdmin
+      ? `Angemeldet als ${state.adminSession?.user?.email || "-"}`
+      : "Nicht angemeldet";
+  }
+}
+
 function findEventByCard(cardElement) {
   const eventId = cardElement?.dataset?.eventId;
   return state.allEvents.find((event) => String(event.id) === String(eventId));
 }
 
-async function handleCardAction(event) {
-  const button = event.target.closest("button[data-action]");
+async function handleCardAction(clickEvent) {
+  const button = clickEvent.target.closest("button[data-action]");
   if (!button) return;
-  const card = button.closest(".event-card-admin");
+  const card = button.closest(".event-card");
   if (!card) return;
   const eventData = findEventByCard(card);
   if (!eventData) return;
@@ -387,19 +374,17 @@ async function handleCardAction(event) {
   const promotedInput = card.querySelector("input[data-promoted]");
 
   button.disabled = true;
-  setActionFeedback("");
+  setGlobalFeedback("");
   try {
     if (button.dataset.action === "save-notes") {
-      await updateEventWithFallback(eventData.id, {
-        verification_notes: notes
-      });
-      setActionFeedback("Notiz gespeichert.", "success");
+      await updateEventWithFallback(eventData.id, { verification_notes: notes });
+      setGlobalFeedback("Notiz gespeichert.", "success");
     } else {
       await updateEventWithFallback(eventData.id, {
         status: button.dataset.action,
         verification_notes: notes
       });
-      setActionFeedback(`Status auf ${button.dataset.action} gesetzt.`, "success");
+      setGlobalFeedback(`Status auf ${button.dataset.action} gesetzt.`, "success");
     }
 
     const featuredChanged = state.featureColumns.featured && featuredInput
@@ -419,112 +404,105 @@ async function handleCardAction(event) {
     await loadEvents();
   } catch (error) {
     console.error("Admin action failed:", error);
-    setActionFeedback(`Aktion fehlgeschlagen: ${error.message}`, "error");
+    setGlobalFeedback(`Aktion fehlgeschlagen: ${error.message}`, "error");
   } finally {
     button.disabled = false;
   }
 }
 
 function bindEvents() {
-  dom.tabButtons.forEach((button) => {
-    button.addEventListener("click", () => {
-      state.activeStatus = button.dataset.statusTab || "pending";
+  dom.tabs.forEach((tab) => {
+    tab.addEventListener("click", () => {
+      state.activeTab = tab.dataset.statusFilter || "all";
       render();
     });
   });
 
-  dom.searchInput.addEventListener("input", () => {
-    state.search = dom.searchInput.value;
+  dom.searchInput?.addEventListener("input", () => {
+    state.search = dom.searchInput.value || "";
     render();
   });
 
-  dom.cityFilter.addEventListener("change", () => {
-    state.city = dom.cityFilter.value;
+  dom.cityFilter?.addEventListener("change", () => {
+    state.city = dom.cityFilter.value || "";
     render();
   });
 
-  dom.genreFilter.addEventListener("change", () => {
-    state.genre = dom.genreFilter.value;
+  dom.genreFilter?.addEventListener("change", () => {
+    state.genre = dom.genreFilter.value || "";
     render();
   });
 
-  dom.resetFilterButton.addEventListener("click", () => {
+  dom.statusFilter?.addEventListener("change", () => {
+    state.statusFilter = dom.statusFilter.value || "";
+    render();
+  });
+
+  dom.resetFiltersButton?.addEventListener("click", () => {
     state.search = "";
     state.city = "";
     state.genre = "";
-    dom.searchInput.value = "";
-    dom.cityFilter.value = "";
-    dom.genreFilter.value = "";
+    state.statusFilter = "";
+    if (dom.searchInput) dom.searchInput.value = "";
+    if (dom.cityFilter) dom.cityFilter.value = "";
+    if (dom.genreFilter) dom.genreFilter.value = "";
+    if (dom.statusFilter) dom.statusFilter.value = "";
     render();
   });
 
-  dom.refreshButton.addEventListener("click", async () => {
-    setStatus("Aktualisiere Events ...", "loading");
+  dom.loginForm?.addEventListener("submit", async (submitEvent) => {
+    submitEvent.preventDefault();
+    setAuthFeedback("");
     try {
-      await loadEvents();
-      setStatus("Events aktualisiert.", "ok");
-    } catch (error) {
-      setStatus(`Fehler: ${error.message}`, "error");
-    }
-  });
-
-  dom.loginForm.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    setLoginFeedback("");
-    try {
-      const email = dom.loginEmail.value.trim().toLowerCase();
-      const password = dom.loginPassword.value;
+      const email = dom.loginEmail?.value.trim().toLowerCase() || "";
+      const password = dom.loginPassword?.value || "";
       if (!email || !password) {
-        setLoginFeedback("Bitte E-Mail und Passwort ausfüllen.", "error");
+        setAuthFeedback("Bitte E-Mail und Passwort ausfüllen.", "error");
         return;
       }
 
       await signInWithPassword(email, password);
       await checkSession();
       if (!isSessionAdmin(state.adminSession)) {
-        setLoginFeedback(
-          "Login erfolgreich, aber keine Admin-Berechtigung (Role oder erlaubte E-Mail fehlt).",
-          "error"
-        );
         await signOut();
         await checkSession();
         renderAuthState();
+        setAuthFeedback("Login ok, aber keine Admin-Berechtigung (Role oder erlaubte E-Mail).", "error");
         return;
       }
 
       renderAuthState();
       await loadEvents();
-      setStatus("Admin Dashboard geladen.", "ok");
+      setGlobalFeedback(`Willkommen ${state.adminSession?.user?.email || ""}.`, "success");
     } catch (error) {
-      setLoginFeedback(`Login fehlgeschlagen: ${error.message}`, "error");
+      setAuthFeedback(`Login fehlgeschlagen: ${error.message}`, "error");
     }
   });
 
-  dom.signOutButton.addEventListener("click", async () => {
+  dom.signOutButton?.addEventListener("click", async () => {
     await signOut();
     state.adminSession = null;
     renderAuthState();
-    setStatus("Abgemeldet.", "info");
+    setGlobalFeedback("Abgemeldet.", "info");
   });
 
-  dom.eventGrid.addEventListener("click", handleCardAction);
+  dom.eventGrid?.addEventListener("click", handleCardAction);
 }
 
 async function start() {
   bindEvents();
-  setStatus("Admin Dashboard initialisiert ...", "loading");
   try {
     await checkSession();
     renderAuthState();
     if (isSessionAdmin(state.adminSession)) {
       await loadEvents();
-      setStatus("Bereit.", "ok");
+      setGlobalFeedback("Admin Dashboard bereit.", "success");
     } else {
-      setStatus("Bitte als Admin anmelden.", "info");
+      setGlobalFeedback("Bitte als Admin anmelden.", "info");
     }
   } catch (error) {
-    console.error("Startup failed:", error);
-    setStatus(`Fehler beim Start: ${error.message}`, "error");
+    console.error("Admin dashboard startup failed:", error);
+    setGlobalFeedback(`Fehler beim Start: ${error.message}`, "error");
   }
 }
 
