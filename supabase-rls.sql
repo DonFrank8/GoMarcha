@@ -84,6 +84,16 @@ with check (
 -- to anon, authenticated
 -- using (status::text = 'pending');
 
+-- 4c) Authenticated admins can read all events (including pending/rejected)
+-- Required so moderation dashboards can fetch rows to review.
+create policy "Admins can read all events via role"
+on public.events
+for select
+to authenticated
+using (
+  auth.jwt() -> 'app_metadata' ->> 'role' = 'admin'
+);
+
 -- 5) Only authenticated admins can moderate (update status/notes)
 -- Requires app_metadata.role = 'admin' in auth.users JWT payload.
 create policy "Admins can moderate events via role"
