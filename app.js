@@ -163,6 +163,7 @@ const I18N = {
     debug_note_error: "Supabase Fehler - Demo-Fallback aktiv",
     button_all: "Alle",
     submit_cta: "Event einreichen",
+    admin_quick_access: "Admin",
     form_title: "Event einreichen",
     form_hint: "Dein Event wird eingereicht und vor Veröffentlichung geprüft.",
     form_submit: "Event einreichen",
@@ -290,6 +291,7 @@ const I18N = {
     debug_note_error: "Supabase error - demo fallback active",
     button_all: "All",
     submit_cta: "Submit event",
+    admin_quick_access: "Admin",
     form_title: "Submit event",
     form_hint: "Your event will be reviewed before publication.",
     form_submit: "Submit event",
@@ -417,6 +419,7 @@ const I18N = {
     debug_note_error: "Error de Supabase - fallback demo activo",
     button_all: "Todos",
     submit_cta: "Enviar evento",
+    admin_quick_access: "Admin",
     form_title: "Enviar evento",
     form_hint: "Tu evento será revisado antes de publicarse.",
     form_submit: "Enviar evento",
@@ -540,6 +543,7 @@ const dom = {
   heroDateFilter: document.getElementById("heroDateFilter"),
   submitModal: document.getElementById("submitModal"),
   openSubmitModal: document.getElementById("openSubmitModal"),
+  openAdminModeButton: document.getElementById("openAdminModeButton"),
   closeSubmitModal: document.getElementById("closeSubmitModal"),
   status: document.getElementById("status"),
   eventList: document.getElementById("eventList"),
@@ -1198,6 +1202,19 @@ function updateUrlFromFilters() {
   window.history.replaceState({}, "", nextUrl);
 }
 
+function openAdminModeQuickAccess() {
+  if (state.isAdminMode) {
+    dom.moderationPanel?.scrollIntoView({ behavior: "smooth", block: "start" });
+    return;
+  }
+  state.isAdminMode = true;
+  renderAdminAuthState(state.adminSession);
+  renderModerationPanel();
+  setStatus(t("admin_mode_active"), "ok");
+  updateUrlFromFilters();
+  dom.moderationPanel?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 function supabaseClient() {
   return window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 }
@@ -1770,6 +1787,11 @@ function bindEvents() {
     dom.openSubmitModal.addEventListener("click", () => {
       setFormFeedback("");
       openSubmitModal();
+    });
+  }
+  if (dom.openAdminModeButton) {
+    dom.openAdminModeButton.addEventListener("click", () => {
+      openAdminModeQuickAccess();
     });
   }
   if (dom.closeSubmitModal) {
