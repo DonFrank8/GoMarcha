@@ -101,6 +101,12 @@ body.body--modal-open {
   margin-bottom: 1.25rem;
 }
 
+.hero__top-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
 .hero__eyebrow {
   margin: 0;
   text-transform: uppercase;
@@ -239,6 +245,21 @@ body.body--modal-open {
   background: linear-gradient(135deg, rgba(255, 79, 149, 0.33), rgba(255, 159, 85, 0.35));
   color: #fff;
   box-shadow: 0 0 0 1px rgba(255, 130, 160, 0.5) inset;
+}
+
+.hero__admin-quick {
+  min-height: 30px;
+  padding: 0.28rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid rgba(172, 196, 255, 0.4);
+  background: rgba(8, 13, 30, 0.6);
+  color: #dce6ff;
+  font-size: 0.76rem;
+  letter-spacing: 0.02em;
+}
+
+.hero__admin-quick:hover {
+  border-color: rgba(255, 190, 102, 0.6);
 }
 
 .auth-controls {
