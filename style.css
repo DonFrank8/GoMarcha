@@ -70,12 +70,6 @@ body {
   flex-wrap: wrap;
 }
 
-.hero__toolbar {
-  margin-top: 0.85rem;
-  display: flex;
-  justify-content: flex-end;
-}
-
 .language-switch {
   display: inline-flex;
   align-items: center;
@@ -115,35 +109,6 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.2);
   color: #dce6ff;
   background: rgba(17, 27, 49, 0.45);
-}
-
-.lang-switch {
-  display: inline-flex;
-  gap: 0.2rem;
-  padding: 0.18rem;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  background: rgba(17, 27, 49, 0.45);
-}
-
-.lang-btn {
-  border: 0;
-  background: transparent;
-  color: #dce6ff;
-  font-size: 0.72rem;
-  line-height: 1;
-  border-radius: 999px;
-  padding: 0.34rem 0.52rem;
-  cursor: pointer;
-}
-
-.lang-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
-}
-
-.lang-btn.is-active {
-  background: rgba(255, 94, 138, 0.35);
-  color: #fff;
 }
 
 .version-chip {
@@ -259,73 +224,6 @@ body {
   min-height: 360px;
 }
 
-.panel--create .panel__heading {
-  margin: 0;
-}
-
-.create-event-form {
-  margin-top: 0.75rem;
-  display: grid;
-  gap: 0.65rem;
-}
-
-.field--full {
-  grid-column: 1 / -1;
-}
-
-.create-event-form textarea {
-  width: 100%;
-  min-height: 88px;
-  border-radius: 11px;
-  border: 1px solid var(--surface-border);
-  background: var(--surface-soft);
-  color: var(--text);
-  padding: 0.6rem 0.7rem;
-  resize: vertical;
-}
-
-.create-event-form textarea:focus {
-  border-color: transparent;
-  outline: 2px solid rgba(255, 94, 138, 0.65);
-}
-
-.form-status {
-  margin: 0;
-  padding: 0.62rem 0.7rem;
-  border-radius: 10px;
-  border: 1px solid var(--surface-border);
-  background: rgba(255, 255, 255, 0.02);
-  font-size: 0.84rem;
-  color: var(--text-muted);
-}
-
-.form-status--error {
-  border-color: rgba(255, 179, 71, 0.72);
-  color: #ffe1ad;
-}
-
-.form-status--success {
-  border-color: rgba(46, 219, 196, 0.6);
-  color: #d8fff7;
-}
-
-.button-secondary--compact {
-  min-height: 34px;
-  padding: 0.3rem 0.62rem;
-  font-size: 0.8rem;
-}
-
-.button-secondary--primary {
-  background: linear-gradient(135deg, #ff5e8a 0%, #ff8f5d 100%);
-  border-color: rgba(255, 255, 255, 0.15);
-  color: #fff;
-}
-
-.button-secondary--primary:disabled {
-  opacity: 0.72;
-  cursor: progress;
-}
-
 .panel--add-event summary {
   cursor: pointer;
   color: #dce7ff;
@@ -369,10 +267,6 @@ body {
 .add-event-message.is-error {
   border-color: rgba(255, 179, 71, 0.72);
   color: #ffe1ad;
-}
-
-.add-event-form {
-  display: grid;
 }
 
 #languageSwitch {
@@ -694,10 +588,6 @@ body {
 @media (max-width: 780px) {
   .hero {
     padding: 1.7rem 0.9rem 1.2rem;
-  }
-
-  .hero__toolbar {
-    justify-content: flex-start;
   }
 
   .app-shell {
