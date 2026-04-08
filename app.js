@@ -1,6 +1,6 @@
 const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
-const APP_BUILD_VERSION = "2026.04.08-13";
+const APP_BUILD_VERSION = "2026.04.08-14";
 const ADMIN_REQUIRED_ROLE = "admin";
 const USE_MODERATION_EDGE_FUNCTION = false;
 const MODERATION_EDGE_FUNCTION_NAME = "moderate-event";
@@ -192,16 +192,19 @@ const I18N = {
     admin_geo_unknown: "unbekannt",
     admin_mode_active: "Admin-Modus aktiv: pending Events können moderiert werden.",
     admin_login_title: "Admin Login",
-    admin_login_hint: "Mit deiner Admin-E-Mail anmelden, um Events zu moderieren.",
+    admin_login_hint: "Mit Admin-E-Mail und Passwort anmelden, um Events zu moderieren.",
     admin_login_email_label: "Admin E-Mail",
     admin_login_email_placeholder: "z. B. admin@deinedomain.com",
-    admin_login_submit: "Login-Link senden",
+    admin_login_password_label: "Passwort",
+    admin_login_password_placeholder: "Dein Passwort",
+    admin_login_submit: "Mit Passwort anmelden",
     admin_logout: "Abmelden",
     admin_auth_required: "Admin-Authentifizierung erforderlich.",
     admin_role_required: "Admin-Rolle erforderlich.",
     admin_logged_in_as: "Angemeldet als {email}",
     admin_login_sent: "Login-Link wurde versendet. Bitte E-Mail prüfen.",
-    admin_login_error: "Login konnte nicht gestartet werden.",
+    admin_login_success: "Login erfolgreich.",
+    admin_login_error: "Login fehlgeschlagen.",
     admin_session_error: "Admin-Session konnte nicht geprüft werden.",
     form_error_required: "Bitte Pflichtfelder ausfüllen.",
     form_error_email: "Bitte eine gültige E-Mail-Adresse angeben.",
@@ -320,16 +323,19 @@ const I18N = {
     admin_geo_unknown: "unknown",
     admin_mode_active: "Admin mode active: pending events can be moderated.",
     admin_login_title: "Admin login",
-    admin_login_hint: "Sign in with your admin email to moderate events.",
+    admin_login_hint: "Sign in with admin email and password to moderate events.",
     admin_login_email_label: "Admin email",
     admin_login_email_placeholder: "e.g. admin@yourdomain.com",
-    admin_login_submit: "Send login link",
+    admin_login_password_label: "Password",
+    admin_login_password_placeholder: "Your password",
+    admin_login_submit: "Sign in with password",
     admin_logout: "Logout",
     admin_auth_required: "Admin authentication required.",
     admin_role_required: "Admin role required.",
     admin_logged_in_as: "Logged in as {email}",
     admin_login_sent: "Login link sent. Please check your inbox.",
-    admin_login_error: "Could not start login.",
+    admin_login_success: "Login successful.",
+    admin_login_error: "Login failed.",
     admin_session_error: "Could not validate admin session.",
     form_error_required: "Please fill in required fields.",
     form_error_email: "Please enter a valid email address.",
@@ -448,16 +454,19 @@ const I18N = {
     admin_geo_unknown: "desconocido",
     admin_mode_active: "Modo admin activo: se pueden moderar eventos pendientes.",
     admin_login_title: "Acceso admin",
-    admin_login_hint: "Inicia sesión con tu correo admin para moderar eventos.",
+    admin_login_hint: "Inicia sesión con correo admin y contraseña para moderar eventos.",
     admin_login_email_label: "Correo admin",
     admin_login_email_placeholder: "p. ej. admin@tudominio.com",
-    admin_login_submit: "Enviar enlace de acceso",
+    admin_login_password_label: "Contraseña",
+    admin_login_password_placeholder: "Tu contraseña",
+    admin_login_submit: "Iniciar sesión con contraseña",
     admin_logout: "Cerrar sesión",
     admin_auth_required: "Se requiere autenticación de admin.",
     admin_role_required: "Se requiere rol de admin.",
     admin_logged_in_as: "Conectado como {email}",
     admin_login_sent: "Enlace enviado. Revisa tu correo.",
-    admin_login_error: "No se pudo iniciar el acceso.",
+    admin_login_success: "Inicio de sesión correcto.",
+    admin_login_error: "No se pudo iniciar sesión.",
     admin_session_error: "No se pudo validar la sesión de admin.",
     form_error_required: "Completa los campos obligatorios.",
     form_error_email: "Ingresa un correo electrónico válido.",
@@ -552,6 +561,7 @@ const dom = {
   adminAuthGate: document.getElementById("adminAuthGate"),
   adminAuthFeedback: document.getElementById("adminAuthFeedback"),
   adminAuthEmail: document.getElementById("adminAuthEmail"),
+  adminAuthPassword: document.getElementById("adminAuthPassword"),
   adminAuthForm: document.getElementById("adminAuthForm"),
   adminSignOut: document.getElementById("adminSignOut"),
   moderationWorkspace: document.getElementById("moderationWorkspace"),
@@ -1836,20 +1846,21 @@ function bindEvents() {
   if (dom.adminAuthForm) {
     dom.adminAuthForm.addEventListener("submit", async (event) => {
       event.preventDefault();
-      if (!dom.adminAuthEmail) return;
+      if (!dom.adminAuthEmail || !dom.adminAuthPassword) return;
       const email = dom.adminAuthEmail.value.trim().toLowerCase();
-      if (!email) return;
+      const password = dom.adminAuthPassword.value;
+      if (!email || !password) return;
       setAdminAuthFeedback("");
       try {
         const client = supabaseClient();
-        const { error } = await client.auth.signInWithOtp({
+        const { error } = await client.auth.signInWithPassword({
           email,
-          options: {
-            emailRedirectTo: window.location.href
-          }
+          password
         });
         if (error) throw error;
-        setAdminAuthFeedback(t("admin_login_sent"), "success");
+        setAdminAuthFeedback(t("admin_login_success"), "success");
+        await checkAdminSession();
+        await reloadEventsAndRender();
       } catch (error) {
         console.error("Admin login failed:", error);
         setAdminAuthFeedback(
