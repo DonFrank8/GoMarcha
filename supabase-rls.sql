@@ -8,6 +8,7 @@ alter table public.events enable row level security;
 drop policy if exists "Public can read approved events" on public.events;
 drop policy if exists "Anonymous can submit pending events" on public.events;
 drop policy if exists "Admins can moderate events" on public.events;
+drop policy if exists "Admins can moderate events via role" on public.events;
 
 -- 3) Public read-only access to approved events
 create policy "Public can read approved events"
@@ -26,18 +27,14 @@ with check (
 );
 
 -- 5) Only authenticated admins can moderate (update status/notes)
--- Replace emails in the allowlist with your real admin addresses.
-create policy "Admins can moderate events"
+-- Requires app_metadata.role = 'admin' in auth.users JWT payload.
+create policy "Admins can moderate events via role"
 on public.events
 for update
 to authenticated
 using (
-  auth.jwt() ->> 'email' in (
-    'admin@example.com'
-  )
+  auth.jwt() -> 'app_metadata' ->> 'role' = 'admin'
 )
 with check (
-  auth.jwt() ->> 'email' in (
-    'admin@example.com'
-  )
+  auth.jwt() -> 'app_metadata' ->> 'role' = 'admin'
 );

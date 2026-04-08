@@ -10,28 +10,36 @@ The moderation area is protected in two layers:
    - Admin mode is still opened with `?admin=1`
    - But moderation actions are only enabled for authenticated admin users
    - Login uses Supabase magic-link (email OTP)
-   - Only allowlisted admin emails can moderate
+   - Admin access now checks `app_metadata.role === 'admin'` in the Supabase session
 
 2. **Database layer (required, recommended)**
    - Apply Row Level Security (RLS) policies so non-admin users cannot approve/reject events
    - Run `supabase-rls.sql` in your Supabase SQL editor
+   - RLS also checks JWT role claim (`auth.jwt() -> 'app_metadata' ->> 'role' = 'admin'`)
 
-### Configure allowlisted admin emails
+### Configure admin role in Supabase
 
-In `app.js`, adjust:
+Set app metadata on users who should moderate:
 
-```js
-const ADMIN_ALLOWED_EMAILS = [
-  "you@yourdomain.com"
-];
+```sql
+update auth.users
+set raw_app_meta_data = coalesce(raw_app_meta_data, '{}'::jsonb) || '{"role":"admin"}'::jsonb
+where email in ('admin@yourdomain.com');
 ```
 
-Use real admin mailboxes only.
+After updating metadata, users should re-login so the JWT contains the role claim.
 
 ### Apply RLS in Supabase
 
 1. Open Supabase project SQL editor
 2. Paste and run `supabase-rls.sql`
-3. Ensure your admin users exist in `auth.users` with one of the allowlisted emails
+3. Ensure moderator users have `app_metadata.role = 'admin'`
 
-After this, moderation is protected both in frontend and backend.
+### Optional: Edge Function moderation endpoint
+
+For even stronger isolation, add an Edge Function that performs moderation server-side:
+- verify JWT server-side
+- check `app_metadata.role === 'admin'`
+- update only `status` and `verification_notes`
+
+You can then route moderation updates through that endpoint instead of direct table updates from the browser.

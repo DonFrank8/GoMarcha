@@ -1,10 +1,9 @@
 const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
-const APP_BUILD_VERSION = "2026.04.08-5";
-const ADMIN_ALLOWED_EMAILS = [
-  // Add real admin emails here (lowercase)
-  "admin@example.com"
-];
+const APP_BUILD_VERSION = "2026.04.08-6";
+const ADMIN_REQUIRED_ROLE = "admin";
+const USE_MODERATION_EDGE_FUNCTION = false;
+const MODERATION_EDGE_FUNCTION_NAME = "moderate-event";
 
 window.PARTYRADAR_CACHE_BUSTER = APP_BUILD_VERSION;
 
@@ -179,6 +178,7 @@ const I18N = {
     admin_login_submit: "Login-Link senden",
     admin_logout: "Abmelden",
     admin_auth_required: "Admin-Authentifizierung erforderlich.",
+    admin_role_required: "Admin-Rolle erforderlich.",
     admin_logged_in_as: "Angemeldet als {email}",
     admin_login_sent: "Login-Link wurde versendet. Bitte E-Mail prüfen.",
     admin_login_error: "Login konnte nicht gestartet werden.",
@@ -300,6 +300,7 @@ const I18N = {
     admin_login_submit: "Send login link",
     admin_logout: "Logout",
     admin_auth_required: "Admin authentication required.",
+    admin_role_required: "Admin role required.",
     admin_logged_in_as: "Logged in as {email}",
     admin_login_sent: "Login link sent. Please check your inbox.",
     admin_login_error: "Could not start login.",
@@ -421,6 +422,7 @@ const I18N = {
     admin_login_submit: "Enviar enlace de acceso",
     admin_logout: "Cerrar sesión",
     admin_auth_required: "Se requiere autenticación de admin.",
+    admin_role_required: "Se requiere rol de admin.",
     admin_logged_in_as: "Conectado como {email}",
     admin_login_sent: "Enlace enviado. Revisa tu correo.",
     admin_login_error: "No se pudo iniciar el acceso.",
@@ -954,15 +956,18 @@ function supabaseClient() {
   return window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 }
 
+function sessionAdminRole(session) {
+  return String(session?.user?.app_metadata?.role || "").trim().toLowerCase();
+}
+
 function isSessionAdmin(session) {
-  const email = String(session?.user?.email || "").toLowerCase();
-  if (!email) return false;
-  return ADMIN_ALLOWED_EMAILS.includes(email);
+  return sessionAdminRole(session) === ADMIN_REQUIRED_ROLE.toLowerCase();
 }
 
 function renderAdminAuthState(session) {
   const adminEnabled = state.isAdminMode;
   const isAuthedAdmin = isSessionAdmin(session);
+  const hasSession = Boolean(session?.user?.id);
   if (dom.moderationPanel) {
     dom.moderationPanel.hidden = !adminEnabled;
   }
@@ -981,7 +986,9 @@ function renderAdminAuthState(session) {
   if (dom.adminSessionInfo) {
     dom.adminSessionInfo.textContent = isAuthedAdmin
       ? t("admin_logged_in_as", { email: session.user.email || "-" })
-      : t("admin_auth_required");
+      : hasSession
+        ? t("admin_role_required")
+        : t("admin_auth_required");
   }
 }
 
@@ -994,6 +1001,9 @@ async function checkAdminSession() {
     const session = data?.session || null;
     state.adminSession = session;
     renderAdminAuthState(session);
+    if (session && !isSessionAdmin(session)) {
+      setAdminAuthFeedback(t("admin_role_required"), "error");
+    }
     if (!isSessionAdmin(session)) {
       state.moderationEvents = [];
       renderModerationPanel();
@@ -1411,13 +1421,28 @@ async function handleCreateEventSubmit(submitEvent) {
 async function updateModerationStatus(eventId, nextStatus, verificationNotes) {
   const session = await checkAdminSession();
   if (!isSessionAdmin(session)) {
-    throw new Error(t("admin_auth_required"));
+    throw new Error(session ? t("admin_role_required") : t("admin_auth_required"));
   }
   const client = supabaseClient();
   const payload = {
     status: nextStatus,
     verification_notes: verificationNotes || null
   };
+
+  if (USE_MODERATION_EDGE_FUNCTION) {
+    const { data, error } = await client.functions.invoke(MODERATION_EDGE_FUNCTION_NAME, {
+      body: {
+        event_id: eventId,
+        status: payload.status,
+        verification_notes: payload.verification_notes
+      }
+    });
+    console.log("[PartyRadar Debug] Moderation edge data:", data);
+    console.log("[PartyRadar Debug] Moderation edge error:", error);
+    if (error) throw new Error(error.message);
+    return;
+  }
+
   const { data, error } = await client
     .from(state.debug.tableName || "events")
     .update(payload)
