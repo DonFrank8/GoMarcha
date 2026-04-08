@@ -70,6 +70,44 @@ body {
   flex-wrap: wrap;
 }
 
+.hero__toolbar {
+  margin-top: 0.85rem;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.language-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.26rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(11, 17, 32, 0.55);
+}
+
+.language-switch__button {
+  border: 0;
+  min-height: 30px;
+  min-width: 38px;
+  padding: 0.3rem 0.6rem;
+  border-radius: 999px;
+  color: #dce6ff;
+  font-size: 0.78rem;
+  background: transparent;
+  cursor: pointer;
+}
+
+.language-switch__button:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.language-switch__button.is-active {
+  background: rgba(255, 94, 138, 0.26);
+  color: #fff;
+  box-shadow: 0 0 0 1px rgba(255, 94, 138, 0.65) inset;
+}
+
 .hero__chips span {
   border-radius: 999px;
   padding: 0.34rem 0.74rem;
@@ -163,6 +201,31 @@ body {
   margin: 0 0 0.8rem;
   color: var(--text-muted);
   font-size: 0.92rem;
+}
+
+.language-panel {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.language-panel__label {
+  color: var(--text-muted);
+  font-size: 0.79rem;
+}
+
+.language-panel select {
+  width: 100%;
+  min-height: 40px;
+  border-radius: 11px;
+  border: 1px solid var(--surface-border);
+  background: var(--surface-soft);
+  color: var(--text);
+  padding: 0.48rem 0.7rem;
+}
+
+.language-panel select:focus {
+  border-color: transparent;
+  outline: 2px solid rgba(255, 94, 138, 0.65);
 }
 
 .status {
@@ -626,6 +689,10 @@ body {
 @media (max-width: 780px) {
   .hero {
     padding: 1.7rem 0.9rem 1.2rem;
+  }
+
+  .hero__toolbar {
+    justify-content: flex-start;
   }
 
   .app-shell {

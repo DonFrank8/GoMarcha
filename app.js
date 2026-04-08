@@ -377,6 +377,12 @@ const LOCALE_MAP = {
   es: "es-ES"
 };
 
+const SUPPORTED_LANGUAGES = [
+  { code: "de", label: "Deutsch", short: "DE" },
+  { code: "en", label: "English", short: "EN" },
+  { code: "es", label: "Español", short: "ES" }
+];
+
 const state = {
   allEvents: [],
   filteredEvents: [],
@@ -398,7 +404,8 @@ const state = {
 
 const dom = {
   htmlRoot: document.documentElement,
-  languageSwitchButtons: document.querySelectorAll("[data-lang-switch]"),
+  languageSwitch: document.getElementById("languageSwitch"),
+  languageSelect: document.getElementById("languageSelect"),
   status: document.getElementById("status"),
   eventList: document.getElementById("eventList"),
   eventDetails: document.getElementById("eventDetails"),
@@ -442,6 +449,28 @@ function resolveLanguage(langValue) {
   return I18N[langValue] ? langValue : "de";
 }
 
+function availableLanguageCodes() {
+  return SUPPORTED_LANGUAGES.map((language) => language.code);
+}
+
+function resolveLanguageFromBrowser(defaultLang = "de") {
+  const candidates = [
+    navigator.language,
+    ...(Array.isArray(navigator.languages) ? navigator.languages : [])
+  ]
+    .filter(Boolean)
+    .map((lang) => String(lang).toLowerCase());
+
+  for (const candidate of candidates) {
+    const shortCode = candidate.split("-")[0];
+    if (availableLanguageCodes().includes(shortCode)) {
+      return shortCode;
+    }
+  }
+
+  return defaultLang;
+}
+
 function t(key, params = {}) {
   const table = I18N[state.lang] || I18N.de;
   const fallback = I18N.de[key] || key;
@@ -467,13 +496,53 @@ function applyStaticTranslations() {
   if (buildBadge) {
     buildBadge.textContent = `Build ${APP_BUILD_VERSION}`;
   }
-  if (dom.languageSwitchButtons?.length) {
-    dom.languageSwitchButtons.forEach((button) => {
-      const isActive = button.dataset.langSwitch === state.lang;
+  renderLanguageControls();
+}
+
+function renderLanguageControls() {
+  if (dom.languageSelect) {
+    dom.languageSelect.innerHTML = "";
+    SUPPORTED_LANGUAGES.forEach((language) => {
+      const option = document.createElement("option");
+      option.value = language.code;
+      option.textContent = language.label;
+      dom.languageSelect.append(option);
+    });
+    dom.languageSelect.value = state.lang;
+  }
+
+  if (dom.languageSwitch) {
+    dom.languageSwitch.innerHTML = "";
+    SUPPORTED_LANGUAGES.forEach((language) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "language-switch__button";
+      button.dataset.langSwitch = language.code;
+      button.textContent = language.short;
+      const isActive = language.code === state.lang;
       button.classList.toggle("is-active", isActive);
       button.setAttribute("aria-pressed", String(isActive));
+      dom.languageSwitch.append(button);
     });
   }
+}
+
+function switchLanguage(nextLangCode) {
+  const nextLang = resolveLanguage(nextLangCode);
+  if (nextLang === state.lang) return;
+  state.lang = nextLang;
+  applyStaticTranslations();
+  updateFilterOptions();
+  applyFiltersFromQuery();
+  applyFilters();
+  if (state.selectedEventId) {
+    const selected = state.filteredEvents.find((event) => event.id === state.selectedEventId) || null;
+    renderEventDetails(selected);
+  } else {
+    renderEventDetails(null);
+  }
+  updateDebugPanel();
+  updateUrlFromFilters();
 }
 
 function getLocale() {
@@ -1060,25 +1129,16 @@ function bindEvents() {
   dom.searchInput.addEventListener("input", applyFilters);
   dom.cityFilter.addEventListener("change", applyFilters);
   dom.dateFilter.addEventListener("change", applyFilters);
-  if (dom.languageSwitchButtons?.length) {
-    dom.languageSwitchButtons.forEach((button) => {
-      button.addEventListener("click", () => {
-        const nextLang = resolveLanguage(button.dataset.langSwitch);
-        if (nextLang === state.lang) return;
-        state.lang = nextLang;
-        applyStaticTranslations();
-        updateFilterOptions();
-        applyFiltersFromQuery();
-        applyFilters();
-        if (state.selectedEventId) {
-          const selected = state.filteredEvents.find((event) => event.id === state.selectedEventId) || null;
-          renderEventDetails(selected);
-        } else {
-          renderEventDetails(null);
-        }
-        updateDebugPanel();
-        updateUrlFromFilters();
-      });
+  if (dom.languageSwitch) {
+    dom.languageSwitch.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-lang-switch]");
+      if (!button) return;
+      switchLanguage(button.dataset.langSwitch);
+    });
+  }
+  if (dom.languageSelect) {
+    dom.languageSelect.addEventListener("change", () => {
+      switchLanguage(dom.languageSelect.value);
     });
   }
   dom.resetFilters.addEventListener("click", resetFilters);
@@ -1165,7 +1225,8 @@ async function loadEvents() {
 
 async function startApp() {
   const query = readQueryParams();
-  state.lang = resolveLanguage(query.lang);
+  const requestedLang = resolveLanguage(query.lang);
+  state.lang = query.lang ? requestedLang : resolveLanguageFromBrowser(requestedLang);
   applyStaticTranslations();
   renderEventDetails(null);
 
