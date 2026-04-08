@@ -1,5 +1,8 @@
 const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
+const APP_BUILD_VERSION = "2026.04.07-2";
+
+window.PARTYRADAR_CACHE_BUSTER = APP_BUILD_VERSION;
 
 const DEFAULT_CENTER = [51.1657, 10.4515];
 const DEFAULT_ZOOM = 6;
@@ -308,6 +311,10 @@ function applyStaticTranslations() {
   document.querySelectorAll("[data-i18n-placeholder]").forEach((element) => {
     element.placeholder = t(element.dataset.i18nPlaceholder);
   });
+  const buildBadge = document.getElementById("buildBadge");
+  if (buildBadge) {
+    buildBadge.textContent = `Build ${APP_BUILD_VERSION}`;
+  }
 }
 
 function getLocale() {

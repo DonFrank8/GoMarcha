@@ -3,10 +3,23 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <title>PartyRadar | Lokale Musik-Events entdecken</title>
   <meta name="description" content="PartyRadar zeigt lokale Musik-Events, Bands, DJs und Locations auf einer interaktiven Karte.">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="./style.css">
+  <script>
+    (function () {
+      var cacheBuster = String(Date.now());
+      window.PARTYRADAR_BUILD = "live";
+      window.PARTYRADAR_CACHE_BUSTER = cacheBuster;
+      var stylesheet = document.createElement("link");
+      stylesheet.rel = "stylesheet";
+      stylesheet.href = "./style.css?v=" + encodeURIComponent(cacheBuster);
+      document.head.appendChild(stylesheet);
+    })();
+  </script>
 </head>
 <body>
   <header class="hero">
@@ -20,6 +33,7 @@
         <span>Supabase</span>
         <span>Leaflet + OpenStreetMap</span>
         <span data-i18n="hero_chip_fallback">Fallback inklusive</span>
+        <span id="buildBadge">Version: live</span>
       </div>
     </div>
   </header>
@@ -98,6 +112,14 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="./app.js"></script>
+  <script>
+    window.PARTYRADAR_VERSION = "v2.1.0";
+    window.PARTYRADAR_CACHE_BUSTER = Date.now();
+    (function () {
+      var script = document.createElement("script");
+      script.src = "./app.js?v=" + encodeURIComponent(window.PARTYRADAR_CACHE_BUSTER);
+      document.body.appendChild(script);
+    })();
+  </script>
 </body>
 </html>

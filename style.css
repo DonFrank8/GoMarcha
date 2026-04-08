@@ -79,6 +79,12 @@ body {
   background: rgba(17, 27, 49, 0.45);
 }
 
+.version-chip {
+  border-style: dashed !important;
+  border-color: rgba(255, 176, 32, 0.58) !important;
+  color: #ffe6b3 !important;
+}
+
 .app-shell {
   max-width: 1500px;
   margin: 0 auto;
