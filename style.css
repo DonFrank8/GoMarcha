@@ -749,6 +749,54 @@ body.body--modal-open {
   gap: 0.65rem;
 }
 
+.location-search {
+  position: relative;
+}
+
+.location-search__suggestions {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  border: 1px solid rgba(175, 200, 255, 0.35);
+  border-radius: 12px;
+  background: rgba(12, 20, 40, 0.98);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+
+.location-search__suggestions button {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-bottom: 1px solid rgba(130, 157, 211, 0.25);
+  background: transparent;
+  color: #dce8ff;
+  font-size: 0.82rem;
+  padding: 0.55rem 0.66rem;
+  cursor: pointer;
+}
+
+.location-search__suggestions button:last-child {
+  border-bottom: 0;
+}
+
+.location-search__suggestions button:hover {
+  background: rgba(95, 175, 255, 0.15);
+}
+
+.add-event-form__location-hint {
+  margin: 0;
+  color: #b7c9ee;
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.add-event-form__location-hint strong {
+  color: #e4edff;
+}
+
 .field--full {
   grid-column: 1 / -1;
 }

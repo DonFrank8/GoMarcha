@@ -218,6 +218,21 @@
       <p class="panel__intro" data-i18n="form_hint">Dein Event wird eingereicht und vor Veröffentlichung geprüft.</p>
       <form id="eventForm" class="add-event-form" novalidate>
         <div class="add-event-form__grid">
+          <label class="field field--full location-search">
+            <span data-i18n="form_label_location_search">Location suchen</span>
+            <input
+              name="location_search"
+              id="formLocationSearch"
+              type="search"
+              data-i18n-placeholder="form_placeholder_location_search"
+              placeholder="Venue, Adresse oder Ort suchen"
+              autocomplete="off"
+            >
+            <p class="add-event-form__location-hint" data-i18n="form_help_location_search">
+              Suche nach Venue/Adresse. Diese Struktur ist für Autocomplete vorbereitet.
+            </p>
+            <div id="formLocationSuggestions" class="location-search__suggestions" hidden></div>
+          </label>
           <label class="field">
             <span data-i18n="form_label_name">Name</span>
             <input name="name" id="formName" type="text" required>
@@ -238,12 +253,23 @@
             >
           </label>
           <label class="field">
+            <span data-i18n="form_label_postal_code">PLZ</span>
+            <input
+              name="postal_code"
+              id="formPostalCode"
+              type="text"
+              data-i18n-placeholder="form_placeholder_postal_code"
+              placeholder="z. B. 29660"
+              required
+            >
+          </label>
+          <label class="field">
             <span data-i18n="form_label_city">Stadt</span>
             <input name="city" id="formCity" type="text" required>
           </label>
           <label class="field">
             <span data-i18n="form_label_country">Land</span>
-            <input name="country" id="formCountry" type="text">
+            <input name="country" id="formCountry" type="text" required>
           </label>
           <label class="field">
             <span data-i18n="form_label_event_date">Datum</span>

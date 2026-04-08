@@ -49,6 +49,37 @@ Optional runtime config (set in `index.html` before loading `app.js`):
 
 If `mapbox` is selected but no token is configured, geocoding falls back gracefully (events are still stored as pending).
 
+## Event submission fields (location-first)
+
+The public submission form now uses an address-first structure:
+
+- `name`
+- `location_name`
+- `address`
+- `postal_code`
+- `city`
+- `country`
+- `event_date`
+- `event_time`
+- `genre`
+- `price_text`
+- `description`
+- `submitted_by`
+- `contact_email`
+
+Lat/Lng are not entered by users. They are resolved in the background from address data.
+
+### Location UX and autocomplete preparation
+
+- Added an optional helper field `location_search` (UI-only) to support future places/autocomplete integration.
+- The current code already exposes an internal suggestion flow and geocoding query builder based on:
+  - `location_name`
+  - `address`
+  - `postal_code`
+  - `city`
+  - `country`
+- This makes Google Places / Mapbox autocomplete integration straightforward without breaking current submissions.
+
 ## Admin Dashboard
 
 A separate moderation dashboard is now available at:

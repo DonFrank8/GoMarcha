@@ -1,6 +1,6 @@
 const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
-const APP_BUILD_VERSION = "2026.04.08-14";
+const APP_BUILD_VERSION = "2026.04.08-15";
 const ADMIN_REQUIRED_ROLE = "admin";
 const USE_MODERATION_EDGE_FUNCTION = false;
 const MODERATION_EDGE_FUNCTION_NAME = "moderate-event";
@@ -209,9 +209,12 @@ const I18N = {
     form_error_required: "Bitte Pflichtfelder ausfüllen.",
     form_error_email: "Bitte eine gültige E-Mail-Adresse angeben.",
     form_error_geocode_pending: "Adresse gespeichert. Koordinaten werden bei der Freigabe ergänzt.",
+    form_error_postal_code: "Bitte eine gültige PLZ angeben.",
     form_label_name: "Name",
-    form_label_location_name: "Location",
-    form_label_address: "Adresse",
+    form_label_location_name: "Location / Venue",
+    form_label_location_search: "Location suchen (optional)",
+    form_label_address: "Straße / Adresse",
+    form_label_postal_code: "PLZ",
     form_label_city: "Stadt",
     form_label_country: "Land",
     form_label_event_date: "Datum",
@@ -223,7 +226,10 @@ const I18N = {
     form_label_contact_email: "Kontakt E-Mail",
     form_placeholder_name: "z. B. Summer Beats Night",
     form_placeholder_location_name: "z. B. Beach Club",
+    form_help_location_search: "Suche nach Venue/Adresse. Diese Struktur ist für Autocomplete vorbereitet.",
+    form_placeholder_location_search: "z. B. Nikki Beach Marbella",
     form_placeholder_address: "z. B. Paseo Marítimo 1",
+    form_placeholder_postal_code: "z. B. 29660",
     form_placeholder_city: "z. B. Marbella",
     form_placeholder_country: "z. B. Spanien",
     form_placeholder_event_time: "z. B. 20:30",
@@ -339,10 +345,13 @@ const I18N = {
     admin_session_error: "Could not validate admin session.",
     form_error_required: "Please fill in required fields.",
     form_error_email: "Please enter a valid email address.",
+    form_error_postal_code: "Please enter a valid postal code.",
     form_error_geocode_pending: "Address saved. Coordinates can be added during moderation.",
+    form_label_location_search: "Search location (optional)",
     form_label_name: "Name",
     form_label_location_name: "Location",
     form_label_address: "Address",
+    form_label_postal_code: "Postal code",
     form_label_city: "City",
     form_label_country: "Country",
     form_label_event_date: "Date",
@@ -354,7 +363,10 @@ const I18N = {
     form_label_contact_email: "Contact email",
     form_placeholder_name: "e.g. Summer Beats Night",
     form_placeholder_location_name: "e.g. Beach Club",
+    form_placeholder_location_search: "e.g. Max Beach Marbella",
+    form_help_location_search: "Optional helper field: future autocomplete/places integration.",
     form_placeholder_address: "e.g. Paseo Maritimo 1",
+    form_placeholder_postal_code: "e.g. 29602",
     form_placeholder_city: "e.g. Marbella",
     form_placeholder_country: "e.g. Spain",
     form_placeholder_event_time: "e.g. 20:30",
@@ -470,10 +482,13 @@ const I18N = {
     admin_session_error: "No se pudo validar la sesión de admin.",
     form_error_required: "Completa los campos obligatorios.",
     form_error_email: "Ingresa un correo electrónico válido.",
+    form_error_postal_code: "Ingresa un código postal válido.",
     form_error_geocode_pending: "Dirección guardada. Las coordenadas se pueden completar durante la moderación.",
     form_label_name: "Nombre",
-    form_label_location_name: "Ubicación",
-    form_label_address: "Dirección",
+    form_label_location_name: "Lugar / Venue",
+    form_label_location_search: "Búsqueda de lugar (opcional)",
+    form_label_address: "Calle / Dirección",
+    form_label_postal_code: "Código postal",
     form_label_city: "Ciudad",
     form_label_country: "País",
     form_label_event_date: "Fecha",
@@ -485,7 +500,11 @@ const I18N = {
     form_label_contact_email: "Correo de contacto",
     form_placeholder_name: "p. ej. Summer Beats Night",
     form_placeholder_location_name: "p. ej. Beach Club",
+    form_placeholder_location_search: "Buscar lugar o dirección (preparado para autocomplete)",
+    form_help_location_search:
+      "Tip: puedes pegar una dirección completa. El sistema prepara autocompletado para futuras versiones.",
     form_placeholder_address: "p. ej. Paseo Marítimo 1",
+    form_placeholder_postal_code: "p. ej. 29660",
     form_placeholder_city: "p. ej. Marbella",
     form_placeholder_country: "p. ej. España",
     form_placeholder_event_time: "p. ej. 20:30",
@@ -582,7 +601,10 @@ const dom = {
   formSubmitButton: document.getElementById("formSubmitButton"),
   formName: document.getElementById("formName"),
   formLocationName: document.getElementById("formLocationName"),
+  formLocationSearch: document.getElementById("formLocationSearch"),
+  formLocationSuggestions: document.getElementById("formLocationSuggestions"),
   formAddress: document.getElementById("formAddress"),
+  formPostalCode: document.getElementById("formPostalCode"),
   formCity: document.getElementById("formCity"),
   formCountry: document.getElementById("formCountry"),
   formDate: document.getElementById("formDate"),
@@ -647,6 +669,9 @@ function applyStaticTranslations() {
   });
   document.querySelectorAll("[data-i18n-placeholder]").forEach((element) => {
     element.placeholder = t(element.dataset.i18nPlaceholder);
+  });
+  document.querySelectorAll("[data-i18n-title]").forEach((element) => {
+    element.title = t(element.dataset.i18nTitle);
   });
   const buildBadge = document.getElementById("buildBadge");
   if (buildBadge) {
@@ -773,8 +798,9 @@ function normalizeEvent(event, index) {
   const lat = Number(event.lat ?? event.latitude ?? null);
   const lng = Number(event.lng ?? event.longitude ?? null);
   const address = String(event.address || event.street || "").trim();
+  const postalCode = String(event.postal_code || event.zip || event.zip_code || "").trim();
   const geocodingQuery = String(event.geocoding_query || "").trim();
-  const composedAddress = [event.location_name, address, event.city, event.country]
+  const composedAddress = [event.location_name, address, postalCode, event.city, event.country]
     .filter(Boolean)
     .join(", ");
   const normalizedGeocodingQuery = geocodingQuery || composedAddress;
@@ -783,7 +809,9 @@ function normalizeEvent(event, index) {
     name: event.name || event.title || "Untitled Event",
     location_name: event.location_name || event.location || "Unknown venue",
     address: event.address || event.street || "",
+    postal_code: postalCode,
     city: event.city || event.location_city || "",
+    country: event.country || "",
     event_date: event.event_date || event.date || "",
     event_time: event.event_time || event.time || "",
     genre: event.genre || event.music_genre || "",
@@ -805,7 +833,9 @@ function readFormPayload() {
   return {
     name: dom.formName.value.trim(),
     location_name: dom.formLocationName.value.trim(),
+    location_search: dom.formLocationSearch?.value.trim() || "",
     address: dom.formAddress?.value.trim() || "",
+    postal_code: dom.formPostalCode?.value.trim() || "",
     city: dom.formCity.value.trim(),
     country: dom.formCountry.value.trim(),
     event_date: dom.formDate.value,
@@ -825,7 +855,9 @@ function validateFormPayload(payload) {
     payload.name &&
     payload.location_name &&
     payload.address &&
+    payload.postal_code &&
     payload.city &&
+    payload.country &&
     payload.event_date &&
     payload.genre &&
     payload.submitted_by &&
@@ -837,12 +869,85 @@ function validateFormPayload(payload) {
   if (!emailRegex.test(payload.contact_email)) {
     return { valid: false, message: t("form_error_email") };
   }
+  const postalCodeRegex = /^[a-z0-9\- ]{3,12}$/i;
+  if (!postalCodeRegex.test(payload.postal_code)) {
+    return { valid: false, message: t("form_error_postal_code") };
+  }
   return { valid: true, message: "" };
 }
 
 function clearEventForm() {
   if (!dom.eventForm) return;
   dom.eventForm.reset();
+  if (dom.formLocationSuggestions) {
+    dom.formLocationSuggestions.hidden = true;
+    dom.formLocationSuggestions.innerHTML = "";
+  }
+}
+
+function buildLocationAutocompleteHint(payload) {
+  const parts = [
+    payload.location_search,
+    payload.location_name,
+    payload.address,
+    payload.postal_code,
+    payload.city,
+    payload.country
+  ]
+    .filter(Boolean)
+    .map((value) => String(value).trim())
+    .filter(Boolean);
+  if (!parts.length) return [];
+
+  const unique = [...new Set(parts)];
+  const suggestions = [];
+  if (unique.length >= 2) {
+    suggestions.push(unique.join(", "));
+    suggestions.push([payload.address, payload.postal_code, payload.city, payload.country].filter(Boolean).join(", "));
+    suggestions.push([payload.location_name, payload.city, payload.country].filter(Boolean).join(", "));
+  } else {
+    suggestions.push(unique[0]);
+  }
+  return [...new Set(suggestions.filter(Boolean))].slice(0, 3);
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function applyLocationSuggestion(suggestionText) {
+  if (!suggestionText) return;
+  if (dom.formLocationSearch) dom.formLocationSearch.value = suggestionText;
+  if (!dom.formLocationSuggestions) return;
+  dom.formLocationSuggestions.hidden = true;
+  dom.formLocationSuggestions.innerHTML = "";
+}
+
+function renderLocationAutocompleteSuggestions(payload) {
+  if (!dom.formLocationSuggestions) return;
+  const suggestions = buildLocationAutocompleteHint(payload);
+  if (!suggestions.length || !dom.formLocationSearch?.value.trim()) {
+    dom.formLocationSuggestions.hidden = true;
+    dom.formLocationSuggestions.innerHTML = "";
+    return;
+  }
+
+  dom.formLocationSuggestions.innerHTML = suggestions
+    .map(
+      (suggestion, index) =>
+        `<button type="button" data-location-suggestion="${index}">${escapeHtml(suggestion)}</button>`
+    )
+    .join("");
+  dom.formLocationSuggestions.hidden = false;
+
+  dom.formLocationSuggestions.querySelectorAll("button[data-location-suggestion]").forEach((button, index) => {
+    button.addEventListener("click", () => applyLocationSuggestion(suggestions[index]));
+  });
 }
 
 function buildInsertPayload(payload) {
@@ -853,6 +958,7 @@ function buildInsertPayload(payload) {
     name: payload.name,
     location_name: payload.location_name,
     address: payload.address || null,
+    postal_code: payload.postal_code || null,
     city: payload.city,
     country: payload.country || null,
     event_date: payload.event_date,
@@ -932,7 +1038,7 @@ async function geocodeAddressWithMapbox(query) {
 }
 
 function buildGeocodingQuery(payload) {
-  return [payload.location_name, payload.address, payload.city, payload.country]
+  return [payload.location_name, payload.address, payload.postal_code, payload.city, payload.country]
     .filter(Boolean)
     .join(", ");
 }
@@ -1037,6 +1143,7 @@ async function insertEventWithSchemaFallback(client, payload) {
   const removedColumns = new Set();
   const schemaFallbackPriority = [
     "address",
+    "postal_code",
     "geocoding_query",
     "verification_notes",
     "submitted_by",
@@ -1137,12 +1244,21 @@ function formatPrice(priceText) {
 }
 
 function formatEventPlace(event) {
-  const parts = [event.location_name, event.address, event.city].filter(Boolean);
+  const parts = [event.location_name, event.address, event.postal_code, event.city].filter(Boolean);
   return parts.length ? parts.join(", ") : "-";
 }
 
 function eventSearchText(event) {
-  return [event.name, event.location_name, event.address, event.city, event.genre, event.description]
+  return [
+    event.name,
+    event.location_name,
+    event.address,
+    event.postal_code,
+    event.city,
+    event.country,
+    event.genre,
+    event.description
+  ]
     .join(" ")
     .toLowerCase();
 }
@@ -1530,7 +1646,9 @@ function initMap() {
 }
 
 function markerPopupHtml(event) {
-  const locationLine = [event.location_name, event.address, event.city].filter(Boolean).join(", ");
+  const locationLine = [event.location_name, event.address, event.postal_code, event.city]
+    .filter(Boolean)
+    .join(", ");
   return `
     <div class="popup">
       <strong>${event.name}</strong><br>
@@ -1576,7 +1694,9 @@ function renderEventDetails(event) {
   }
 
   dom.eventDetails.className = "event-details";
-  const locationLine = [event.location_name, event.address, event.city].filter(Boolean).join(", ");
+  const locationLine = [event.location_name, event.address, event.postal_code, event.city]
+    .filter(Boolean)
+    .join(", ");
   dom.eventDetails.innerHTML = `
     ${event.image_url ? `<img class="event-details__image" src="${event.image_url}" alt="${event.name}" loading="lazy">` : ""}
     <h4>${event.name}</h4>
@@ -1833,6 +1953,24 @@ function bindEvents() {
 
   if (dom.eventForm) {
     dom.eventForm.addEventListener("submit", handleCreateEventSubmit);
+  }
+  if (dom.formLocationSearch) {
+    dom.formLocationSearch.addEventListener("input", () => {
+      const payload = readFormPayload();
+      renderLocationAutocompleteSuggestions(payload);
+    });
+    dom.formLocationSearch.addEventListener("focus", () => {
+      const payload = readFormPayload();
+      renderLocationAutocompleteSuggestions(payload);
+    });
+  }
+  if (dom.formLocationSuggestions) {
+    document.addEventListener("click", (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (!target) return;
+      if (target.closest("#formLocationSuggestions") || target.closest("#formLocationSearch")) return;
+      dom.formLocationSuggestions.hidden = true;
+    });
   }
   if (dom.adminAuthForm) {
     dom.adminAuthForm.addEventListener("submit", async (event) => {
