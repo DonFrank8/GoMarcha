@@ -12,81 +12,87 @@
   <header class="hero">
     <div class="hero__content">
       <p class="hero__eyebrow">PartyRadar</p>
-      <h1>Deine Plattform für lokale Musik-Events</h1>
-      <p class="hero__subtitle">
-        Finde Bands, DJs und spannende Locations in deiner Nähe - mit Event-Liste, Filtern und Live-Karte.
+      <h1 data-i18n="hero_title">Sommerliche Musik-Events in deiner Nähe</h1>
+      <p class="hero__subtitle" data-i18n="hero_subtitle">
+        Entdecke Bands, DJ-Sets und Locations mit smarter Filterung und Live-Karte.
       </p>
       <div class="hero__chips">
-        <span>Live-Daten via Supabase</span>
-        <span>OpenStreetMap + Leaflet</span>
-        <span>Demo-Fallback inklusive</span>
+        <span>Supabase</span>
+        <span>Leaflet + OpenStreetMap</span>
+        <span data-i18n="hero_chip_fallback">Fallback inklusive</span>
       </div>
     </div>
   </header>
 
   <main class="app-shell">
     <aside class="sidebar">
-      <section class="panel">
-        <h2>Events entdecken</h2>
-        <p class="panel__intro">
-          Entdecke lokale Musik-Events mit Live-Karte und Event-Liste.
+      <section class="panel panel--status">
+        <h2 data-i18n="discover_title">Events entdecken</h2>
+        <p class="panel__intro" data-i18n="discover_subtitle">
+          Filtere nach Suche, Stadt, Datum und Genres.
         </p>
-
         <p id="status" class="status status--loading">Initialisiere Anwendung...</p>
       </section>
 
-      <section class="panel">
-        <div class="panel__heading">
-          <h3>Debug-Modus</h3>
-          <span id="debugModeBadge">Aktiv</span>
-        </div>
-        <div id="debugPanel" class="debug-box">
-          <p><strong>Tabelle:</strong> <span id="debugTableName">events</span></p>
-          <p><strong>Supabase Events:</strong> <span id="debugLoadedCount">Initialisiere...</span></p>
-          <p><strong>Fehler:</strong> <span id="debugErrorState">Initialisiere...</span></p>
-          <p><strong>Hinweis:</strong> <span id="debugFallbackReason">Initialisiere Debug-Daten...</span></p>
-        </div>
-      </section>
-
       <section class="panel panel--list">
-        <div class="filters filters--list" autocomplete="off">
+        <form id="filtersForm" class="list-filters" autocomplete="off">
           <label class="field">
-            <span>Suche</span>
-            <input id="searchInput" type="search" placeholder="Band, Event, Location...">
+            <span data-i18n="filter_search">Suche</span>
+            <input id="searchInput" type="search" data-i18n-placeholder="filter_search_placeholder" placeholder="Event, Stadt, Location, Genre...">
           </label>
 
-          <label class="field">
-            <span>Stadt</span>
-            <select id="cityFilter">
-              <option value="">Alle Städte</option>
-            </select>
-          </label>
+          <div class="filter-grid">
+            <label class="field">
+              <span data-i18n="filter_city">Stadt</span>
+              <select id="cityFilter">
+                <option value="" data-i18n="filter_city_all">Alle Städte</option>
+              </select>
+            </label>
 
-          <div class="field">
-            <span>Genres</span>
+            <label class="field">
+              <span data-i18n="filter_date">Datum</span>
+              <select id="dateFilter">
+                <option value="" data-i18n="filter_date_all">Alle Daten</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="genre-filter">
+            <div class="genre-filter__head">
+              <span data-i18n="filter_genre">Genres</span>
+              <button id="clearGenresButton" type="button" class="button-link" data-i18n="filter_genre_all">Alle Genres</button>
+            </div>
             <div id="genreFilterGroup" class="genre-filter-group" aria-label="Genre Filter"></div>
           </div>
 
-          <button id="resetFilters" type="button" class="button-secondary">Filter zurücksetzen</button>
-        </div>
+          <button id="resetFilters" type="button" class="button-secondary" data-i18n="filter_reset">Alle Filter zurücksetzen</button>
+        </form>
 
         <div class="panel__heading">
-          <h3>Event-Liste</h3>
+          <h3 data-i18n="list_title">Event-Liste</h3>
           <span id="resultCount">0 Treffer</span>
         </div>
         <div id="eventList" class="event-list"></div>
       </section>
 
-      <section class="panel">
-        <h3>Eventdetails</h3>
-        <div id="eventDetails" class="event-details event-details--empty">
-          Wähle ein Event in der Liste oder auf der Karte aus.
+      <details id="debugPanel" class="panel debug-panel">
+        <summary data-i18n="debug_title">Debug-Modus</summary>
+        <div class="debug-box">
+          <p><strong data-i18n="debug_table">Tabelle:</strong> <span id="debugTableName">events</span></p>
+          <p><strong data-i18n="debug_loaded">Supabase Events:</strong> <span id="debugLoadedCount">-</span></p>
+          <p><strong data-i18n="debug_error">Fehler:</strong> <span id="debugErrorState">-</span></p>
+          <p><strong data-i18n="debug_note">Hinweis:</strong> <span id="debugFallbackReason">-</span></p>
         </div>
-      </section>
+      </details>
     </aside>
 
-    <section class="map-section">
-      <div id="map" aria-label="Karte mit Event-Markern"></div>
+    <section class="map-column">
+      <div class="map-section">
+        <div id="map" aria-label="Karte mit Event-Markern"></div>
+      </div>
+      <section id="eventDetails" class="event-details event-details--empty">
+        Wähle ein Event in der Liste oder auf der Karte aus.
+      </section>
     </section>
   </main>
 
