@@ -59,13 +59,40 @@
       <section id="moderationPanel" class="panel panel--moderation" hidden>
         <div class="panel__heading">
           <h3 data-i18n="admin_title">Moderation</h3>
-          <span id="moderationCount">0 pending</span>
+          <span id="moderationCount">0 ausstehend</span>
         </div>
         <p class="panel__intro" data-i18n="admin_subtitle">
           Prüfe eingereichte Events und entscheide über Veröffentlichung.
         </p>
-        <p id="moderationFeedback" class="add-event-message" hidden></p>
-        <div id="moderationList" class="moderation-list"></div>
+        <div id="adminAuthGate" class="admin-auth-gate">
+          <p class="panel__intro" data-i18n="admin_login_hint">
+            Admin-Login erforderlich, um pending Events zu prüfen.
+          </p>
+          <form id="adminAuthForm" class="admin-auth-form" novalidate>
+            <label class="field">
+              <span data-i18n="admin_login_email_label">Admin E-Mail</span>
+              <input
+                id="adminAuthEmail"
+                type="email"
+                data-i18n-placeholder="admin_login_email_placeholder"
+                placeholder="admin@example.com"
+                required
+              >
+            </label>
+            <button id="adminAuthSubmit" type="submit" class="button-secondary button-secondary--primary" data-i18n="admin_login_submit">
+              Magic Link senden
+            </button>
+          </form>
+          <p id="adminAuthFeedback" class="add-event-message" hidden></p>
+        </div>
+        <div id="moderationWorkspace" hidden>
+          <div class="panel__heading">
+            <span id="adminSessionInfo"></span>
+            <button id="adminSignOut" type="button" class="button-secondary" data-i18n="admin_logout">Abmelden</button>
+          </div>
+          <p id="moderationFeedback" class="add-event-message" hidden></p>
+          <div id="moderationList" class="moderation-list"></div>
+        </div>
       </section>
 
       <section class="panel panel--list">
