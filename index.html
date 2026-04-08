@@ -217,75 +217,83 @@
       <h3 id="submitModalTitle" data-i18n="form_title">Event einreichen</h3>
       <p class="panel__intro" data-i18n="form_hint">Dein Event wird eingereicht und vor Veröffentlichung geprüft.</p>
       <form id="eventForm" class="add-event-form" novalidate>
-        <div class="add-event-form__grid">
-          <label class="field">
-            <span data-i18n="form_label_name">Name</span>
-            <input name="name" id="formName" type="text" required>
+        <section class="add-event-form__section">
+          <h4 class="add-event-form__section-title" data-i18n="form_section_event_details">Event Details</h4>
+          <div class="add-event-form__grid">
+            <label class="field">
+              <span data-i18n="form_label_name">Event Name</span>
+              <input name="name" id="formName" type="text" required>
+            </label>
+            <label class="field">
+              <span data-i18n="form_label_location_name">Location</span>
+              <input name="location_name" id="formLocationName" type="text" required>
+            </label>
+            <label class="field">
+              <span data-i18n="form_label_address">Adresse</span>
+              <input
+                name="address"
+                id="formAddress"
+                type="text"
+                data-i18n-placeholder="form_placeholder_address"
+                placeholder="z. B. Paseo Marítimo 1"
+                required
+              >
+            </label>
+            <label class="field">
+              <span data-i18n="form_label_postal_code">PLZ</span>
+              <input
+                name="postal_code"
+                id="formPostalCode"
+                type="text"
+                data-i18n-placeholder="form_placeholder_postal_code"
+                placeholder="z. B. 29660"
+                required
+              >
+            </label>
+            <label class="field">
+              <span data-i18n="form_label_city">Stadt</span>
+              <input name="city" id="formCity" type="text" required>
+            </label>
+            <label class="field">
+              <span data-i18n="form_label_country">Land</span>
+              <input name="country" id="formCountry" type="text" required>
+            </label>
+            <label class="field">
+              <span data-i18n="form_label_event_date">Datum</span>
+              <input name="event_date" id="formDate" type="date" required>
+            </label>
+            <label class="field">
+              <span data-i18n="form_label_event_time">Uhrzeit</span>
+              <input name="event_time" id="formTime" type="time">
+            </label>
+            <label class="field">
+              <span data-i18n="form_label_genre">Genre</span>
+              <input name="genre" id="formGenre" type="text" required>
+            </label>
+            <label class="field">
+              <span data-i18n="form_label_price_text">Preistext</span>
+              <input name="price_text" id="formPrice" type="text" placeholder="z.B. 25 EUR">
+            </label>
+          </div>
+          <label class="field field--full">
+            <span data-i18n="form_label_description">Beschreibung</span>
+            <textarea name="description" id="formDescription" rows="3"></textarea>
           </label>
-          <label class="field">
-            <span data-i18n="form_label_location_name">Location</span>
-            <input name="location_name" id="formLocationName" type="text" required>
-          </label>
-          <label class="field">
-            <span data-i18n="form_label_address">Adresse</span>
-            <input
-              name="address"
-              id="formAddress"
-              type="text"
-              data-i18n-placeholder="form_placeholder_address"
-              placeholder="z. B. Paseo Marítimo 1"
-              required
-            >
-          </label>
-          <label class="field">
-            <span data-i18n="form_label_postal_code">PLZ</span>
-            <input
-              name="postal_code"
-              id="formPostalCode"
-              type="text"
-              data-i18n-placeholder="form_placeholder_postal_code"
-              placeholder="z. B. 29660"
-              required
-            >
-          </label>
-          <label class="field">
-            <span data-i18n="form_label_city">Stadt</span>
-            <input name="city" id="formCity" type="text" required>
-          </label>
-          <label class="field">
-            <span data-i18n="form_label_country">Land</span>
-            <input name="country" id="formCountry" type="text" required>
-          </label>
-          <label class="field">
-            <span data-i18n="form_label_event_date">Datum</span>
-            <input name="event_date" id="formDate" type="date" required>
-          </label>
-          <label class="field">
-            <span data-i18n="form_label_event_time">Uhrzeit</span>
-            <input name="event_time" id="formTime" type="time">
-          </label>
-          <label class="field">
-            <span data-i18n="form_label_genre">Genre</span>
-            <input name="genre" id="formGenre" type="text" required>
-          </label>
-          <label class="field">
-            <span data-i18n="form_label_price_text">Preistext</span>
-            <input name="price_text" id="formPrice" type="text" placeholder="z.B. 25 EUR">
-          </label>
-          <label class="field">
-            <span data-i18n="form_label_submitted_by">Eingereicht von</span>
-            <input name="submitted_by" id="formSubmittedBy" type="text" required>
-          </label>
-          <label class="field">
-            <span data-i18n="form_label_contact_email">Kontakt E-Mail</span>
-            <input name="contact_email" id="formContactEmail" type="email" required>
-          </label>
-        </div>
+        </section>
 
-        <label class="field field--full">
-          <span data-i18n="form_label_description">Beschreibung</span>
-          <textarea name="description" id="formDescription" rows="3"></textarea>
-        </label>
+        <section class="add-event-form__section">
+          <h4 class="add-event-form__section-title" data-i18n="form_section_submitter_details">Deine Angaben</h4>
+          <div class="add-event-form__grid">
+            <label class="field">
+              <span data-i18n="form_label_submitted_by">Dein Name</span>
+              <input name="submitted_by" id="formSubmittedBy" type="text" required>
+            </label>
+            <label class="field">
+              <span data-i18n="form_label_contact_email">Kontakt E-Mail</span>
+              <input name="contact_email" id="formContactEmail" type="email" required>
+            </label>
+          </div>
+        </section>
 
         <p id="formFeedback" class="add-event-message" hidden></p>
 
