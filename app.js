@@ -5,10 +5,7 @@ const ADMIN_REQUIRED_ROLE = "admin";
 const USE_MODERATION_EDGE_FUNCTION = false;
 const MODERATION_EDGE_FUNCTION_NAME = "moderate-event";
 const ENABLE_AUTO_GEOCODING = true;
-const GEOCODING_PROVIDER = (window.PARTYRADAR_GEOCODING_PROVIDER || "nominatim")
-  .toString()
-  .trim()
-  .toLowerCase();
+const GEOCODING_PROVIDER = "nominatim";
 const GEOCODING_MIN_INTERVAL_MS = 850;
 const GEOCODING_MAX_RETRIES = 2;
 const MAPBOX_ACCESS_TOKEN = (window.PARTYRADAR_MAPBOX_TOKEN || "").toString().trim();
@@ -172,7 +169,7 @@ const I18N = {
     form_error_generic: "Event konnte nicht gespeichert werden.",
     form_error_rls_submit:
       "Zugriff durch Datenbank-Sicherheitsregel (RLS) blockiert. Bitte supabase-rls.sql ausführen/aktualisieren, damit pending Einreichungen erlaubt sind.",
-    form_notice_geocoding_failed: "Adresse gespeichert, automatische Geocodierung war nicht möglich.",
+    form_error_geocoding_failed: "Adresse konnte nicht geokodiert werden. Bitte Eingabe prüfen.",
     admin_title: "Moderation",
     admin_subtitle: "Prüfe eingereichte Events und entscheide über Veröffentlichung.",
     admin_pending_count: "{count} ausstehend",
@@ -306,7 +303,7 @@ const I18N = {
     form_error_generic: "Event could not be saved.",
     form_error_rls_submit:
       "Permission denied by database security (RLS). Please run/update supabase-rls.sql to allow pending event submissions.",
-    form_notice_geocoding_failed: "Address saved, but automatic geocoding was not possible.",
+    form_error_geocoding_failed: "Address could not be geocoded. Please check your input.",
     admin_title: "Moderation",
     admin_subtitle: "Review submitted events and decide publication.",
     admin_pending_count: "{count} pending",
@@ -440,7 +437,7 @@ const I18N = {
     form_error_generic: "No se pudo guardar el evento.",
     form_error_rls_submit:
       "Permiso denegado por la seguridad de base de datos (RLS). Ejecuta/actualiza supabase-rls.sql para permitir envíos en estado pending.",
-    form_notice_geocoding_failed: "Dirección guardada, pero la geocodificación automática no fue posible.",
+    form_error_geocoding_failed: "No se pudo geocodificar la dirección. Revisa los datos.",
     admin_title: "Moderación",
     admin_subtitle: "Revisa eventos enviados y decide su publicación.",
     admin_pending_count: "{count} pendientes",
@@ -785,7 +782,7 @@ function normalizeEvent(event, index) {
   const address = String(event.address || event.street || "").trim();
   const postal_code = String(event.postal_code || event.zip || "").trim();
   const geocodingQuery = String(event.geocoding_query || "").trim();
-  const composedAddress = [event.location_name, address, postal_code, event.city, event.country]
+  const composedAddress = [address, postal_code, event.city, event.country]
     .filter(Boolean)
     .join(", ");
   const normalizedGeocodingQuery = geocodingQuery || composedAddress;
@@ -949,7 +946,6 @@ async function geocodeAddressWithMapbox(query) {
 
 function buildGeocodingQuery(payload) {
   return [
-    payload.location_name,
     payload.address,
     payload.postal_code,
     payload.city,
@@ -997,14 +993,20 @@ async function geocodeWithRetry(provider, query) {
 async function resolveCoordinatesForPayload(payload) {
   if (!ENABLE_AUTO_GEOCODING) return payload;
   const query = buildGeocodingQuery(payload);
-  if (!query) return payload;
+  if (!query) {
+    throw new Error("Missing geocoding address fields");
+  }
 
   const provider = GEOCODING_PROVIDERS[GEOCODING_PROVIDER];
-  if (!provider) return payload;
+  if (!provider) {
+    throw new Error("Geocoding provider unavailable");
+  }
 
   try {
     const coordinates = await geocodeWithRetry(provider, query);
-    if (!coordinates) return payload;
+    if (!coordinates) {
+      throw new Error("No geocoding result");
+    }
     return {
       ...payload,
       lat: coordinates.lat,
@@ -1012,7 +1014,7 @@ async function resolveCoordinatesForPayload(payload) {
     };
   } catch (error) {
     console.warn("[PartyRadar Debug] Geocoding failed:", error);
-    return payload;
+    throw new Error(error?.message || "Geocoding failed");
   }
 }
 
@@ -1696,7 +1698,13 @@ async function handleCreateEventSubmit(submitEvent) {
   setFormSubmitting(true);
   try {
     const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    const payloadWithCoordinates = await resolveCoordinatesForPayload(payload);
+    let payloadWithCoordinates;
+    try {
+      payloadWithCoordinates = await resolveCoordinatesForPayload(payload);
+    } catch (geocodingError) {
+      setFormFeedback(t("form_error_geocoding_failed"), "error");
+      return;
+    }
     const insertPayload = buildInsertPayload(payloadWithCoordinates);
     const { data, error } = await insertEventWithSchemaFallback(client, insertPayload);
 
@@ -1706,14 +1714,7 @@ async function handleCreateEventSubmit(submitEvent) {
     if (error) throw new Error(error.message);
 
     clearEventForm();
-    const geocodingWasMissing =
-      ENABLE_AUTO_GEOCODING &&
-      payloadWithCoordinates.lat === null &&
-      payloadWithCoordinates.lng === null;
-    setFormFeedback(
-      geocodingWasMissing ? t("form_notice_geocoding_failed") : t("form_success"),
-      "success"
-    );
+    setFormFeedback(t("form_success"), "success");
     await reloadEventsAndRender();
     window.setTimeout(closeSubmitModal, 1800);
   } catch (error) {
