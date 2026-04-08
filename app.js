@@ -812,6 +812,33 @@ function buildInsertPayload(payload) {
   };
 }
 
+async function insertEventWithSchemaFallback(client, payload) {
+  const tableName = state.debug.tableName || "events";
+  const tryInsert = async (row) =>
+    client.from(tableName).insert([row]).select("*").single();
+
+  const primary = await tryInsert(payload);
+  if (!primary.error) return primary;
+
+  const missingAddressColumn =
+    /could not find the 'address' column/i.test(primary.error.message || "") ||
+    /column ["']address["'] does not exist/i.test(primary.error.message || "");
+
+  if (!missingAddressColumn) return primary;
+
+  const fallbackPayload = { ...payload };
+  delete fallbackPayload.address;
+  delete fallbackPayload.geocoding_query;
+  const fallback = await tryInsert(fallbackPayload);
+
+  return fallback.error
+    ? primary
+    : {
+        data: fallback.data,
+        error: null
+      };
+}
+
 function splitGenres(value) {
   if (!value) return [];
   if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
@@ -1386,11 +1413,7 @@ async function handleCreateEventSubmit(submitEvent) {
   try {
     const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     const insertPayload = buildInsertPayload(payload);
-    const { data, error } = await client
-      .from(state.debug.tableName || "events")
-      .insert([insertPayload])
-      .select("*")
-      .single();
+    const { data, error } = await insertEventWithSchemaFallback(client, insertPayload);
 
     console.log("[PartyRadar Debug] Event insert data:", data);
     console.log("[PartyRadar Debug] Event insert error:", error);
