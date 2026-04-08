@@ -4,7 +4,7 @@ const APP_BUILD_VERSION = "2026.04.08-7";
 const ADMIN_REQUIRED_ROLE = "admin";
 const USE_MODERATION_EDGE_FUNCTION = false;
 const MODERATION_EDGE_FUNCTION_NAME = "moderate-event";
-const ENABLE_AUTO_GEOCODING = false;
+const ENABLE_AUTO_GEOCODING = true;
 
 window.PARTYRADAR_CACHE_BUSTER = APP_BUILD_VERSION;
 
@@ -158,6 +158,7 @@ const I18N = {
     form_loading: "Speichere...",
     form_success: "Dein Event wurde eingereicht und wird vor der Veröffentlichung geprüft.",
     form_error_generic: "Event konnte nicht gespeichert werden.",
+    form_notice_geocoding_failed: "Adresse gespeichert, automatische Geocodierung war nicht möglich.",
     admin_title: "Moderation",
     admin_subtitle: "Prüfe eingereichte Events und entscheide über Veröffentlichung.",
     admin_pending_count: "{count} ausstehend",
@@ -278,6 +279,7 @@ const I18N = {
     form_loading: "Saving...",
     form_success: "Your event was submitted and will be reviewed before it is published.",
     form_error_generic: "Event could not be saved.",
+    form_notice_geocoding_failed: "Address saved, but automatic geocoding was not possible.",
     admin_title: "Moderation",
     admin_subtitle: "Review submitted events and decide publication.",
     admin_pending_count: "{count} pending",
@@ -398,6 +400,7 @@ const I18N = {
     form_loading: "Guardando...",
     form_success: "Tu evento fue enviado y será revisado antes de publicarse.",
     form_error_generic: "No se pudo guardar el evento.",
+    form_notice_geocoding_failed: "Dirección guardada, pero la geocodificación automática no fue posible.",
     admin_title: "Moderación",
     admin_subtitle: "Revisa eventos enviados y decide su publicación.",
     admin_pending_count: "{count} pendientes",
@@ -812,6 +815,55 @@ function buildInsertPayload(payload) {
   };
 }
 
+async function geocodeAddressWithNominatim(query) {
+  const endpoint = new URL("https://nominatim.openstreetmap.org/search");
+  endpoint.searchParams.set("format", "jsonv2");
+  endpoint.searchParams.set("limit", "1");
+  endpoint.searchParams.set("q", query);
+
+  const response = await fetch(endpoint.toString(), {
+    headers: {
+      Accept: "application/json",
+      "Accept-Language": "de,en,es",
+      "User-Agent": "PartyRadar/1.0 (event-submission geocoding)"
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(`Geocoding HTTP ${response.status}`);
+  }
+
+  const data = await response.json();
+  const first = Array.isArray(data) ? data[0] : null;
+  if (!first) return null;
+
+  const lat = Number(first.lat);
+  const lng = Number(first.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return { lat, lng };
+}
+
+async function resolveCoordinatesForPayload(payload) {
+  if (!ENABLE_AUTO_GEOCODING) return payload;
+  const query = [payload.location_name, payload.address, payload.city, payload.country]
+    .filter(Boolean)
+    .join(", ");
+  if (!query) return payload;
+
+  try {
+    const coordinates = await geocodeAddressWithNominatim(query);
+    if (!coordinates) return payload;
+    return {
+      ...payload,
+      lat: coordinates.lat,
+      lng: coordinates.lng
+    };
+  } catch (error) {
+    console.warn("[PartyRadar Debug] Geocoding failed:", error);
+    return payload;
+  }
+}
+
 async function insertEventWithSchemaFallback(client, payload) {
   const tableName = state.debug.tableName || "events";
   const tryInsert = async (row) =>
@@ -820,15 +872,23 @@ async function insertEventWithSchemaFallback(client, payload) {
   const primary = await tryInsert(payload);
   if (!primary.error) return primary;
 
+  const errorMessage = String(primary.error.message || "");
   const missingAddressColumn =
-    /could not find the 'address' column/i.test(primary.error.message || "") ||
-    /column ["']address["'] does not exist/i.test(primary.error.message || "");
+    /could not find the 'address' column/i.test(errorMessage) ||
+    /column ["']address["'] does not exist/i.test(errorMessage);
+  const missingGeocodingQueryColumn =
+    /could not find the 'geocoding_query' column/i.test(errorMessage) ||
+    /column ["']geocoding_query["'] does not exist/i.test(errorMessage);
 
-  if (!missingAddressColumn) return primary;
+  if (!missingAddressColumn && !missingGeocodingQueryColumn) return primary;
 
   const fallbackPayload = { ...payload };
-  delete fallbackPayload.address;
-  delete fallbackPayload.geocoding_query;
+  if (missingAddressColumn) {
+    delete fallbackPayload.address;
+  }
+  if (missingAddressColumn || missingGeocodingQueryColumn) {
+    delete fallbackPayload.geocoding_query;
+  }
   const fallback = await tryInsert(fallbackPayload);
 
   return fallback.error
@@ -1412,7 +1472,8 @@ async function handleCreateEventSubmit(submitEvent) {
   setFormSubmitting(true);
   try {
     const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    const insertPayload = buildInsertPayload(payload);
+    const payloadWithCoordinates = await resolveCoordinatesForPayload(payload);
+    const insertPayload = buildInsertPayload(payloadWithCoordinates);
     const { data, error } = await insertEventWithSchemaFallback(client, insertPayload);
 
     console.log("[PartyRadar Debug] Event insert data:", data);
@@ -1421,7 +1482,14 @@ async function handleCreateEventSubmit(submitEvent) {
     if (error) throw new Error(error.message);
 
     clearEventForm();
-    setFormFeedback(t("form_success"), "success");
+    const geocodingWasMissing =
+      ENABLE_AUTO_GEOCODING &&
+      payloadWithCoordinates.lat === null &&
+      payloadWithCoordinates.lng === null;
+    setFormFeedback(
+      geocodingWasMissing ? t("form_notice_geocoding_failed") : t("form_success"),
+      "success"
+    );
     await reloadEventsAndRender();
     window.setTimeout(closeSubmitModal, 1800);
   } catch (error) {
