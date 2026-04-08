@@ -1296,11 +1296,15 @@ function bindEvents() {
     });
   }
   if (dom.closeSubmitModal) {
-    dom.closeSubmitModal.addEventListener("click", closeSubmitModal);
+    dom.closeSubmitModal.addEventListener("click", (event) => {
+      event.preventDefault();
+      closeSubmitModal();
+    });
   }
   if (dom.submitModal) {
     dom.submitModal.addEventListener("click", (event) => {
-      if (event.target.matches("[data-modal-close]")) {
+      const target = event.target instanceof Element ? event.target : null;
+      if (target && target.closest("[data-modal-close]")) {
         closeSubmitModal();
       }
     });
