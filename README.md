@@ -49,6 +49,37 @@ Optional runtime config (set in `index.html` before loading `app.js`):
 
 If `mapbox` is selected but no token is configured, geocoding falls back gracefully (events are still stored as pending).
 
+## Admin Dashboard
+
+A separate moderation dashboard is now available at:
+
+- `admin.html`
+
+### What it includes
+
+- status tabs (`pending`, `approved`, `rejected`)
+- search + filters (event name, city, genre, status)
+- modern moderation cards with full event details
+- actions:
+  - `Approve`
+  - `Reject`
+  - `Back to pending`
+  - save `verification_notes`
+- monetization preparation:
+  - `featured` toggle
+  - `promoted` toggle
+
+### Access control
+
+- dashboard requires an authenticated session
+- role-based moderation is enforced (`app_metadata.role = 'admin'`)
+- optional frontend email allowlist via `ADMIN_ALLOWED_EMAILS` in `admin.js` for an extra UI gate
+
+### Schema compatibility
+
+- if `featured` / `promoted` columns do not exist yet, the dashboard shows a schema hint and keeps working
+- run `supabase-rls.sql` to bootstrap required moderation columns and policies
+
 ### Apply RLS in Supabase
 
 1. Open Supabase project SQL editor

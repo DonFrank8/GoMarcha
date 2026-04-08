@@ -8,6 +8,8 @@ alter table public.events add column if not exists contact_email text;
 alter table public.events add column if not exists verification_notes text;
 alter table public.events add column if not exists geocoding_query text;
 alter table public.events add column if not exists status text;
+alter table public.events add column if not exists featured boolean default false;
+alter table public.events add column if not exists promoted boolean default false;
 
 -- Normalize status values for existing rows.
 update public.events
