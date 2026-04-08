@@ -1213,16 +1213,7 @@ function updateUrlFromFilters() {
 }
 
 function openAdminModeQuickAccess() {
-  if (state.isAdminMode) {
-    dom.moderationPanel?.scrollIntoView({ behavior: "smooth", block: "start" });
-    return;
-  }
-  state.isAdminMode = true;
-  renderAdminAuthState(state.adminSession);
-  renderModerationPanel();
-  setStatus(t("admin_mode_active"), "ok");
-  updateUrlFromFilters();
-  dom.moderationPanel?.scrollIntoView({ behavior: "smooth", block: "start" });
+  window.location.href = "./admin.html";
 }
 
 function supabaseClient() {
