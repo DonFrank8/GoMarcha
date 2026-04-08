@@ -24,6 +24,7 @@ const state = {
 const dom = {
   authCard: document.getElementById("adminAuthCard"),
   workspace: document.getElementById("adminWorkspace"),
+  headerSignOutButton: document.getElementById("adminHeaderSignOutButton"),
   loginForm: document.getElementById("adminLoginForm"),
   loginEmail: document.getElementById("adminEmail"),
   loginPassword: document.getElementById("adminPassword"),
@@ -349,6 +350,7 @@ function renderAuthState() {
   const isAdmin = isSessionAdmin(state.adminSession);
   if (dom.authCard) dom.authCard.hidden = isAdmin;
   if (dom.workspace) dom.workspace.hidden = !isAdmin;
+  if (dom.headerSignOutButton) dom.headerSignOutButton.hidden = !isAdmin;
   if (dom.sessionInfo) {
     dom.sessionInfo.textContent = isAdmin
       ? `Angemeldet als ${state.adminSession?.user?.email || "-"}`
@@ -480,6 +482,13 @@ function bindEvents() {
   });
 
   dom.signOutButton?.addEventListener("click", async () => {
+    await signOut();
+    state.adminSession = null;
+    renderAuthState();
+    setGlobalFeedback("Abgemeldet.", "info");
+  });
+
+  dom.headerSignOutButton?.addEventListener("click", async () => {
     await signOut();
     state.adminSession = null;
     renderAuthState();
