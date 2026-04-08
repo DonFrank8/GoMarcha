@@ -32,13 +32,44 @@
           <button type="button" class="language-switch__button" data-lang-switch="es">ES</button>
         </div>
       </div>
-      <h1 data-i18n="hero_title">Sommerliche Musik-Events in deiner Nähe</h1>
-      <p class="hero__subtitle" data-i18n="hero_subtitle">
-        Entdecke Bands, DJ-Sets und Locations mit smarter Filterung und Live-Karte.
-      </p>
-      <div class="hero__chips">
-        <span data-i18n="hero_chip_vibe">Beach, City & Lifestyle</span>
-        <span id="buildBadge">Version: live</span>
+
+      <div class="hero__center">
+        <h1 data-i18n="hero_title">Finde, wo Musik wirklich passiert.</h1>
+        <p class="hero__subtitle" data-i18n="hero_subtitle">
+          Lokale Acts, Events und besondere Orte – alles auf einer Karte.
+        </p>
+
+        <form id="heroSearchForm" class="hero-search" autocomplete="off">
+          <label class="hero-search__main" for="heroSearchInput">
+            <span class="sr-only" data-i18n="hero_search_label">Suche</span>
+            <input
+              id="heroSearchInput"
+              class="hero-search__input"
+              type="search"
+              data-i18n-placeholder="hero_search_placeholder"
+              placeholder="Ort, Event oder Genre suchen"
+            >
+          </label>
+          <div class="hero-search__meta">
+            <label class="hero-search__field" for="heroCityFilter">
+              <span data-i18n="filter_city">Stadt</span>
+              <select id="heroCityFilter" class="hero-search__select">
+                <option value="" data-i18n="filter_city_all">Alle Städte</option>
+              </select>
+            </label>
+            <label class="hero-search__field" for="heroDateFilter">
+              <span data-i18n="filter_date">Datum</span>
+              <select id="heroDateFilter" class="hero-search__select">
+                <option value="" data-i18n="filter_date_all">Alle Daten</option>
+              </select>
+            </label>
+          </div>
+        </form>
+
+        <div class="hero__chips">
+          <span data-i18n="hero_chip_vibe">Beach, City & Lifestyle</span>
+          <span id="buildBadge">Version: live</span>
+        </div>
       </div>
     </div>
   </header>

@@ -1,6 +1,6 @@
 const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
-const APP_BUILD_VERSION = "2026.04.08-4";
+const APP_BUILD_VERSION = "2026.04.08-5";
 const ADMIN_ALLOWED_EMAILS = [
   // Add real admin emails here (lowercase)
   "admin@example.com"
@@ -104,10 +104,12 @@ const GENRE_ICON_MAP = {
 
 const I18N = {
   de: {
-    hero_title: "Sommerliche Musik-Events in deiner Nähe",
-    hero_subtitle: "Entdecke Bands, DJ-Sets und Locations mit smarter Filterung und Live-Karte.",
-    hero_chip_fallback: "Fallback inklusive",
+    hero_title: "Finde, wo Musik wirklich passiert.",
+    hero_subtitle: "Lokale Acts, Events und besondere Orte – alles auf einer Karte.",
+    hero_chip_fallback: "Live Daten + Fallback",
     hero_chip_vibe: "Beach, City & Lifestyle",
+    hero_search_label: "Suche",
+    hero_search_placeholder: "Ort, Event oder Genre suchen",
     discover_title: "Events entdecken",
     discover_subtitle: "Filtere nach Suche, Stadt, Datum und Genres.",
     filter_search: "Suche",
@@ -223,10 +225,12 @@ const I18N = {
     create_submit: "Speichern"
   },
   en: {
-    hero_title: "Summer music events near you",
-    hero_subtitle: "Discover bands, DJ sets and venues with smart filters and live map.",
-    hero_chip_fallback: "Fallback included",
+    hero_title: "Find where music truly happens.",
+    hero_subtitle: "Local artists, events and unique places – all on one map.",
+    hero_chip_fallback: "Live data + fallback",
     hero_chip_vibe: "Beach, City & Lifestyle",
+    hero_search_label: "Search",
+    hero_search_placeholder: "Search city, event or genre",
     discover_title: "Discover events",
     discover_subtitle: "Filter by search, city, date and genres.",
     filter_search: "Search",
@@ -342,10 +346,12 @@ const I18N = {
     create_submit: "Save"
   },
   es: {
-    hero_title: "Eventos musicales de verano cerca de ti",
-    hero_subtitle: "Descubre bandas, DJ sets y locales con filtros inteligentes y mapa en vivo.",
-    hero_chip_fallback: "Fallback incluido",
+    hero_title: "Descubre dónde realmente suena la música.",
+    hero_subtitle: "Artistas locales, eventos y lugares únicos – todo en un solo mapa.",
+    hero_chip_fallback: "Datos en vivo + fallback",
     hero_chip_vibe: "Beach, City & Lifestyle",
+    hero_search_label: "Buscar",
+    hero_search_placeholder: "Buscar ciudad, evento o género",
     discover_title: "Descubrir eventos",
     discover_subtitle: "Filtra por búsqueda, ciudad, fecha y géneros.",
     filter_search: "Buscar",
@@ -499,6 +505,10 @@ const state = {
 const dom = {
   htmlRoot: document.documentElement,
   languageSwitch: document.getElementById("languageSwitch"),
+  heroSearchForm: document.getElementById("heroSearchForm"),
+  heroSearchInput: document.getElementById("heroSearchInput"),
+  heroCityFilter: document.getElementById("heroCityFilter"),
+  heroDateFilter: document.getElementById("heroDateFilter"),
   submitModal: document.getElementById("submitModal"),
   openSubmitModal: document.getElementById("openSubmitModal"),
   closeSubmitModal: document.getElementById("closeSubmitModal"),
@@ -626,6 +636,7 @@ function switchLanguage(nextLangCode) {
   state.lang = nextLang;
   applyStaticTranslations();
   updateFilterOptions();
+  syncHeroFilterOptions();
   applyFiltersFromQuery();
   applyFilters();
   if (state.selectedEventId) {
@@ -1085,6 +1096,7 @@ function updateFilterOptions() {
     if (!state.availableGenres.includes(genre)) state.activeGenres.delete(genre);
   });
   renderGenreFilter();
+  syncHeroFilterOptions();
 }
 
 function applyFiltersFromQuery() {
@@ -1098,6 +1110,7 @@ function applyFiltersFromQuery() {
   }
   state.activeGenres = new Set(normalizeRequestedGenres(query.genres));
   renderGenreFilter();
+  syncHeroControlsFromSidebar();
 }
 
 function getActiveFilters() {
@@ -1107,6 +1120,27 @@ function getActiveFilters() {
     date: dom.dateFilter.value,
     genres: new Set([...state.activeGenres].map((genre) => genre.toLowerCase()))
   };
+}
+
+function syncHeroFilterOptions() {
+  if (!dom.heroCityFilter || !dom.heroDateFilter || !dom.cityFilter || !dom.dateFilter) return;
+
+  dom.heroCityFilter.innerHTML = dom.cityFilter.innerHTML;
+  dom.heroDateFilter.innerHTML = dom.dateFilter.innerHTML;
+  dom.heroCityFilter.value = dom.cityFilter.value;
+  dom.heroDateFilter.value = dom.dateFilter.value;
+}
+
+function syncHeroControlsFromSidebar() {
+  if (dom.heroSearchInput && dom.searchInput) dom.heroSearchInput.value = dom.searchInput.value;
+  if (dom.heroCityFilter && dom.cityFilter) dom.heroCityFilter.value = dom.cityFilter.value;
+  if (dom.heroDateFilter && dom.dateFilter) dom.heroDateFilter.value = dom.dateFilter.value;
+}
+
+function syncSidebarFromHeroControls() {
+  if (dom.heroSearchInput && dom.searchInput) dom.searchInput.value = dom.heroSearchInput.value;
+  if (dom.heroCityFilter && dom.cityFilter) dom.cityFilter.value = dom.heroCityFilter.value;
+  if (dom.heroDateFilter && dom.dateFilter) dom.dateFilter.value = dom.heroDateFilter.value;
 }
 
 function eventMatchesGenres(event, activeGenresLower) {
@@ -1300,6 +1334,7 @@ function resetFilters() {
   dom.searchInput.value = "";
   dom.cityFilter.value = "";
   dom.dateFilter.value = "";
+  syncHeroControlsFromSidebar();
   state.activeGenres.clear();
   renderGenreFilter();
   state.selectedEventId = null;
@@ -1395,9 +1430,39 @@ async function updateModerationStatus(eventId, nextStatus, verificationNotes) {
 
 function bindEvents() {
   dom.filtersForm.addEventListener("submit", (event) => event.preventDefault());
-  dom.searchInput.addEventListener("input", applyFilters);
-  dom.cityFilter.addEventListener("change", applyFilters);
-  dom.dateFilter.addEventListener("change", applyFilters);
+  if (dom.heroSearchForm) {
+    dom.heroSearchForm.addEventListener("submit", (event) => event.preventDefault());
+  }
+  dom.searchInput.addEventListener("input", () => {
+    syncHeroControlsFromSidebar();
+    applyFilters();
+  });
+  dom.cityFilter.addEventListener("change", () => {
+    syncHeroControlsFromSidebar();
+    applyFilters();
+  });
+  dom.dateFilter.addEventListener("change", () => {
+    syncHeroControlsFromSidebar();
+    applyFilters();
+  });
+  if (dom.heroSearchInput) {
+    dom.heroSearchInput.addEventListener("input", () => {
+      syncSidebarFromHeroControls();
+      applyFilters();
+    });
+  }
+  if (dom.heroCityFilter) {
+    dom.heroCityFilter.addEventListener("change", () => {
+      syncSidebarFromHeroControls();
+      applyFilters();
+    });
+  }
+  if (dom.heroDateFilter) {
+    dom.heroDateFilter.addEventListener("change", () => {
+      syncSidebarFromHeroControls();
+      applyFilters();
+    });
+  }
   if (dom.languageSwitch) {
     dom.languageSwitch.addEventListener("click", (event) => {
       const button = event.target.closest("button[data-lang-switch]");
@@ -1603,6 +1668,7 @@ async function startApp() {
   await loadEvents();
   updateFilterOptions();
   applyFiltersFromQuery();
+  syncHeroControlsFromSidebar();
   applyFilters();
   renderModerationPanel();
 }
