@@ -1,6 +1,6 @@
 const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
-const APP_BUILD_VERSION = "2026.04.08-1";
+const APP_BUILD_VERSION = "2026.04.08-3";
 
 window.PARTYRADAR_CACHE_BUSTER = APP_BUILD_VERSION;
 
@@ -103,6 +103,7 @@ const I18N = {
     hero_title: "Sommerliche Musik-Events in deiner Nähe",
     hero_subtitle: "Entdecke Bands, DJ-Sets und Locations mit smarter Filterung und Live-Karte.",
     hero_chip_fallback: "Fallback inklusive",
+    hero_chip_vibe: "Beach, City & Lifestyle",
     discover_title: "Events entdecken",
     discover_subtitle: "Filtere nach Suche, Stadt, Datum und Genres.",
     filter_search: "Suche",
@@ -144,14 +145,29 @@ const I18N = {
     debug_note_no_data: "Keine Daten aus Supabase",
     debug_note_error: "Supabase Fehler - Demo-Fallback aktiv",
     button_all: "Alle",
-    form_title: "Event hinzufügen",
-    form_hint: "Neues Event direkt in Supabase speichern.",
-    form_submit: "Event hinzufügen",
-    form_toggle: "Event hinzufügen",
+    submit_cta: "Event einreichen",
+    form_title: "Event einreichen",
+    form_hint: "Dein Event wird eingereicht und vor Veröffentlichung geprüft.",
+    form_submit: "Event einreichen",
     form_loading: "Speichere...",
-    form_success: "Event erfolgreich gespeichert.",
+    form_success: "Dein Event wird geprüft, bevor es veröffentlicht wird.",
     form_error_generic: "Event konnte nicht gespeichert werden.",
+    admin_title: "Moderation",
+    admin_subtitle: "Prüfe eingereichte Events und entscheide über Veröffentlichung.",
+    admin_pending_count: "{count} ausstehend",
+    admin_no_pending: "Keine ausstehenden Einreichungen.",
+    admin_submitted_by: "Eingereicht von",
+    admin_contact: "Kontakt",
+    admin_notes: "Prüfnotiz",
+    admin_notes_placeholder: "Optional: Grund / Hinweis",
+    admin_action_approve: "Freigeben",
+    admin_action_reject: "Ablehnen",
+    admin_update_success_approved: "Event wurde freigegeben.",
+    admin_update_success_rejected: "Event wurde abgelehnt.",
+    admin_update_error: "Moderation konnte nicht gespeichert werden.",
+    admin_mode_active: "Admin-Modus aktiv: pending Events können moderiert werden.",
     form_error_required: "Bitte Pflichtfelder ausfüllen.",
+    form_error_email: "Bitte eine gültige E-Mail-Adresse angeben.",
     form_error_latlng: "Latitude und Longitude müssen gültige Zahlen sein.",
     form_label_name: "Name",
     form_label_location_name: "Location",
@@ -162,6 +178,8 @@ const I18N = {
     form_label_genre: "Genre",
     form_label_price_text: "Preis",
     form_label_description: "Beschreibung",
+    form_label_submitted_by: "Eingereicht von",
+    form_label_contact_email: "Kontakt E-Mail",
     form_label_lat: "Latitude",
     form_label_lng: "Longitude",
     form_placeholder_name: "z. B. Summer Beats Night",
@@ -193,6 +211,7 @@ const I18N = {
     hero_title: "Summer music events near you",
     hero_subtitle: "Discover bands, DJ sets and venues with smart filters and live map.",
     hero_chip_fallback: "Fallback included",
+    hero_chip_vibe: "Beach, City & Lifestyle",
     discover_title: "Discover events",
     discover_subtitle: "Filter by search, city, date and genres.",
     filter_search: "Search",
@@ -234,14 +253,29 @@ const I18N = {
     debug_note_no_data: "No data from Supabase",
     debug_note_error: "Supabase error - demo fallback active",
     button_all: "All",
-    form_title: "Add event",
-    form_hint: "Save a new event directly to Supabase.",
-    form_submit: "Add event",
-    form_toggle: "Add event",
+    submit_cta: "Submit event",
+    form_title: "Submit event",
+    form_hint: "Your event will be reviewed before publication.",
+    form_submit: "Submit event",
     form_loading: "Saving...",
-    form_success: "Event saved successfully.",
+    form_success: "Your event will be reviewed before publication.",
     form_error_generic: "Event could not be saved.",
+    admin_title: "Moderation",
+    admin_subtitle: "Review submitted events and decide publication.",
+    admin_pending_count: "{count} pending",
+    admin_no_pending: "No pending submissions.",
+    admin_submitted_by: "Submitted by",
+    admin_contact: "Contact",
+    admin_notes: "Review note",
+    admin_notes_placeholder: "Optional: reason / note",
+    admin_action_approve: "Approve",
+    admin_action_reject: "Reject",
+    admin_update_success_approved: "Event approved.",
+    admin_update_success_rejected: "Event rejected.",
+    admin_update_error: "Moderation update failed.",
+    admin_mode_active: "Admin mode active: pending events can be moderated.",
     form_error_required: "Please fill in required fields.",
+    form_error_email: "Please enter a valid email address.",
     form_error_latlng: "Latitude and longitude must be valid numbers.",
     form_label_name: "Name",
     form_label_location_name: "Location",
@@ -252,6 +286,8 @@ const I18N = {
     form_label_genre: "Genre",
     form_label_price_text: "Price",
     form_label_description: "Description",
+    form_label_submitted_by: "Submitted by",
+    form_label_contact_email: "Contact email",
     form_label_lat: "Latitude",
     form_label_lng: "Longitude",
     form_placeholder_name: "e.g. Summer Beats Night",
@@ -283,6 +319,7 @@ const I18N = {
     hero_title: "Eventos musicales de verano cerca de ti",
     hero_subtitle: "Descubre bandas, DJ sets y locales con filtros inteligentes y mapa en vivo.",
     hero_chip_fallback: "Fallback incluido",
+    hero_chip_vibe: "Beach, City & Lifestyle",
     discover_title: "Descubrir eventos",
     discover_subtitle: "Filtra por búsqueda, ciudad, fecha y géneros.",
     filter_search: "Buscar",
@@ -324,14 +361,29 @@ const I18N = {
     debug_note_no_data: "Sin datos de Supabase",
     debug_note_error: "Error de Supabase - fallback demo activo",
     button_all: "Todos",
-    form_title: "Añadir evento",
-    form_hint: "Guardar nuevo evento directamente en Supabase.",
-    form_submit: "Añadir evento",
-    form_toggle: "Añadir evento",
+    submit_cta: "Enviar evento",
+    form_title: "Enviar evento",
+    form_hint: "Tu evento será revisado antes de publicarse.",
+    form_submit: "Enviar evento",
     form_loading: "Guardando...",
-    form_success: "Evento guardado correctamente.",
+    form_success: "Tu evento será revisado antes de publicarse.",
     form_error_generic: "No se pudo guardar el evento.",
+    admin_title: "Moderación",
+    admin_subtitle: "Revisa eventos enviados y decide su publicación.",
+    admin_pending_count: "{count} pendientes",
+    admin_no_pending: "No hay envíos pendientes.",
+    admin_submitted_by: "Enviado por",
+    admin_contact: "Contacto",
+    admin_notes: "Nota de revisión",
+    admin_notes_placeholder: "Opcional: motivo / nota",
+    admin_action_approve: "Aprobar",
+    admin_action_reject: "Rechazar",
+    admin_update_success_approved: "Evento aprobado.",
+    admin_update_success_rejected: "Evento rechazado.",
+    admin_update_error: "No se pudo guardar la moderación.",
+    admin_mode_active: "Modo admin activo: se pueden moderar eventos pendientes.",
     form_error_required: "Completa los campos obligatorios.",
+    form_error_email: "Ingresa un correo electrónico válido.",
     form_error_latlng: "Latitud y longitud deben ser números válidos.",
     form_label_name: "Nombre",
     form_label_location_name: "Ubicación",
@@ -342,6 +394,8 @@ const I18N = {
     form_label_genre: "Género",
     form_label_price_text: "Precio",
     form_label_description: "Descripción",
+    form_label_submitted_by: "Enviado por",
+    form_label_contact_email: "Correo de contacto",
     form_label_lat: "Latitud",
     form_label_lng: "Longitud",
     form_placeholder_name: "p. ej. Summer Beats Night",
@@ -385,9 +439,11 @@ const SUPPORTED_LANGUAGES = [
 
 const state = {
   allEvents: [],
+  moderationEvents: [],
   filteredEvents: [],
   selectedEventId: null,
   sourceType: "unknown",
+  isAdminMode: false,
   availableGenres: [],
   availableDates: [],
   activeGenres: new Set(),
@@ -405,10 +461,16 @@ const state = {
 const dom = {
   htmlRoot: document.documentElement,
   languageSwitch: document.getElementById("languageSwitch"),
-  languageSelect: document.getElementById("languageSelect"),
+  submitModal: document.getElementById("submitModal"),
+  openSubmitModal: document.getElementById("openSubmitModal"),
+  closeSubmitModal: document.getElementById("closeSubmitModal"),
   status: document.getElementById("status"),
   eventList: document.getElementById("eventList"),
   eventDetails: document.getElementById("eventDetails"),
+  moderationPanel: document.getElementById("moderationPanel"),
+  moderationCount: document.getElementById("moderationCount"),
+  moderationFeedback: document.getElementById("moderationFeedback"),
+  moderationList: document.getElementById("moderationList"),
   resultCount: document.getElementById("resultCount"),
   filtersForm: document.getElementById("filtersForm"),
   searchInput: document.getElementById("searchInput"),
@@ -417,8 +479,6 @@ const dom = {
   genreFilterGroup: document.getElementById("genreFilterGroup"),
   clearGenresButton: document.getElementById("clearGenresButton"),
   resetFilters: document.getElementById("resetFilters"),
-  eventFormSection: document.getElementById("eventFormSection"),
-  eventFormToggle: document.getElementById("eventFormToggle"),
   eventForm: document.getElementById("eventForm"),
   formFeedback: document.getElementById("formFeedback"),
   formSubmitButton: document.getElementById("formSubmitButton"),
@@ -430,6 +490,8 @@ const dom = {
   formTime: document.getElementById("formTime"),
   formGenre: document.getElementById("formGenre"),
   formPrice: document.getElementById("formPrice"),
+  formSubmittedBy: document.getElementById("formSubmittedBy"),
+  formContactEmail: document.getElementById("formContactEmail"),
   formDescription: document.getElementById("formDescription"),
   formLat: document.getElementById("formLat"),
   formLng: document.getElementById("formLng"),
@@ -489,9 +551,6 @@ function applyStaticTranslations() {
   document.querySelectorAll("[data-i18n-placeholder]").forEach((element) => {
     element.placeholder = t(element.dataset.i18nPlaceholder);
   });
-  if (dom.languageSelect) {
-    dom.languageSelect.value = state.lang;
-  }
   const buildBadge = document.getElementById("buildBadge");
   if (buildBadge) {
     buildBadge.textContent = `Build ${APP_BUILD_VERSION}`;
@@ -500,17 +559,6 @@ function applyStaticTranslations() {
 }
 
 function renderLanguageControls() {
-  if (dom.languageSelect) {
-    dom.languageSelect.innerHTML = "";
-    SUPPORTED_LANGUAGES.forEach((language) => {
-      const option = document.createElement("option");
-      option.value = language.code;
-      option.textContent = language.label;
-      dom.languageSelect.append(option);
-    });
-    dom.languageSelect.value = state.lang;
-  }
-
   if (dom.languageSwitch) {
     dom.languageSwitch.innerHTML = "";
     SUPPORTED_LANGUAGES.forEach((language) => {
@@ -542,6 +590,7 @@ function switchLanguage(nextLangCode) {
     renderEventDetails(null);
   }
   updateDebugPanel();
+  renderModerationPanel();
   updateUrlFromFilters();
 }
 
@@ -573,6 +622,15 @@ function setFormSubmitting(isSubmitting) {
   dom.formSubmitButton.textContent = isSubmitting ? t("form_loading") : t("form_submit");
 }
 
+function setModerationFeedback(message, tone = "info") {
+  if (!dom.moderationFeedback) return;
+  dom.moderationFeedback.hidden = !message;
+  dom.moderationFeedback.textContent = message || "";
+  dom.moderationFeedback.className = "add-event-message";
+  if (message && tone === "error") dom.moderationFeedback.classList.add("is-error");
+  if (message && tone === "success") dom.moderationFeedback.classList.add("is-success");
+}
+
 function updateDebugPanel() {
   if (!dom.debugPanel) return;
   dom.debugPanel.classList.remove("debug-panel--error");
@@ -585,6 +643,18 @@ function updateDebugPanel() {
   }
   if (dom.debugFallbackReason) dom.debugFallbackReason.textContent = state.debug.fallbackReason;
   if (state.debug.hasError) dom.debugPanel.classList.add("debug-panel--error");
+}
+
+function normalizeStatus(statusValue) {
+  const normalized = String(statusValue || "").trim().toLowerCase();
+  if (normalized === "approved") return "approved";
+  if (normalized === "rejected") return "rejected";
+  if (normalized === "pending") return "pending";
+  return "approved";
+}
+
+function isApprovedEvent(event) {
+  return normalizeStatus(event.status) === "approved";
 }
 
 function normalizeEvent(event, index) {
@@ -601,6 +671,10 @@ function normalizeEvent(event, index) {
     price_text: event.price_text || event.price || t("details_free"),
     description: event.description || t("details_no_description"),
     image_url: event.image_url || event.image || "",
+    status: normalizeStatus(event.status),
+    contact_email: event.contact_email || "",
+    submitted_by: event.submitted_by || "",
+    verification_notes: event.verification_notes || "",
     lat: Number.isFinite(lat) ? lat : null,
     lng: Number.isFinite(lng) ? lng : null
   };
@@ -623,6 +697,8 @@ function readFormPayload() {
     event_time: dom.formTime.value,
     genre: dom.formGenre.value.trim(),
     price_text: dom.formPrice.value.trim(),
+    submitted_by: dom.formSubmittedBy.value.trim(),
+    contact_email: dom.formContactEmail.value.trim(),
     description: dom.formDescription.value.trim(),
     lat: parseOptionalNumber(dom.formLat.value),
     lng: parseOptionalNumber(dom.formLng.value)
@@ -636,10 +712,16 @@ function validateFormPayload(payload) {
     payload.city &&
     payload.event_date &&
     payload.genre &&
+    payload.submitted_by &&
+    payload.contact_email &&
     payload.lat !== null &&
     payload.lng !== null;
   if (!requiredFilled) {
     return { valid: false, message: t("form_error_required") };
+  }
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(payload.contact_email)) {
+    return { valid: false, message: t("form_error_email") };
   }
   if (Number.isNaN(payload.lat) || Number.isNaN(payload.lng)) {
     return { valid: false, message: t("form_error_latlng") };
@@ -663,6 +745,10 @@ function buildInsertPayload(payload) {
     genre: payload.genre,
     price_text: payload.price_text || null,
     description: payload.description || null,
+    contact_email: payload.contact_email,
+    submitted_by: payload.submitted_by,
+    status: "pending",
+    verification_notes: null,
     lat: payload.lat,
     lng: payload.lng
   };
@@ -742,6 +828,7 @@ function sourceLabel() {
 }
 
 function sourceTone() {
+  if (state.isAdminMode) return "ok";
   return state.sourceType === "supabase" ? "ok" : "warning";
 }
 
@@ -768,11 +855,16 @@ function readQueryParams() {
     q: params.get("q") || "",
     city: params.get("city") || "",
     date: params.get("date") || "",
+    admin: params.get("admin") || "",
     genres: (params.get("genres") || "")
       .split(",")
       .map((genre) => genre.trim())
       .filter(Boolean)
   };
+}
+
+function resolveAdminMode(queryValue) {
+  return queryValue === "1" || queryValue === "true";
 }
 
 function updateUrlFromFilters() {
@@ -782,6 +874,7 @@ function updateUrlFromFilters() {
   const date = dom.dateFilter.value;
 
   if (state.lang !== "de") params.set("lang", state.lang);
+  if (state.isAdminMode) params.set("admin", "1");
   if (search) params.set("q", search);
   if (city) params.set("city", city);
   if (date) params.set("date", date);
@@ -790,6 +883,46 @@ function updateUrlFromFilters() {
   const queryString = params.toString();
   const nextUrl = queryString ? `${window.location.pathname}?${queryString}` : window.location.pathname;
   window.history.replaceState({}, "", nextUrl);
+}
+
+function renderModerationPanel() {
+  if (!dom.moderationPanel || !dom.moderationList || !dom.moderationCount) return;
+  dom.moderationPanel.hidden = !state.isAdminMode;
+  if (!state.isAdminMode) return;
+
+  const pendingEvents = state.moderationEvents.filter((event) => event.status === "pending");
+  dom.moderationCount.textContent = t("admin_pending_count", { count: pendingEvents.length });
+  dom.moderationList.innerHTML = "";
+
+  if (!pendingEvents.length) {
+    dom.moderationList.innerHTML = `<p class="admin-empty">${t("admin_no_pending")}</p>`;
+    return;
+  }
+
+  pendingEvents.forEach((event) => {
+    const card = document.createElement("article");
+    card.className = "admin-card";
+    card.dataset.eventId = event.id;
+    card.innerHTML = `
+      <h4>${event.name}</h4>
+      <div class="admin-card__meta">
+        <span>${event.location_name}${event.city ? `, ${event.city}` : ""}</span>
+        <span>${formatDateTime(event)}</span>
+        <span>${event.genre || "-"}</span>
+        <span>${t("admin_submitted_by")}: ${event.submitted_by || "-"}</span>
+        <span>${t("admin_contact")}: ${event.contact_email || "-"}</span>
+      </div>
+      <label class="field field--full admin-card__notes">
+        <span>${t("admin_notes")}</span>
+        <textarea data-notes rows="2" placeholder="${t("admin_notes_placeholder")}">${event.verification_notes || ""}</textarea>
+      </label>
+      <div class="admin-card__actions">
+        <button type="button" class="button-secondary button-secondary--approve" data-action="approve">${t("admin_action_approve")}</button>
+        <button type="button" class="button-secondary button-secondary--reject" data-action="reject">${t("admin_action_reject")}</button>
+      </div>
+    `;
+    dom.moderationList.append(card);
+  });
 }
 
 function renderGenreFilter() {
@@ -1063,14 +1196,21 @@ function resetFilters() {
   renderEventDetails(null);
 }
 
-function toggleCreateEventForm() {
-  if (!dom.eventForm) return;
-  const shouldShow = dom.eventForm.hidden;
-  dom.eventForm.hidden = !shouldShow;
-  if (dom.eventFormToggle) {
-    dom.eventFormToggle.textContent = shouldShow ? "−" : t("form_toggle");
-    dom.eventFormToggle.setAttribute("aria-expanded", String(shouldShow));
-  }
+function openSubmitModal() {
+  if (!dom.submitModal) return;
+  dom.submitModal.hidden = false;
+  dom.submitModal.setAttribute("aria-hidden", "false");
+  document.body.classList.add("body--modal-open");
+  window.setTimeout(() => {
+    dom.formName?.focus();
+  }, 0);
+}
+
+function closeSubmitModal() {
+  if (!dom.submitModal) return;
+  dom.submitModal.hidden = true;
+  dom.submitModal.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("body--modal-open");
 }
 
 async function reloadEventsAndRender() {
@@ -1078,6 +1218,7 @@ async function reloadEventsAndRender() {
   updateFilterOptions();
   applyFiltersFromQuery();
   applyFilters();
+  renderModerationPanel();
 }
 
 async function handleCreateEventSubmit(submitEvent) {
@@ -1109,19 +1250,31 @@ async function handleCreateEventSubmit(submitEvent) {
     clearEventForm();
     setFormFeedback(t("form_success"), "success");
     await reloadEventsAndRender();
-
-    const insertedId = data?.id !== undefined && data?.id !== null ? String(data.id) : null;
-    if (insertedId) {
-      selectEvent(insertedId, { flyTo: true, openPopup: true, scrollIntoView: true });
-    } else if (data?.lat !== null && data?.lng !== null) {
-      map.flyTo([data.lat, data.lng], 13, { duration: 0.6 });
-    }
+    window.setTimeout(closeSubmitModal, 1800);
   } catch (error) {
     console.error("Event speichern fehlgeschlagen:", error);
     setFormFeedback(`${t("form_error_generic")} ${error.message || ""}`.trim(), "error");
   } finally {
     setFormSubmitting(false);
   }
+}
+
+async function updateModerationStatus(eventId, nextStatus, verificationNotes) {
+  const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const payload = {
+    status: nextStatus,
+    verification_notes: verificationNotes || null
+  };
+  const { data, error } = await client
+    .from(state.debug.tableName || "events")
+    .update(payload)
+    .eq("id", eventId)
+    .select("*")
+    .single();
+
+  console.log("[PartyRadar Debug] Moderation update data:", data);
+  console.log("[PartyRadar Debug] Moderation update error:", error);
+  if (error) throw new Error(error.message);
 }
 
 function bindEvents() {
@@ -1136,16 +1289,29 @@ function bindEvents() {
       switchLanguage(button.dataset.langSwitch);
     });
   }
-  if (dom.languageSelect) {
-    dom.languageSelect.addEventListener("change", () => {
-      switchLanguage(dom.languageSelect.value);
+  if (dom.openSubmitModal) {
+    dom.openSubmitModal.addEventListener("click", () => {
+      setFormFeedback("");
+      openSubmitModal();
     });
   }
+  if (dom.closeSubmitModal) {
+    dom.closeSubmitModal.addEventListener("click", closeSubmitModal);
+  }
+  if (dom.submitModal) {
+    dom.submitModal.addEventListener("click", (event) => {
+      if (event.target.matches("[data-modal-close]")) {
+        closeSubmitModal();
+      }
+    });
+  }
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && dom.submitModal && !dom.submitModal.hidden) {
+      closeSubmitModal();
+    }
+  });
   dom.resetFilters.addEventListener("click", resetFilters);
   dom.clearGenresButton.addEventListener("click", clearGenreSelection);
-  if (dom.eventFormToggle) {
-    dom.eventFormToggle.addEventListener("click", toggleCreateEventForm);
-  }
 
   dom.genreFilterGroup.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-genre]");
@@ -1162,6 +1328,37 @@ function bindEvents() {
 
   if (dom.eventForm) {
     dom.eventForm.addEventListener("submit", handleCreateEventSubmit);
+  }
+  if (dom.moderationList) {
+    dom.moderationList.addEventListener("click", async (event) => {
+      const actionButton = event.target.closest("button[data-action]");
+      if (!actionButton) return;
+      const action = actionButton.dataset.action;
+      const card = actionButton.closest(".admin-card");
+      if (!card) return;
+      const eventId = card.dataset.eventId;
+      if (!eventId) return;
+
+      const notesInput = card.querySelector("textarea[data-notes]");
+      const verificationNotes = notesInput ? notesInput.value.trim() : "";
+      const nextStatus = action === "approve" ? "approved" : "rejected";
+
+      actionButton.disabled = true;
+      setModerationFeedback("");
+      try {
+        await updateModerationStatus(eventId, nextStatus, verificationNotes);
+        setModerationFeedback(
+          nextStatus === "approved" ? t("admin_update_success_approved") : t("admin_update_success_rejected"),
+          "success"
+        );
+        await reloadEventsAndRender();
+      } catch (error) {
+        console.error("Moderation fehlgeschlagen:", error);
+        setModerationFeedback(`${t("admin_update_error")} ${error.message || ""}`.trim(), "error");
+      } finally {
+        actionButton.disabled = false;
+      }
+    });
   }
 }
 
@@ -1199,6 +1396,7 @@ async function loadEvents() {
 
     if (!data.length) {
       state.allEvents = demoEvents.map(normalizeEvent);
+      state.moderationEvents = [];
       state.sourceType = "demo-no-data";
       state.debug.fallbackReason = t("debug_note_no_data");
       setStatus(t("status_no_data"), "warning");
@@ -1206,14 +1404,20 @@ async function loadEvents() {
       return;
     }
 
-    state.allEvents = data;
+    state.moderationEvents = data;
+    state.allEvents = data.filter(isApprovedEvent);
     state.sourceType = "supabase";
     state.debug.fallbackReason = t("debug_note_supabase");
-    setStatus(t("status_connected", { count: data.length }), "ok");
+    if (state.isAdminMode) {
+      setStatus(t("admin_mode_active"), "ok");
+    } else {
+      setStatus(t("status_connected", { count: state.allEvents.length }), "ok");
+    }
     updateDebugPanel();
   } catch (error) {
     console.error("Supabase Fehler:", error);
     state.allEvents = demoEvents.map(normalizeEvent);
+    state.moderationEvents = [];
     state.sourceType = "demo-error";
     state.debug.hasError = true;
     state.debug.errorMessage = error.message;
@@ -1227,6 +1431,7 @@ async function startApp() {
   const query = readQueryParams();
   const requestedLang = resolveLanguage(query.lang);
   state.lang = query.lang ? requestedLang : resolveLanguageFromBrowser(requestedLang);
+  state.isAdminMode = resolveAdminMode(query.admin);
   applyStaticTranslations();
   renderEventDetails(null);
 
@@ -1236,6 +1441,7 @@ async function startApp() {
   updateFilterOptions();
   applyFiltersFromQuery();
   applyFilters();
+  renderModerationPanel();
 }
 
 startApp();
