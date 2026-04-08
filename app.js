@@ -1,6 +1,10 @@
 const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
-const APP_BUILD_VERSION = "2026.04.08-3";
+const APP_BUILD_VERSION = "2026.04.08-4";
+const ADMIN_ALLOWED_EMAILS = [
+  // Add real admin emails here (lowercase)
+  "admin@example.com"
+];
 
 window.PARTYRADAR_CACHE_BUSTER = APP_BUILD_VERSION;
 
@@ -166,6 +170,17 @@ const I18N = {
     admin_update_success_rejected: "Event wurde abgelehnt.",
     admin_update_error: "Moderation konnte nicht gespeichert werden.",
     admin_mode_active: "Admin-Modus aktiv: pending Events können moderiert werden.",
+    admin_login_title: "Admin Login",
+    admin_login_hint: "Mit deiner Admin-E-Mail anmelden, um Events zu moderieren.",
+    admin_login_email_label: "Admin E-Mail",
+    admin_login_email_placeholder: "z. B. admin@deinedomain.com",
+    admin_login_submit: "Login-Link senden",
+    admin_logout: "Abmelden",
+    admin_auth_required: "Admin-Authentifizierung erforderlich.",
+    admin_logged_in_as: "Angemeldet als {email}",
+    admin_login_sent: "Login-Link wurde versendet. Bitte E-Mail prüfen.",
+    admin_login_error: "Login konnte nicht gestartet werden.",
+    admin_session_error: "Admin-Session konnte nicht geprüft werden.",
     form_error_required: "Bitte Pflichtfelder ausfüllen.",
     form_error_email: "Bitte eine gültige E-Mail-Adresse angeben.",
     form_error_latlng: "Latitude und Longitude müssen gültige Zahlen sein.",
@@ -274,6 +289,17 @@ const I18N = {
     admin_update_success_rejected: "Event rejected.",
     admin_update_error: "Moderation update failed.",
     admin_mode_active: "Admin mode active: pending events can be moderated.",
+    admin_login_title: "Admin login",
+    admin_login_hint: "Sign in with your admin email to moderate events.",
+    admin_login_email_label: "Admin email",
+    admin_login_email_placeholder: "e.g. admin@yourdomain.com",
+    admin_login_submit: "Send login link",
+    admin_logout: "Logout",
+    admin_auth_required: "Admin authentication required.",
+    admin_logged_in_as: "Logged in as {email}",
+    admin_login_sent: "Login link sent. Please check your inbox.",
+    admin_login_error: "Could not start login.",
+    admin_session_error: "Could not validate admin session.",
     form_error_required: "Please fill in required fields.",
     form_error_email: "Please enter a valid email address.",
     form_error_latlng: "Latitude and longitude must be valid numbers.",
@@ -382,6 +408,17 @@ const I18N = {
     admin_update_success_rejected: "Evento rechazado.",
     admin_update_error: "No se pudo guardar la moderación.",
     admin_mode_active: "Modo admin activo: se pueden moderar eventos pendientes.",
+    admin_login_title: "Acceso admin",
+    admin_login_hint: "Inicia sesión con tu correo admin para moderar eventos.",
+    admin_login_email_label: "Correo admin",
+    admin_login_email_placeholder: "p. ej. admin@tudominio.com",
+    admin_login_submit: "Enviar enlace de acceso",
+    admin_logout: "Cerrar sesión",
+    admin_auth_required: "Se requiere autenticación de admin.",
+    admin_logged_in_as: "Conectado como {email}",
+    admin_login_sent: "Enlace enviado. Revisa tu correo.",
+    admin_login_error: "No se pudo iniciar el acceso.",
+    admin_session_error: "No se pudo validar la sesión de admin.",
     form_error_required: "Completa los campos obligatorios.",
     form_error_email: "Ingresa un correo electrónico válido.",
     form_error_latlng: "Latitud y longitud deben ser números válidos.",
@@ -442,6 +479,7 @@ const state = {
   moderationEvents: [],
   filteredEvents: [],
   selectedEventId: null,
+  adminSession: null,
   sourceType: "unknown",
   isAdminMode: false,
   availableGenres: [],
@@ -468,6 +506,13 @@ const dom = {
   eventList: document.getElementById("eventList"),
   eventDetails: document.getElementById("eventDetails"),
   moderationPanel: document.getElementById("moderationPanel"),
+  adminAuthGate: document.getElementById("adminAuthGate"),
+  adminAuthFeedback: document.getElementById("adminAuthFeedback"),
+  adminAuthEmail: document.getElementById("adminAuthEmail"),
+  adminAuthForm: document.getElementById("adminAuthForm"),
+  adminSignOut: document.getElementById("adminSignOut"),
+  moderationWorkspace: document.getElementById("moderationWorkspace"),
+  adminSessionInfo: document.getElementById("adminSessionInfo"),
   moderationCount: document.getElementById("moderationCount"),
   moderationFeedback: document.getElementById("moderationFeedback"),
   moderationList: document.getElementById("moderationList"),
@@ -629,6 +674,15 @@ function setModerationFeedback(message, tone = "info") {
   dom.moderationFeedback.className = "add-event-message";
   if (message && tone === "error") dom.moderationFeedback.classList.add("is-error");
   if (message && tone === "success") dom.moderationFeedback.classList.add("is-success");
+}
+
+function setAdminAuthFeedback(message, tone = "info") {
+  if (!dom.adminAuthFeedback) return;
+  dom.adminAuthFeedback.hidden = !message;
+  dom.adminAuthFeedback.textContent = message || "";
+  dom.adminAuthFeedback.className = "add-event-message";
+  if (message && tone === "error") dom.adminAuthFeedback.classList.add("is-error");
+  if (message && tone === "success") dom.adminAuthFeedback.classList.add("is-success");
 }
 
 function updateDebugPanel() {
@@ -885,10 +939,67 @@ function updateUrlFromFilters() {
   window.history.replaceState({}, "", nextUrl);
 }
 
+function supabaseClient() {
+  return window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+}
+
+function isSessionAdmin(session) {
+  const email = String(session?.user?.email || "").toLowerCase();
+  if (!email) return false;
+  return ADMIN_ALLOWED_EMAILS.includes(email);
+}
+
+function renderAdminAuthState(session) {
+  const adminEnabled = state.isAdminMode;
+  const isAuthedAdmin = isSessionAdmin(session);
+  if (dom.moderationPanel) {
+    dom.moderationPanel.hidden = !adminEnabled;
+  }
+  if (dom.adminAuthGate) {
+    dom.adminAuthGate.hidden = isAuthedAdmin || !adminEnabled;
+  }
+  if (dom.moderationWorkspace) {
+    dom.moderationWorkspace.hidden = !isAuthedAdmin || !adminEnabled;
+  }
+  if (dom.adminSignOut) {
+    dom.adminSignOut.hidden = !isAuthedAdmin;
+  }
+  if (dom.adminAuthForm) {
+    dom.adminAuthForm.hidden = isAuthedAdmin;
+  }
+  if (dom.adminSessionInfo) {
+    dom.adminSessionInfo.textContent = isAuthedAdmin
+      ? t("admin_logged_in_as", { email: session.user.email || "-" })
+      : t("admin_auth_required");
+  }
+}
+
+async function checkAdminSession() {
+  if (!state.isAdminMode) return null;
+  try {
+    const client = supabaseClient();
+    const { data, error } = await client.auth.getSession();
+    if (error) throw error;
+    const session = data?.session || null;
+    state.adminSession = session;
+    renderAdminAuthState(session);
+    if (!isSessionAdmin(session)) {
+      state.moderationEvents = [];
+      renderModerationPanel();
+    }
+    return session;
+  } catch (error) {
+    console.error("Admin session check failed:", error);
+    state.adminSession = null;
+    renderAdminAuthState(null);
+    setAdminAuthFeedback(t("admin_session_error"), "error");
+    return null;
+  }
+}
+
 function renderModerationPanel() {
   if (!dom.moderationPanel || !dom.moderationList || !dom.moderationCount) return;
-  dom.moderationPanel.hidden = !state.isAdminMode;
-  if (!state.isAdminMode) return;
+  if (!state.isAdminMode || !isSessionAdmin(state.adminSession)) return;
 
   const pendingEvents = state.moderationEvents.filter((event) => event.status === "pending");
   dom.moderationCount.textContent = t("admin_pending_count", { count: pendingEvents.length });
@@ -1214,6 +1325,7 @@ function closeSubmitModal() {
 }
 
 async function reloadEventsAndRender() {
+  await checkAdminSession();
   await loadEvents();
   updateFilterOptions();
   applyFiltersFromQuery();
@@ -1260,7 +1372,11 @@ async function handleCreateEventSubmit(submitEvent) {
 }
 
 async function updateModerationStatus(eventId, nextStatus, verificationNotes) {
-  const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const session = await checkAdminSession();
+  if (!isSessionAdmin(session)) {
+    throw new Error(t("admin_auth_required"));
+  }
+  const client = supabaseClient();
   const payload = {
     status: nextStatus,
     verification_notes: verificationNotes || null
@@ -1333,6 +1449,47 @@ function bindEvents() {
   if (dom.eventForm) {
     dom.eventForm.addEventListener("submit", handleCreateEventSubmit);
   }
+  if (dom.adminAuthForm) {
+    dom.adminAuthForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!dom.adminAuthEmail) return;
+      const email = dom.adminAuthEmail.value.trim().toLowerCase();
+      if (!email) return;
+      setAdminAuthFeedback("");
+      try {
+        const client = supabaseClient();
+        const { error } = await client.auth.signInWithOtp({
+          email,
+          options: {
+            emailRedirectTo: window.location.href
+          }
+        });
+        if (error) throw error;
+        setAdminAuthFeedback(t("admin_login_sent"), "success");
+      } catch (error) {
+        console.error("Admin login failed:", error);
+        setAdminAuthFeedback(
+          `${t("admin_login_error")} ${error?.message || ""}`.trim(),
+          "error"
+        );
+      }
+    });
+  }
+  if (dom.adminSignOut) {
+    dom.adminSignOut.addEventListener("click", async () => {
+      try {
+        const client = supabaseClient();
+        await client.auth.signOut();
+        state.adminSession = null;
+        setAdminAuthFeedback("");
+        setModerationFeedback("");
+        renderAdminAuthState(null);
+        renderModerationPanel();
+      } catch (error) {
+        console.error("Admin logout failed:", error);
+      }
+    });
+  }
   if (dom.moderationList) {
     dom.moderationList.addEventListener("click", async (event) => {
       const actionButton = event.target.closest("button[data-action]");
@@ -1374,7 +1531,7 @@ async function fetchEventsFromSupabase() {
     throw new Error("Supabase-Anon-Key fehlt. Bitte in app.js eintragen.");
   }
 
-  const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const client = supabaseClient();
   const tableName = state.debug.tableName || "events";
   const { data, error } = await client.from(tableName).select("*").order("event_date", { ascending: true });
 
@@ -1408,11 +1565,11 @@ async function loadEvents() {
       return;
     }
 
-    state.moderationEvents = data;
+    state.moderationEvents = isSessionAdmin(state.adminSession) ? data : [];
     state.allEvents = data.filter(isApprovedEvent);
     state.sourceType = "supabase";
     state.debug.fallbackReason = t("debug_note_supabase");
-    if (state.isAdminMode) {
+    if (state.isAdminMode && isSessionAdmin(state.adminSession)) {
       setStatus(t("admin_mode_active"), "ok");
     } else {
       setStatus(t("status_connected", { count: state.allEvents.length }), "ok");
@@ -1437,10 +1594,12 @@ async function startApp() {
   state.lang = query.lang ? requestedLang : resolveLanguageFromBrowser(requestedLang);
   state.isAdminMode = resolveAdminMode(query.admin);
   applyStaticTranslations();
+  renderAdminAuthState(null);
   renderEventDetails(null);
 
   initMap();
   bindEvents();
+  await checkAdminSession();
   await loadEvents();
   updateFilterOptions();
   applyFiltersFromQuery();
