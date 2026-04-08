@@ -54,6 +54,7 @@ If `mapbox` is selected but no token is configured, geocoding falls back gracefu
 1. Open Supabase project SQL editor
 2. Paste and run `supabase-rls.sql`
 3. Ensure moderator users have `app_metadata.role = 'admin'`
+4. If your table is older and missing columns like `status`, run the same script: it now bootstraps required columns before creating policies
 
 ### If event submit fails with RLS
 
