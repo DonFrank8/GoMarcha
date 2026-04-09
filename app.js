@@ -771,6 +771,9 @@ function getLocale() {
 function setStatus(message, tone = "loading") {
   dom.status.className = `status status--${tone}`;
   dom.status.textContent = message;
+  if (dom.sidebar) {
+    dom.sidebar.classList.toggle("is-loading-cards", tone === "loading");
+  }
 }
 
 function setResultCount(count) {
@@ -2042,6 +2045,10 @@ function renderEventDetails(event) {
       <p>${event.description || t("details_no_description")}</p>
     </article>
   `;
+  dom.eventDetails.classList.remove("event-details--animate-in");
+  window.requestAnimationFrame(() => {
+    dom.eventDetails.classList.add("event-details--animate-in");
+  });
 }
 
 function selectEvent(eventId, options = { flyTo: false, openPopup: false, scrollIntoView: false }) {
