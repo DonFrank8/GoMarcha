@@ -13,6 +13,7 @@ const EVENT_IMAGES_BUCKET = "event-images";
 const MAX_EVENT_IMAGE_BYTES = 5 * 1024 * 1024;
 const ALLOWED_EVENT_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const DEFAULT_NAVIGATION_PROVIDER = "google";
+const FAVORITES_STORAGE_KEY = "vibeon_event_favorites";
 const SUBMITTER_PROFILE_STORAGE_KEY = "vibeon.submitterProfile.v1";
 
 window.PARTYRADAR_CACHE_BUSTER = APP_BUILD_VERSION;
@@ -597,6 +598,7 @@ const state = {
   availableGenres: [],
   availableDates: [],
   activeGenres: new Set(),
+  favoriteEventIds: new Set(),
   lang: "de",
   debug: {
     enabled: true,
@@ -1339,6 +1341,38 @@ function splitGenres(value) {
     .filter(Boolean);
 }
 
+function loadFavoriteEventIds() {
+  try {
+    const raw = window.localStorage.getItem(FAVORITES_STORAGE_KEY);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(parsed.map((item) => String(item)));
+  } catch (_error) {
+    return new Set();
+  }
+}
+
+function persistFavoriteEventIds() {
+  try {
+    window.localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify([...state.favoriteEventIds]));
+  } catch (_error) {
+    // Ignore storage errors to keep the UI usable.
+  }
+}
+
+function isFavoriteEvent(eventId) {
+  return state.favoriteEventIds.has(String(eventId));
+}
+
+function toggleFavoriteEvent(eventId) {
+  const id = String(eventId);
+  if (state.favoriteEventIds.has(id)) state.favoriteEventIds.delete(id);
+  else state.favoriteEventIds.add(id);
+  persistFavoriteEventIds();
+  return state.favoriteEventIds.has(id);
+}
+
 function sortGenres(genres) {
   return [...genres].sort((a, b) => {
     const ai = GENRE_ORDER.indexOf(a);
@@ -1779,34 +1813,63 @@ function createEventCard(event) {
   card.className = "event-card";
   card.dataset.eventId = event.id;
   const navigationUrl = buildNavigationUrl(event);
+  const primaryGenre = splitGenres(event.genre)[0] || event.genre || "-";
+  const favoriteActive = isFavoriteEvent(event.id);
   card.innerHTML = `
-    <div class="event-card__header">
-      <h4>${event.name}</h4>
-      <span>${event.genre || "-"}</span>
-    </div>
-    <div class="event-card__meta">
-      <span>${formatEventPlace(event)}</span>
-      <span>${formatDateTime(event)}</span>
-      <span>${formatPrice(event.price_text)}</span>
-    </div>
-    <div class="event-card__actions">
+    <div class="event-card__media">
+      ${
+        event.image_url
+          ? `<img class="event-card__image" src="${event.image_url}" alt="${event.name}" loading="lazy">`
+          : `<div class="event-card__image-fallback" aria-hidden="true"><span>${iconForGenre(primaryGenre)}</span></div>`
+      }
+      <div class="event-card__overlay"></div>
+      <span class="event-card__genre-badge">${primaryGenre}</span>
       <button
         type="button"
-        class="button-secondary button-secondary--primary event-card__navigate"
-        data-action="navigate-from-list"
-        ${navigationUrl ? "" : "disabled"}
+        class="event-card__favorite ${favoriteActive ? "is-active" : ""}"
+        data-action="favorite-toggle"
+        aria-label="Favorite event"
+        aria-pressed="${favoriteActive ? "true" : "false"}"
       >
-        ${t("details_navigate")}
+        ❤
       </button>
+    </div>
+    <div class="event-card__body">
+      <h4 class="event-card__title">${event.name}</h4>
+      <p class="event-card__location">${formatEventPlace(event)}</p>
+      <p class="event-card__datetime">${formatDateTime(event)}</p>
+      <div class="event-card__chips">
+        <span class="event-card__chip">${primaryGenre}</span>
+        <span class="event-card__chip event-card__chip--price">${formatPrice(event.price_text)}</span>
+      </div>
+      <div class="event-card__actions">
+        <button
+          type="button"
+          class="button-secondary button-secondary--primary event-card__navigate"
+          data-action="navigate-from-list"
+          ${navigationUrl ? "" : "disabled"}
+        >
+          ${t("details_navigate")}
+        </button>
+      </div>
     </div>
   `;
   card.addEventListener("click", (clickEvent) => {
     const target = clickEvent.target instanceof Element ? clickEvent.target : null;
     const navigateButton = target?.closest("button[data-action='navigate-from-list']");
+    const favoriteButton = target?.closest("button[data-action='favorite-toggle']");
     if (navigateButton) {
       clickEvent.preventDefault();
       clickEvent.stopPropagation();
       openNavigationForEvent(event);
+      return;
+    }
+    if (favoriteButton) {
+      clickEvent.preventDefault();
+      clickEvent.stopPropagation();
+      const isFavorite = toggleFavoriteEvent(event.id);
+      favoriteButton.classList.toggle("is-active", isFavorite);
+      favoriteButton.setAttribute("aria-pressed", String(isFavorite));
       return;
     }
 
@@ -2387,6 +2450,7 @@ async function loadEvents() {
 }
 
 async function startApp() {
+  state.favoriteEventIds = loadFavoriteEventIds();
   const query = readQueryParams();
   const requestedLang = resolveLanguage(query.lang);
   state.lang = query.lang ? requestedLang : resolveLanguageFromBrowser(requestedLang);
