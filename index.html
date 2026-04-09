@@ -271,8 +271,11 @@
               <input name="genre" id="formGenre" type="text" required>
             </label>
             <label class="field">
-              <span data-i18n="form_label_price_text">Preistext</span>
-              <input name="price_text" id="formPrice" type="text" placeholder="z.B. 25 EUR">
+              <span data-i18n="form_label_price_text">Preis (EUR)</span>
+              <input name="price_text" id="formPrice" type="text" data-i18n-placeholder="form_placeholder_price_text" placeholder="z. B. 25 EUR">
+              <small class="field__hint field__hint--currency" data-i18n="form_hint_price_eur">
+                Bitte Betrag in Euro angeben, z. B. 25 oder 25 EUR.
+              </small>
             </label>
           </div>
           <label class="field field--full">

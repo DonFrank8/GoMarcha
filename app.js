@@ -246,12 +246,13 @@ const I18N = {
     form_label_event_date: "Datum",
     form_label_event_time: "Uhrzeit",
     form_label_genre: "Genre",
-    form_label_price_text: "Preis",
+    form_label_price_text: "Preis (EUR)",
     form_label_description: "Beschreibung",
     form_label_main_image: "Hauptbild (optional)",
     form_label_submitted_by: "Dein Name (Einreicher)",
     form_label_contact_email: "Kontakt E-Mail",
     form_hint_main_image: "1 Bild (JPG/PNG/WebP), max. 5 MB",
+    form_hint_price_eur: "Bitte Betrag in Euro angeben, z. B. 25 oder 25 EUR.",
     form_placeholder_name: "z. B. Summer Beats Night",
     form_placeholder_location_name: "z. B. Beach Club",
     form_placeholder_address: "z. B. Paseo Marítimo 1",
@@ -391,12 +392,13 @@ const I18N = {
     form_label_event_date: "Date",
     form_label_event_time: "Time",
     form_label_genre: "Genre",
-    form_label_price_text: "Price",
+    form_label_price_text: "Price (EUR)",
     form_label_description: "Description",
     form_label_main_image: "Main image (optional)",
     form_label_submitted_by: "Your Name (Submitter)",
     form_label_contact_email: "Contact email",
     form_hint_main_image: "1 image (JPG/PNG/WebP), max. 5 MB",
+    form_hint_price_eur: "Please enter amount in euros, e.g. 25 or 25 EUR.",
     form_placeholder_name: "e.g. Summer Beats Night",
     form_placeholder_location_name: "e.g. Beach Club",
     form_placeholder_address: "e.g. Paseo Maritimo 1",
@@ -536,12 +538,13 @@ const I18N = {
     form_label_event_date: "Fecha",
     form_label_event_time: "Hora",
     form_label_genre: "Género",
-    form_label_price_text: "Precio",
+    form_label_price_text: "Precio (EUR)",
     form_label_description: "Descripción",
     form_label_main_image: "Imagen principal (opcional)",
     form_label_submitted_by: "Tu nombre (remitente)",
     form_label_contact_email: "Correo de contacto",
     form_hint_main_image: "1 imagen (JPG/PNG/WebP), máx. 5 MB",
+    form_hint_price_eur: "Introduce el importe en euros, p. ej. 25 o 25 EUR.",
     form_placeholder_name: "p. ej. Summer Beats Night",
     form_placeholder_location_name: "p. ej. Beach Club",
     form_placeholder_address: "p. ej. Paseo Marítimo 1",
@@ -878,6 +881,14 @@ function normalizeEvent(event, index) {
 }
 
 function readFormPayload() {
+  const normalizePriceText = (rawValue) => {
+    const raw = String(rawValue || "").trim();
+    if (!raw) return "";
+    if (/(€|\beur\b)/i.test(raw)) return raw;
+    if (/[a-zA-Z]/.test(raw)) return raw;
+    return `${raw} EUR`;
+  };
+
   return {
     name: dom.formName.value.trim(),
     location_name: dom.formLocationName.value.trim(),
@@ -888,7 +899,7 @@ function readFormPayload() {
     event_date: dom.formDate.value,
     event_time: dom.formTime.value,
     genre: dom.formGenre.value.trim(),
-    price_text: dom.formPrice.value.trim(),
+    price_text: normalizePriceText(dom.formPrice.value),
     main_image: dom.formMainImage?.files?.[0] || null,
     submitted_by: dom.formSubmittedBy.value.trim(),
     contact_email: dom.formContactEmail.value.trim(),
