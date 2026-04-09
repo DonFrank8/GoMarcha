@@ -134,8 +134,8 @@ const NAVIGATION_URL_BUILDERS = {
 
 const I18N = {
   de: {
-    hero_title: "Finde deinen Vibe.",
-    hero_subtitle: "Live-Musik, Beach Vibes und echte Events in deiner Nähe.",
+    hero_title: "Entdecke, wo dein Vibe passiert.",
+    hero_subtitle: "Live Musik, Beach Vibes und echte Events in deiner Nähe.",
     hero_chip_fallback: "Live-Momente entdecken",
     hero_chip_vibe: "Live Music • Beach • Lifestyle",
     hero_search_label: "Suche",
@@ -280,7 +280,7 @@ const I18N = {
     create_submit: "Speichern"
   },
   en: {
-    hero_title: "Find your vibe.",
+    hero_title: "Find where your vibe lives.",
     hero_subtitle: "Live music, beach vibes and real events near you.",
     hero_chip_fallback: "Discover live moments",
     hero_chip_vibe: "Live Music • Beach • Lifestyle",
@@ -426,7 +426,7 @@ const I18N = {
     create_submit: "Save"
   },
   es: {
-    hero_title: "Encuentra tu vibe.",
+    hero_title: "Descubre dónde está tu vibe.",
     hero_subtitle: "Música en vivo, beach vibes y eventos reales cerca de ti.",
     hero_chip_fallback: "Descubre momentos en vivo",
     hero_chip_vibe: "Live Music • Beach • Lifestyle",
