@@ -659,12 +659,7 @@ const dom = {
   formMainImage: document.getElementById("formMainImage"),
   formSubmittedBy: document.getElementById("formSubmittedBy"),
   formContactEmail: document.getElementById("formContactEmail"),
-  formDescription: document.getElementById("formDescription"),
-  debugPanel: document.getElementById("debugPanel"),
-  debugLoadedCount: document.getElementById("debugLoadedCount"),
-  debugErrorState: document.getElementById("debugErrorState"),
-  debugTableName: document.getElementById("debugTableName"),
-  debugFallbackReason: document.getElementById("debugFallbackReason")
+  formDescription: document.getElementById("formDescription")
 };
 
 let map;
@@ -817,19 +812,7 @@ function setAdminAuthFeedback(message, tone = "info") {
   if (message && tone === "success") dom.adminAuthFeedback.classList.add("is-success");
 }
 
-function updateDebugPanel() {
-  if (!dom.debugPanel) return;
-  dom.debugPanel.classList.remove("debug-panel--error");
-  if (dom.debugTableName) dom.debugTableName.textContent = state.debug.tableName;
-  if (dom.debugLoadedCount) dom.debugLoadedCount.textContent = String(state.debug.supabaseLoadedCount);
-  if (dom.debugErrorState) {
-    dom.debugErrorState.textContent = state.debug.hasError
-      ? `Ja - ${state.debug.errorMessage}`
-      : t("debug_no_error");
-  }
-  if (dom.debugFallbackReason) dom.debugFallbackReason.textContent = state.debug.fallbackReason;
-  if (state.debug.hasError) dom.debugPanel.classList.add("debug-panel--error");
-}
+function updateDebugPanel() {}
 
 function normalizeStatus(statusValue) {
   const normalized = String(statusValue || "").trim().toLowerCase();

@@ -959,38 +959,6 @@ body.body--modal-open {
   font-size: 0.9rem;
 }
 
-.debug-panel summary {
-  cursor: pointer;
-  color: #cfddff;
-  font-size: 0.9rem;
-}
-
-.debug-panel[open] summary {
-  margin-bottom: 0.45rem;
-}
-
-.debug-panel--error {
-  border-color: rgba(255, 190, 102, 0.84);
-}
-
-.debug-box {
-  border: 1px dashed rgba(166, 188, 236, 0.4);
-  border-radius: 11px;
-  background: rgba(255, 255, 255, 0.015);
-  padding: 0.68rem 0.75rem;
-}
-
-.debug-box p {
-  margin: 0.25rem 0;
-  color: var(--text-muted);
-  font-size: 0.81rem;
-  overflow-wrap: anywhere;
-}
-
-.debug-box strong {
-  color: #dfe8ff;
-}
-
 .map-section {
   overflow: hidden;
   min-height: 430px;
