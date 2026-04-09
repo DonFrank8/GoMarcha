@@ -78,12 +78,22 @@ body {
 
 .brand-logo {
   display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 28px;
   height: 28px;
   border-radius: 10px;
+  overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.24);
-  background: linear-gradient(140deg, rgba(156, 91, 255, 0.42), rgba(50, 167, 255, 0.35));
+  background: rgba(9, 12, 22, 0.85);
   box-shadow: var(--glow-purple);
+}
+
+.brand-logo img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
 }
 
 .admin-header__eyebrow {

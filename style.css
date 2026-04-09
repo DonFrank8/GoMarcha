@@ -148,16 +148,24 @@ body.body--modal-open {
   border: 1px solid rgba(255, 255, 255, 0.2);
   background: linear-gradient(140deg, rgba(156, 91, 255, 0.38), rgba(50, 167, 255, 0.35));
   box-shadow: var(--glow-purple);
+  overflow: hidden;
 }
 
 .brand-logo--full {
-  width: 34px;
+  width: 140px;
   height: 34px;
 }
 
 .brand-logo--icon {
   width: 28px;
   height: 28px;
+}
+
+.brand-logo img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
 }
 
 .hero__eyebrow {

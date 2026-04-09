@@ -1,0 +1,19 @@
+<svg width="220" height="58" viewBox="0 0 220 58" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="vibeonLogoFullTitle vibeonLogoFullDesc">
+  <title id="vibeonLogoFullTitle">VIBEON logo placeholder</title>
+  <desc id="vibeonLogoFullDesc">Temporary VIBEON full wordmark logo. Replace this file with final brand asset when available.</desc>
+  <defs>
+    <linearGradient id="vibeonFullGradient" x1="8" y1="8" x2="52" y2="52" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#9C5BFF"/>
+      <stop offset="0.55" stop-color="#32A7FF"/>
+      <stop offset="1" stop-color="#FF8A3D"/>
+    </linearGradient>
+  </defs>
+  <rect x="1" y="1" width="56" height="56" rx="16" fill="#0A0B16" stroke="#7E92FF" stroke-opacity="0.35"/>
+  <path d="M13 15L21 43L29 20L37 43L45 15" stroke="url(#vibeonFullGradient)" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M66 40V18H72L80 33L88 18H94V40H88V29.5L83 38H77L72 29.5V40H66Z" fill="#F4F7FF"/>
+  <path d="M99 40V18H116V23H105V27H115V31.8H105V35H116V40H99Z" fill="#F4F7FF"/>
+  <path d="M120 40V18H130.6C135.8 18 139.6 21.1 139.6 29C139.6 36.9 135.8 40 130.6 40H120ZM126 35H130.1C133.2 35 134.2 33.1 134.2 29C134.2 24.9 133.2 23 130.1 23H126V35Z" fill="#F4F7FF"/>
+  <path d="M143.4 40V18H149.4V40H143.4Z" fill="#F4F7FF"/>
+  <path d="M153 29C153 21.9 157.1 17.6 163.8 17.6C170.5 17.6 174.6 21.9 174.6 29C174.6 36.1 170.5 40.4 163.8 40.4C157.1 40.4 153 36.1 153 29ZM159.2 29C159.2 33.4 160.8 35.3 163.8 35.3C166.8 35.3 168.4 33.4 168.4 29C168.4 24.6 166.8 22.7 163.8 22.7C160.8 22.7 159.2 24.6 159.2 29Z" fill="#F4F7FF"/>
+  <path d="M178.2 40V18H183.9L194.6 31.4V18H200.4V40H194.8L184 26.7V40H178.2Z" fill="#F4F7FF"/>
+</svg>
