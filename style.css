@@ -30,6 +30,9 @@
   --space-md: 1rem;
   --space-lg: 1.4rem;
   --space-xl: 1.8rem;
+  --motion-fast: 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+  --motion-base: 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+  --motion-slow: 0.36s cubic-bezier(0.22, 1, 0.36, 1);
   --glow-purple: 0 0 0 1px rgba(156, 91, 255, 0.38), 0 10px 26px rgba(130, 70, 255, 0.3);
   --glow-blue: 0 0 0 1px rgba(50, 167, 255, 0.35), 0 10px 26px rgba(29, 109, 255, 0.28);
   --shadow: 0 24px 60px rgba(3, 5, 14, 0.62);
@@ -641,6 +644,10 @@ body.body--modal-open {
     0 14px 26px rgba(2, 5, 15, 0.52);
 }
 
+.event-card:active {
+  transform: translateY(-2px) scale(0.998);
+}
+
 .event-card--active {
   border-color: rgba(50, 167, 255, 0.92);
   box-shadow:
@@ -648,6 +655,26 @@ body.body--modal-open {
     0 0 0 3px rgba(50, 167, 255, 0.24),
     0 0 28px rgba(50, 167, 255, 0.24),
     0 14px 30px rgba(2, 5, 15, 0.58);
+}
+
+.event-card--enter {
+  opacity: 0;
+  transform: translateY(10px) scale(0.99);
+}
+
+.event-card--enter.is-ready {
+  animation: cardFadeInUp var(--motion-slow) both;
+}
+
+@keyframes cardFadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .event-card__media {
@@ -714,7 +741,26 @@ body.body--modal-open {
   align-items: center;
   justify-content: center;
   box-shadow: 0 6px 14px rgba(0, 0, 0, 0.35);
-  pointer-events: none;
+  pointer-events: auto;
+  cursor: pointer;
+  transition: transform var(--motion-fast), background var(--motion-fast), color var(--motion-fast), box-shadow var(--motion-fast);
+}
+
+.event-card__favorite:hover {
+  transform: scale(1.08);
+  color: #ff86ba;
+}
+
+.event-card__favorite:active {
+  transform: scale(0.92);
+}
+
+.event-card__favorite.is-active {
+  color: #ff6fae;
+  background: rgba(35, 12, 28, 0.86);
+  box-shadow:
+    0 0 0 1px rgba(255, 113, 173, 0.56) inset,
+    0 8px 18px rgba(255, 92, 164, 0.26);
 }
 
 .event-card__body {
@@ -794,6 +840,10 @@ body.body--modal-open {
 
 .event-card__navigate:hover:not(:disabled) {
   transform: translateY(-1px);
+}
+
+.event-card__navigate:active:not(:disabled) {
+  transform: translateY(0) scale(0.992);
 }
 
 .event-list__empty {
@@ -1519,5 +1569,16 @@ body.body--modal-open {
   .modal__dialog {
     padding: 0.8rem;
     border-radius: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

@@ -1808,10 +1808,11 @@ function applyFilters() {
   updateUrlFromFilters();
 }
 
-function createEventCard(event) {
+function createEventCard(event, index = 0) {
   const card = document.createElement("article");
   card.className = "event-card";
   card.dataset.eventId = event.id;
+  card.style.setProperty("--card-index", String(index));
   const navigationUrl = buildNavigationUrl(event);
   const primaryGenre = splitGenres(event.genre)[0] || event.genre || "-";
   const favoriteActive = isFavoriteEvent(event.id);
@@ -1870,6 +1871,8 @@ function createEventCard(event) {
       const isFavorite = toggleFavoriteEvent(event.id);
       favoriteButton.classList.toggle("is-active", isFavorite);
       favoriteButton.setAttribute("aria-pressed", String(isFavorite));
+      favoriteButton.classList.remove("is-burst");
+      window.requestAnimationFrame(() => favoriteButton.classList.add("is-burst"));
       return;
     }
 
@@ -1889,10 +1892,11 @@ function renderEventList() {
     return;
   }
 
-  state.filteredEvents.forEach((event) => {
-    const card = createEventCard(event);
+  state.filteredEvents.forEach((event, index) => {
+    const card = createEventCard(event, index);
     if (event.id === state.selectedEventId) card.classList.add("event-card--active");
     dom.eventList.append(card);
+    window.requestAnimationFrame(() => card.classList.add("is-ready"));
   });
 }
 
