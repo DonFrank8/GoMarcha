@@ -141,7 +141,7 @@ const I18N = {
     hero_chip_vibe: "Live Music • Beach • Lifestyle",
     hero_search_label: "Suche",
     hero_search_placeholder: "Suche Events, Bands oder Locations",
-    discover_title: "VIBES entdecken",
+    discover_title: "Events entdecken",
     discover_subtitle: "Suche nach Events, Bands, DJs und Locations in deiner Nähe.",
     filter_search: "Suche",
     filter_search_placeholder: "Suche Events, Bands oder Locations...",
