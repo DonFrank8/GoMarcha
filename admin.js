@@ -130,7 +130,7 @@ function formatDate(dateValue) {
 }
 
 function formatDateTime(event) {
-  return `${formatDate(event.event_date)} ${event.event_time || "TBD"}`.trim();
+  return `${formatDate(event.event_date)} ${event.event_time || "tbd"}`.trim();
 }
 
 function eventPlace(event) {
@@ -141,6 +141,12 @@ function statusPillClass(status) {
   if (status === "approved") return "status-pill status-pill--approved";
   if (status === "rejected") return "status-pill status-pill--rejected";
   return "status-pill status-pill--pending";
+}
+
+function statusLabel(status) {
+  if (status === "approved") return "approved";
+  if (status === "rejected") return "rejected";
+  return "pending";
 }
 
 function updateCounts() {
@@ -214,7 +220,7 @@ function renderEventCard(event) {
         <h3>${escapeHtml(event.name)}</h3>
         <p class="muted">${escapeHtml(eventPlace(event))}</p>
       </div>
-      <span class="${statusPillClass(event.status)}">${escapeHtml(event.status)}</span>
+      <span class="${statusPillClass(event.status)}">${escapeHtml(statusLabel(event.status))}</span>
     </header>
 
     <ul class="event-meta">
@@ -238,7 +244,7 @@ function renderEventCard(event) {
     <p class="event-description">${escapeHtml(event.description || "Keine Beschreibung")}</p>
 
     <label class="field">
-      <span>Verification Notes</span>
+      <span>Curation notes</span>
       <textarea data-notes rows="2" placeholder="z. B. Instagram geprüft">${escapeHtml(event.verification_notes)}</textarea>
     </label>
 
@@ -259,7 +265,7 @@ function renderEventCard(event) {
 
     <div class="card-actions">
       <button type="button" class="button-secondary button-secondary--approve" data-action="approved">Approve</button>
-      <button type="button" class="button-secondary" data-action="pending">Back to Pending</button>
+      <button type="button" class="button-secondary" data-action="pending">Set pending</button>
       <button type="button" class="button-secondary button-secondary--reject" data-action="rejected">Reject</button>
       <button type="button" class="button-secondary button-secondary--primary" data-action="save-notes">Save notes</button>
     </div>
@@ -380,13 +386,13 @@ async function handleCardAction(clickEvent) {
   try {
     if (button.dataset.action === "save-notes") {
       await updateEventWithFallback(eventData.id, { verification_notes: notes });
-      setGlobalFeedback("Notiz gespeichert.", "success");
+      setGlobalFeedback("Notes saved.", "success");
     } else {
       await updateEventWithFallback(eventData.id, {
         status: button.dataset.action,
         verification_notes: notes
       });
-      setGlobalFeedback(`Status auf ${button.dataset.action} gesetzt.`, "success");
+      setGlobalFeedback(`Status updated to ${button.dataset.action}.`, "success");
     }
 
     const featuredChanged = state.featureColumns.featured && featuredInput
@@ -406,7 +412,7 @@ async function handleCardAction(clickEvent) {
     await loadEvents();
   } catch (error) {
     console.error("Admin action failed:", error);
-    setGlobalFeedback(`Aktion fehlgeschlagen: ${error.message}`, "error");
+    setGlobalFeedback(`Action failed: ${error.message}`, "error");
   } finally {
     button.disabled = false;
   }
@@ -475,7 +481,7 @@ function bindEvents() {
 
       renderAuthState();
       await loadEvents();
-      setGlobalFeedback(`Willkommen ${state.adminSession?.user?.email || ""}.`, "success");
+      setGlobalFeedback(`Welcome ${state.adminSession?.user?.email || ""}.`, "success");
     } catch (error) {
       setAuthFeedback(`Login fehlgeschlagen: ${error.message}`, "error");
     }
@@ -505,12 +511,12 @@ async function start() {
     renderAuthState();
     if (isSessionAdmin(state.adminSession)) {
       await loadEvents();
-      setGlobalFeedback("Admin Dashboard bereit.", "success");
+      setGlobalFeedback("VIBEON Admin Studio ready.", "success");
     } else {
       setGlobalFeedback("Bitte als Admin anmelden.", "info");
     }
   } catch (error) {
-    console.error("Admin dashboard startup failed:", error);
+    console.error("Admin startup failed:", error);
     setGlobalFeedback(`Fehler beim Start: ${error.message}`, "error");
   }
 }

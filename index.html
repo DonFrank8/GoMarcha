@@ -6,8 +6,8 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
-  <title>PartyRadar | Lokale Musik-Events entdecken</title>
-  <meta name="description" content="PartyRadar zeigt lokale Musik-Events, Bands, DJs und Locations auf einer interaktiven Karte.">
+  <title>VIBEON | Live Musik, Events & Lifestyle entdecken</title>
+  <meta name="description" content="Entdecke mit VIBEON Live-Musik, DJs, Beach Clubs, Events und besondere Locations auf einer interaktiven Karte.">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <script>
     (function () {
@@ -25,7 +25,11 @@
   <header class="hero">
     <div class="hero__content">
       <div class="hero__topbar">
-        <p class="hero__eyebrow">PartyRadar</p>
+        <div class="hero__brand" aria-label="VIBEON Brand">
+          <!-- Logo placeholder: replace with official VIBEON full logo asset -->
+          <span class="brand-logo brand-logo--full" aria-hidden="true"></span>
+          <p class="hero__eyebrow">VIBEON</p>
+        </div>
         <div class="hero__top-actions">
           <a
             id="openAdminModeButton"
@@ -44,9 +48,9 @@
       </div>
 
       <div class="hero__center">
-        <h1 data-i18n="hero_title">Finde, wo Musik wirklich passiert.</h1>
+        <h1 data-i18n="hero_title">Finde deinen Vibe.</h1>
         <p class="hero__subtitle" data-i18n="hero_subtitle">
-          Lokale Acts, Events und besondere Orte – alles auf einer Karte.
+          Live-Musik, Beach Vibes und echte Events in deiner Nähe.
         </p>
 
         <form id="heroSearchForm" class="hero-search" autocomplete="off">
@@ -57,7 +61,7 @@
               class="hero-search__input"
               type="search"
               data-i18n-placeholder="hero_search_placeholder"
-              placeholder="Ort, Event oder Genre suchen"
+              placeholder="Suche Events, Bands oder Locations"
             >
           </label>
           <div class="hero-search__meta">
@@ -77,7 +81,7 @@
         </form>
 
         <div class="hero__chips">
-          <span data-i18n="hero_chip_vibe">Beach, City & Lifestyle</span>
+          <span data-i18n="hero_chip_vibe">Live Music • Beach • Lifestyle</span>
           <span id="buildBadge">Version: live</span>
         </div>
       </div>
@@ -89,7 +93,7 @@
       <section class="panel panel--status">
         <h2 data-i18n="discover_title">Events entdecken</h2>
         <p class="panel__intro" data-i18n="discover_subtitle">
-          Filtere nach Suche, Stadt, Datum und Genres.
+          Suche nach Events, Bands, DJs und Locations in deiner Nähe.
         </p>
         <button id="openSubmitModal" type="button" class="button-secondary button-secondary--primary" data-i18n="submit_cta">
           Event einreichen
@@ -150,7 +154,7 @@
         <form id="filtersForm" class="list-filters" autocomplete="off">
           <label class="field">
             <span data-i18n="filter_search">Suche</span>
-            <input id="searchInput" type="search" data-i18n-placeholder="filter_search_placeholder" placeholder="Event, Stadt, Location, Genre...">
+            <input id="searchInput" type="search" data-i18n-placeholder="filter_search_placeholder" placeholder="Suche Events, Bands oder Locations...">
           </label>
 
           <div class="filter-grid">
@@ -203,7 +207,7 @@
         <div id="map" aria-label="Karte mit Event-Markern"></div>
       </div>
       <section id="eventDetails" class="event-details event-details--empty">
-        Wähle ein Event in der Liste oder auf der Karte aus.
+        Wähle ein Event aus, um Details, Bild und Route zu sehen.
       </section>
     </section>
   </main>
