@@ -1718,6 +1718,7 @@ function createEventCard(event) {
   const card = document.createElement("article");
   card.className = "event-card";
   card.dataset.eventId = event.id;
+  const navigationUrl = buildNavigationUrl(event);
   card.innerHTML = `
     <div class="event-card__header">
       <h4>${event.name}</h4>
@@ -1728,8 +1729,29 @@ function createEventCard(event) {
       <span>${formatDateTime(event)}</span>
       <span>${formatPrice(event.price_text)}</span>
     </div>
+    <div class="event-card__actions">
+      <button
+        type="button"
+        class="button-secondary button-secondary--primary event-card__navigate"
+        data-action="navigate-from-list"
+        ${navigationUrl ? "" : "disabled"}
+      >
+        ${t("details_navigate")}
+      </button>
+    </div>
   `;
-  card.addEventListener("click", () => selectEvent(event.id, { flyTo: true, openPopup: true, scrollIntoView: false }));
+  card.addEventListener("click", (clickEvent) => {
+    const target = clickEvent.target instanceof Element ? clickEvent.target : null;
+    const navigateButton = target?.closest("button[data-action='navigate-from-list']");
+    if (navigateButton) {
+      clickEvent.preventDefault();
+      clickEvent.stopPropagation();
+      openNavigationForEvent(event);
+      return;
+    }
+
+    selectEvent(event.id, { flyTo: true, openPopup: true, scrollIntoView: false });
+  });
   return card;
 }
 

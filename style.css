@@ -565,6 +565,20 @@ body.body--modal-open {
   font-size: 0.84rem;
 }
 
+.event-card__actions {
+  margin-top: 0.62rem;
+  display: flex;
+  justify-content: flex-start;
+}
+
+.event-card__navigate {
+  min-height: 34px;
+  padding: 0.34rem 0.68rem;
+  border-radius: 999px;
+  font-size: 0.79rem;
+  font-weight: 600;
+}
+
 .event-list__empty {
   border: 1px dashed rgba(175, 196, 242, 0.42);
   border-radius: 12px;
