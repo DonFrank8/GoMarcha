@@ -823,6 +823,26 @@ body.body--modal-open {
   color: var(--text-muted);
 }
 
+.field input[readonly],
+.field textarea[readonly] {
+  opacity: 0.96;
+  cursor: default;
+}
+
+.field input[readonly] {
+  background: rgba(17, 27, 49, 0.72);
+  color: #d9e6ff;
+  border-color: rgba(172, 198, 253, 0.28);
+}
+
+#formLocationSearch {
+  min-height: 48px;
+}
+
+#formLocationSearch[data-place-selected="0"]:not(:placeholder-shown) {
+  border-color: rgba(255, 190, 102, 0.82);
+}
+
 .add-event-message {
   margin: 0;
   padding: 0.62rem 0.72rem;

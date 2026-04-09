@@ -13,6 +13,8 @@ const EVENT_IMAGES_BUCKET = "event-images";
 const MAX_EVENT_IMAGE_BYTES = 5 * 1024 * 1024;
 const ALLOWED_EVENT_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const DEFAULT_NAVIGATION_PROVIDER = "google";
+const GOOGLE_MAPS_JS_API_KEY = (window.PARTYRADAR_GOOGLE_MAPS_API_KEY || "").toString().trim();
+const GOOGLE_MAPS_PLACES_LIBRARIES = "places";
 
 window.PARTYRADAR_CACHE_BUSTER = APP_BUILD_VERSION;
 
@@ -234,9 +236,15 @@ const I18N = {
     admin_session_error: "Admin-Session konnte nicht geprüft werden.",
     form_error_required: "Bitte Pflichtfelder ausfüllen.",
     form_error_email: "Bitte eine gültige E-Mail-Adresse angeben.",
+    form_error_location_select: "Bitte eine Location aus den Google-Vorschlägen auswählen.",
+    form_error_location_incomplete:
+      "Die ausgewählte Location ist unvollständig. Bitte eine genauere Location auswählen.",
+    form_error_places_unavailable:
+      "Location-Suche ist aktuell nicht verfügbar. Bitte Google Maps API-Konfiguration prüfen.",
     form_error_geocode_pending: "Adresse gespeichert. Koordinaten werden bei der Freigabe ergänzt.",
     form_section_event_details: "Event Details",
     form_section_submitter_details: "Deine Angaben",
+    form_label_location_search: "Location suchen",
     form_label_name: "Event Name",
     form_label_location_name: "Location",
     form_label_address: "Adresse",
@@ -252,7 +260,9 @@ const I18N = {
     form_label_submitted_by: "Dein Name (Einreicher)",
     form_label_contact_email: "Kontakt E-Mail",
     form_hint_main_image: "1 Bild (JPG/PNG/WebP), max. 5 MB",
+    form_hint_location_search: "Bitte wähle eine Location aus den Vorschlägen.",
     form_placeholder_name: "z. B. Summer Beats Night",
+    form_placeholder_location_search: "z. B. Max Beach, Mijas Costa",
     form_placeholder_location_name: "z. B. Beach Club",
     form_placeholder_address: "z. B. Paseo Marítimo 1",
     form_placeholder_postal_code: "z. B. 29660",
@@ -379,9 +389,15 @@ const I18N = {
     admin_session_error: "Could not validate admin session.",
     form_error_required: "Please fill in required fields.",
     form_error_email: "Please enter a valid email address.",
+    form_error_location_select: "Please select a location from Google suggestions.",
+    form_error_location_incomplete:
+      "The selected location is incomplete. Please choose a more specific place.",
+    form_error_places_unavailable:
+      "Location search is currently unavailable. Please check Google Maps API configuration.",
     form_error_geocode_pending: "Address saved. Coordinates can be added during moderation.",
     form_section_event_details: "Event Details",
     form_section_submitter_details: "Your Details",
+    form_label_location_search: "Search location",
     form_label_name: "Event Name",
     form_label_location_name: "Location",
     form_label_address: "Address",
@@ -397,7 +413,9 @@ const I18N = {
     form_label_submitted_by: "Your Name (Submitter)",
     form_label_contact_email: "Contact email",
     form_hint_main_image: "1 image (JPG/PNG/WebP), max. 5 MB",
+    form_hint_location_search: "Please select a location from suggestions.",
     form_placeholder_name: "e.g. Summer Beats Night",
+    form_placeholder_location_search: "e.g. Max Beach, Mijas Costa",
     form_placeholder_location_name: "e.g. Beach Club",
     form_placeholder_address: "e.g. Paseo Maritimo 1",
     form_placeholder_postal_code: "e.g. 29660",
@@ -524,9 +542,15 @@ const I18N = {
     admin_session_error: "No se pudo validar la sesión de admin.",
     form_error_required: "Completa los campos obligatorios.",
     form_error_email: "Ingresa un correo electrónico válido.",
+    form_error_location_select: "Selecciona una ubicación de las sugerencias de Google.",
+    form_error_location_incomplete:
+      "La ubicación seleccionada está incompleta. Elige una ubicación más específica.",
+    form_error_places_unavailable:
+      "La búsqueda de ubicación no está disponible. Revisa la configuración de Google Maps API.",
     form_error_geocode_pending: "Dirección guardada. Las coordenadas se pueden completar durante la moderación.",
     form_section_event_details: "Detalles del evento",
     form_section_submitter_details: "Tus datos",
+    form_label_location_search: "Buscar ubicación",
     form_label_name: "Nombre del evento",
     form_label_location_name: "Ubicación",
     form_label_address: "Dirección",
@@ -542,7 +566,9 @@ const I18N = {
     form_label_submitted_by: "Tu nombre (remitente)",
     form_label_contact_email: "Correo de contacto",
     form_hint_main_image: "1 imagen (JPG/PNG/WebP), máx. 5 MB",
+    form_hint_location_search: "Selecciona una ubicación de las sugerencias.",
     form_placeholder_name: "p. ej. Summer Beats Night",
+    form_placeholder_location_search: "p. ej. Max Beach, Mijas Costa",
     form_placeholder_location_name: "p. ej. Beach Club",
     form_placeholder_address: "p. ej. Paseo Marítimo 1",
     form_placeholder_postal_code: "p. ej. 29660",
@@ -594,6 +620,12 @@ const state = {
   availableDates: [],
   activeGenres: new Set(),
   lang: "de",
+  places: {
+    ready: false,
+    available: false,
+    autocompleteBound: false,
+    isProgrammaticWrite: false
+  },
   debug: {
     enabled: true,
     tableName: "events",
@@ -641,12 +673,15 @@ const dom = {
   eventForm: document.getElementById("eventForm"),
   formFeedback: document.getElementById("formFeedback"),
   formSubmitButton: document.getElementById("formSubmitButton"),
+  formLocationSearch: document.getElementById("formLocationSearch"),
   formName: document.getElementById("formName"),
   formLocationName: document.getElementById("formLocationName"),
   formAddress: document.getElementById("formAddress"),
   formPostalCode: document.getElementById("formPostalCode"),
   formCity: document.getElementById("formCity"),
   formCountry: document.getElementById("formCountry"),
+  formLat: document.getElementById("formLat"),
+  formLng: document.getElementById("formLng"),
   formDate: document.getElementById("formDate"),
   formTime: document.getElementById("formTime"),
   formGenre: document.getElementById("formGenre"),
@@ -666,6 +701,8 @@ let map;
 let markersLayer;
 const markersByEventId = new Map();
 const markerEventsById = new Map();
+let googlePlacesLoaderPromise = null;
+let googlePlacesAutocomplete = null;
 
 function resolveLanguage(langValue) {
   return I18N[langValue] ? langValue : "de";
@@ -791,6 +828,149 @@ function setFormSubmitting(isSubmitting) {
   dom.formSubmitButton.textContent = isSubmitting ? t("form_loading") : t("form_submit");
 }
 
+function setPlaceSelectionState(isSelected) {
+  if (!dom.formLocationSearch) return;
+  dom.formLocationSearch.dataset.placeSelected = isSelected ? "1" : "0";
+}
+
+function clearLocationAutofillFields(options = {}) {
+  const { keepSearchValue = false } = options;
+  state.places.isProgrammaticWrite = true;
+  if (dom.formLocationName) dom.formLocationName.value = "";
+  if (dom.formAddress) dom.formAddress.value = "";
+  if (dom.formPostalCode) dom.formPostalCode.value = "";
+  if (dom.formCity) dom.formCity.value = "";
+  if (dom.formCountry) dom.formCountry.value = "";
+  if (dom.formLat) dom.formLat.value = "";
+  if (dom.formLng) dom.formLng.value = "";
+  if (!keepSearchValue && dom.formLocationSearch) dom.formLocationSearch.value = "";
+  state.places.isProgrammaticWrite = false;
+  setPlaceSelectionState(false);
+}
+
+function readAddressComponent(place, type) {
+  const list = Array.isArray(place?.address_components) ? place.address_components : [];
+  return list.find((component) => Array.isArray(component.types) && component.types.includes(type)) || null;
+}
+
+function readPlaceAddressComponents(place) {
+  const streetNumber = readAddressComponent(place, "street_number")?.long_name || "";
+  const route = readAddressComponent(place, "route")?.long_name || "";
+  const postalCode = readAddressComponent(place, "postal_code")?.long_name || "";
+  const city =
+    readAddressComponent(place, "locality")?.long_name ||
+    readAddressComponent(place, "postal_town")?.long_name ||
+    readAddressComponent(place, "administrative_area_level_3")?.long_name ||
+    readAddressComponent(place, "administrative_area_level_2")?.long_name ||
+    "";
+  const country = readAddressComponent(place, "country")?.long_name || "";
+  const routeAddress = [route, streetNumber].filter(Boolean).join(" ").trim();
+  const fallbackAddress = String(place?.formatted_address || "").split(",")[0]?.trim() || "";
+
+  return {
+    locationName: String(place?.name || "").trim(),
+    address: routeAddress || fallbackAddress,
+    postalCode,
+    city,
+    country
+  };
+}
+
+function fillLocationFieldsFromPlace(place) {
+  const geometryLocation = place?.geometry?.location;
+  const lat =
+    typeof geometryLocation?.lat === "function" ? parseCoordinateValue(geometryLocation.lat()) : null;
+  const lng =
+    typeof geometryLocation?.lng === "function" ? parseCoordinateValue(geometryLocation.lng()) : null;
+  const components = readPlaceAddressComponents(place);
+
+  if (!components.locationName || !components.address || !components.postalCode || !components.city || !components.country) {
+    clearLocationAutofillFields({ keepSearchValue: true });
+    setFormFeedback(t("form_error_location_select"), "error");
+    return false;
+  }
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    clearLocationAutofillFields({ keepSearchValue: true });
+    setFormFeedback(t("form_error_location_select"), "error");
+    return false;
+  }
+
+  state.places.isProgrammaticWrite = true;
+  if (dom.formLocationSearch) dom.formLocationSearch.value = components.locationName;
+  if (dom.formLocationName) dom.formLocationName.value = components.locationName;
+  if (dom.formAddress) dom.formAddress.value = components.address;
+  if (dom.formPostalCode) dom.formPostalCode.value = components.postalCode;
+  if (dom.formCity) dom.formCity.value = components.city;
+  if (dom.formCountry) dom.formCountry.value = components.country;
+  if (dom.formLat) dom.formLat.value = String(lat);
+  if (dom.formLng) dom.formLng.value = String(lng);
+  state.places.isProgrammaticWrite = false;
+  setPlaceSelectionState(true);
+  setFormFeedback("");
+  return true;
+}
+
+function loadGoogleMapsPlacesLibrary() {
+  if (window.google?.maps?.places) return Promise.resolve(true);
+  if (!GOOGLE_MAPS_JS_API_KEY) return Promise.resolve(false);
+  if (googlePlacesLoaderPromise) return googlePlacesLoaderPromise;
+
+  googlePlacesLoaderPromise = new Promise((resolve) => {
+    const script = document.createElement("script");
+    const endpoint = new URL("https://maps.googleapis.com/maps/api/js");
+    endpoint.searchParams.set("key", GOOGLE_MAPS_JS_API_KEY);
+    endpoint.searchParams.set("libraries", GOOGLE_MAPS_PLACES_LIBRARIES);
+    endpoint.searchParams.set("loading", "async");
+    endpoint.searchParams.set("language", state.lang);
+    script.src = endpoint.toString();
+    script.async = true;
+    script.defer = true;
+    script.onload = () => resolve(Boolean(window.google?.maps?.places));
+    script.onerror = () => resolve(false);
+    document.head.append(script);
+  });
+
+  return googlePlacesLoaderPromise;
+}
+
+function initPlacesAutocomplete() {
+  if (!dom.formLocationSearch || !window.google?.maps?.places) return false;
+  if (googlePlacesAutocomplete) return true;
+
+  googlePlacesAutocomplete = new window.google.maps.places.Autocomplete(dom.formLocationSearch, {
+    fields: ["address_components", "formatted_address", "geometry", "name"],
+    types: ["establishment", "geocode"]
+  });
+  googlePlacesAutocomplete.addListener("place_changed", () => {
+    const place = googlePlacesAutocomplete.getPlace();
+    fillLocationFieldsFromPlace(place);
+  });
+
+  return true;
+}
+
+async function ensurePlacesAutocompleteReady() {
+  if (state.places.ready) return state.places.available;
+  state.places.ready = true;
+
+  const loaded = await loadGoogleMapsPlacesLibrary();
+  if (!loaded) {
+    state.places.available = false;
+    return false;
+  }
+
+  state.places.available = initPlacesAutocomplete();
+  return state.places.available;
+}
+
+function handleLocationSearchBlur() {
+  if (!dom.formLocationSearch) return;
+  const hasInput = Boolean(dom.formLocationSearch.value.trim());
+  const isSelected = dom.formLocationSearch.dataset.placeSelected === "1";
+  if (!hasInput || isSelected) return;
+  setFormFeedback(t("form_error_location_select"), "error");
+}
+
 function setModerationFeedback(message, tone = "info") {
   if (!dom.moderationFeedback) return;
   dom.moderationFeedback.hidden = !message;
@@ -878,8 +1058,12 @@ function normalizeEvent(event, index) {
 }
 
 function readFormPayload() {
+  const latValue = parseCoordinateValue(dom.formLat?.value ?? null);
+  const lngValue = parseCoordinateValue(dom.formLng?.value ?? null);
   return {
     name: dom.formName.value.trim(),
+    location_search: dom.formLocationSearch?.value.trim() || "",
+    location_selected: dom.formLocationSearch?.dataset.placeSelected === "1",
     location_name: dom.formLocationName.value.trim(),
     address: dom.formAddress?.value.trim() || "",
     postal_code: dom.formPostalCode?.value.trim() || "",
@@ -894,13 +1078,14 @@ function readFormPayload() {
     contact_email: dom.formContactEmail.value.trim(),
     description: dom.formDescription.value.trim(),
     image_url: null,
-    lat: null,
-    lng: null
+    lat: latValue,
+    lng: lngValue
   };
 }
 
 function validateFormPayload(payload) {
   const requiredFilled =
+    payload.location_search &&
     payload.name &&
     payload.location_name &&
     payload.address &&
@@ -913,6 +1098,12 @@ function validateFormPayload(payload) {
     payload.contact_email;
   if (!requiredFilled) {
     return { valid: false, message: t("form_error_required") };
+  }
+  if (!payload.location_selected) {
+    return { valid: false, message: t("form_error_location_select") };
+  }
+  if (!Number.isFinite(payload.lat) || !Number.isFinite(payload.lng)) {
+    return { valid: false, message: t("form_error_location_incomplete") };
   }
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!emailRegex.test(payload.contact_email)) {
@@ -932,6 +1123,8 @@ function validateFormPayload(payload) {
 function clearEventForm() {
   if (!dom.eventForm) return;
   dom.eventForm.reset();
+  clearLocationAutofillFields();
+  setFormFeedback("");
   if (dom.formMainImage) dom.formMainImage.value = "";
 }
 
@@ -1918,7 +2111,7 @@ function openSubmitModal() {
   dom.submitModal.classList.add("is-open");
   document.body.classList.add("body--modal-open");
   window.setTimeout(() => {
-    dom.formName?.focus();
+    dom.formLocationSearch?.focus();
   }, 0);
 }
 
@@ -1953,13 +2146,15 @@ async function handleCreateEventSubmit(submitEvent) {
   setFormSubmitting(true);
   try {
     const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    let payloadWithCoordinates;
+    let payloadWithCoordinates = payload;
     let uploadedImagePath = null;
-    try {
-      payloadWithCoordinates = await resolveCoordinatesForPayload(payload);
-    } catch (geocodingError) {
-      setFormFeedback(t("form_error_geocoding_failed"), "error");
-      return;
+    if (!Number.isFinite(payload.lat) || !Number.isFinite(payload.lng)) {
+      try {
+        payloadWithCoordinates = await resolveCoordinatesForPayload(payload);
+      } catch (geocodingError) {
+        setFormFeedback(t("form_error_geocoding_failed"), "error");
+        return;
+      }
     }
     if (payload.main_image) {
       try {
@@ -2089,8 +2284,12 @@ function bindEvents() {
     });
   }
   if (dom.openSubmitModal) {
-    dom.openSubmitModal.addEventListener("click", () => {
+    dom.openSubmitModal.addEventListener("click", async () => {
       setFormFeedback("");
+      const placesReady = await ensurePlacesAutocompleteReady();
+      if (!placesReady) {
+        setFormFeedback(t("form_error_places_unavailable"), "warning");
+      }
       openSubmitModal();
     });
   }
@@ -2137,6 +2336,14 @@ function bindEvents() {
 
   if (dom.eventForm) {
     dom.eventForm.addEventListener("submit", handleCreateEventSubmit);
+  }
+  if (dom.formLocationSearch) {
+    dom.formLocationSearch.addEventListener("input", () => {
+      if (state.places.isProgrammaticWrite) return;
+      clearLocationAutofillFields({ keepSearchValue: true });
+      setFormFeedback("");
+    });
+    dom.formLocationSearch.addEventListener("blur", handleLocationSearchBlur);
   }
   if (dom.adminAuthForm) {
     dom.adminAuthForm.addEventListener("submit", async (event) => {

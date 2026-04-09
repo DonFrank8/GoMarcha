@@ -219,6 +219,21 @@
       <form id="eventForm" class="add-event-form" novalidate>
         <section class="add-event-form__section">
           <h4 class="add-event-form__section-title" data-i18n="form_section_event_details">Event Details</h4>
+          <label class="field field--full">
+            <span data-i18n="form_label_location_search">Location suchen</span>
+            <input
+              name="location_search"
+              id="formLocationSearch"
+              type="text"
+              data-i18n-placeholder="form_placeholder_location_search"
+              placeholder="z. B. Max Beach, Mijas Costa"
+              autocomplete="off"
+              required
+            >
+            <small class="field__hint" data-i18n="form_hint_location_search">
+              Bitte wähle eine Location aus den Vorschlägen.
+            </small>
+          </label>
           <div class="add-event-form__grid">
             <label class="field">
               <span data-i18n="form_label_name">Event Name</span>
@@ -226,7 +241,7 @@
             </label>
             <label class="field">
               <span data-i18n="form_label_location_name">Location</span>
-              <input name="location_name" id="formLocationName" type="text" required>
+              <input name="location_name" id="formLocationName" type="text" readonly required>
             </label>
             <label class="field">
               <span data-i18n="form_label_address">Adresse</span>
@@ -236,6 +251,7 @@
                 type="text"
                 data-i18n-placeholder="form_placeholder_address"
                 placeholder="z. B. Paseo Marítimo 1"
+                readonly
                 required
               >
             </label>
@@ -247,16 +263,17 @@
                 type="text"
                 data-i18n-placeholder="form_placeholder_postal_code"
                 placeholder="z. B. 29660"
+                readonly
                 required
               >
             </label>
             <label class="field">
               <span data-i18n="form_label_city">Stadt</span>
-              <input name="city" id="formCity" type="text" required>
+              <input name="city" id="formCity" type="text" readonly required>
             </label>
             <label class="field">
               <span data-i18n="form_label_country">Land</span>
-              <input name="country" id="formCountry" type="text" required>
+              <input name="country" id="formCountry" type="text" readonly required>
             </label>
             <label class="field">
               <span data-i18n="form_label_event_date">Datum</span>
@@ -292,6 +309,8 @@
               1 Bild (JPG/PNG/WebP), max. 5 MB
             </small>
           </label>
+          <input name="lat" id="formLat" type="hidden">
+          <input name="lng" id="formLng" type="hidden">
         </section>
 
         <section class="add-event-form__section">

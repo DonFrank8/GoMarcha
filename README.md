@@ -49,6 +49,48 @@ Optional runtime config (set in `index.html` before loading `app.js`):
 
 If `mapbox` is selected but no token is configured, geocoding falls back gracefully (events are still stored as pending).
 
+## Google Places Autocomplete (event form)
+
+The public submit form (`index.html` / `app.js`) uses Google Places Autocomplete for location input.
+
+### Required runtime config
+
+Set your browser key before `app.js` is loaded:
+
+```html
+<script>
+  window.PARTYRADAR_GOOGLE_MAPS_API_KEY = "YOUR_PUBLIC_BROWSER_KEY";
+</script>
+```
+
+### Required Google Maps Platform setup
+
+Enable these APIs in your Google Cloud project:
+
+- **Maps JavaScript API**
+- **Places API** (Places Library)
+
+Then configure the API key:
+
+- Application restriction: **HTTP referrers (web sites)**
+- API restrictions: allow at least the two APIs above
+- Add your production and local dev origins as referrers
+
+### Form behavior
+
+- user searches/selects a location via Places suggestions
+- form auto-fills:
+  - `location_name`
+  - `address`
+  - `postal_code`
+  - `city`
+  - `country`
+  - `lat`
+  - `lng`
+- `lat/lng` are stored via hidden form inputs (not shown in UI)
+- insert payload remains `status = 'pending'`
+- public list/map still display only `approved` events
+
 ## Admin Dashboard
 
 A separate moderation dashboard is now available at:
