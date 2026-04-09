@@ -12,6 +12,7 @@ const MAPBOX_ACCESS_TOKEN = (window.PARTYRADAR_MAPBOX_TOKEN || "").toString().tr
 const EVENT_IMAGES_BUCKET = "event-images";
 const MAX_EVENT_IMAGE_BYTES = 5 * 1024 * 1024;
 const ALLOWED_EVENT_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const DEFAULT_NAVIGATION_PROVIDER = "google";
 
 window.PARTYRADAR_CACHE_BUSTER = APP_BUILD_VERSION;
 
@@ -113,6 +114,24 @@ const GENRE_ICON_MAP = {
   "DJ Set": "🎛️"
 };
 
+const NAVIGATION_URL_BUILDERS = {
+  google: {
+    byCoordinates: ({ lat, lng }) =>
+      `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${lat},${lng}`)}&travelmode=driving`,
+    byAddress: (query) =>
+      `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(query)}&travelmode=driving`
+  },
+  apple: {
+    byCoordinates: ({ lat, lng }) =>
+      `https://maps.apple.com/?daddr=${encodeURIComponent(`${lat},${lng}`)}&dirflg=d`,
+    byAddress: (query) => `https://maps.apple.com/?daddr=${encodeURIComponent(query)}&dirflg=d`
+  },
+  waze: {
+    byCoordinates: ({ lat, lng }) => `https://waze.com/ul?ll=${encodeURIComponent(`${lat},${lng}`)}&navigate=yes`,
+    byAddress: (query) => `https://waze.com/ul?q=${encodeURIComponent(query)}&navigate=yes`
+  }
+};
+
 const I18N = {
   de: {
     hero_title: "Finde, wo Musik wirklich passiert.",
@@ -153,9 +172,11 @@ const I18N = {
     details_date: "Datum",
     details_genre: "Genre",
     details_price: "Preis",
+    details_navigate: "Route starten",
     details_free: "Eintritt frei",
     details_no_description: "Keine Beschreibung vorhanden.",
     details_time_fallback: "Uhrzeit folgt",
+    navigation_unavailable: "Für dieses Event sind keine Navigationsdaten vorhanden.",
     debug_no_error: "Nein",
     debug_note_pending: "Noch keine Entscheidung",
     debug_note_supabase: "Kein Fallback - Daten aus Supabase aktiv",
@@ -296,9 +317,11 @@ const I18N = {
     details_date: "Date",
     details_genre: "Genre",
     details_price: "Price",
+    details_navigate: "Start route",
     details_free: "Free entry",
     details_no_description: "No description available.",
     details_time_fallback: "Time TBD",
+    navigation_unavailable: "No navigation data is available for this event.",
     debug_no_error: "No",
     debug_note_pending: "No decision yet",
     debug_note_supabase: "No fallback - Supabase data active",
@@ -439,9 +462,11 @@ const I18N = {
     details_date: "Fecha",
     details_genre: "Género",
     details_price: "Precio",
+    details_navigate: "Iniciar ruta",
     details_free: "Entrada gratuita",
     details_no_description: "No hay descripción disponible.",
     details_time_fallback: "Hora por confirmar",
+    navigation_unavailable: "No hay datos de navegación disponibles para este evento.",
     debug_no_error: "No",
     debug_note_pending: "Sin decisión todavía",
     debug_note_supabase: "Sin fallback - datos de Supabase activos",
@@ -827,6 +852,7 @@ function normalizeEvent(event, index) {
     address: event.address || event.street || "",
     postal_code,
     city: event.city || event.location_city || "",
+    country: event.country || event.country_name || "",
     event_date: event.event_date || event.date || "",
     event_time: event.event_time || event.time || "",
     genre: event.genre || event.music_genre || "",
@@ -1304,6 +1330,53 @@ function formatEventPlace(event) {
   return parts.length ? parts.join(", ") : "-";
 }
 
+function buildNavigationAddressQuery(event) {
+  return [event.address, event.city, event.country]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .join(", ");
+}
+
+function resolveNavigationDestination(event) {
+  if (Number.isFinite(event?.lat) && Number.isFinite(event?.lng)) {
+    return {
+      type: "coordinates",
+      lat: event.lat,
+      lng: event.lng
+    };
+  }
+
+  const addressQuery = buildNavigationAddressQuery(event);
+  if (!addressQuery) return null;
+
+  return {
+    type: "address",
+    query: addressQuery
+  };
+}
+
+function buildNavigationUrl(event, providerName = DEFAULT_NAVIGATION_PROVIDER) {
+  const destination = resolveNavigationDestination(event);
+  if (!destination) return "";
+
+  const provider = NAVIGATION_URL_BUILDERS[providerName] || NAVIGATION_URL_BUILDERS.google;
+  if (destination.type === "coordinates") return provider.byCoordinates(destination);
+  return provider.byAddress(destination.query);
+}
+
+function openNavigationForEvent(event, providerName = DEFAULT_NAVIGATION_PROVIDER) {
+  const url = buildNavigationUrl(event, providerName);
+  if (!url) {
+    setStatus(t("navigation_unavailable"), "warning");
+    return;
+  }
+
+  const openedWindow = window.open(url, "_blank", "noopener,noreferrer");
+  if (!openedWindow) {
+    window.location.href = url;
+  }
+}
+
 function eventSearchText(event) {
   return [event.name, event.location_name, event.address, event.city, event.genre, event.description]
     .join(" ")
@@ -1740,6 +1813,7 @@ function renderEventDetails(event) {
 
   dom.eventDetails.className = "event-details";
   const locationLine = [event.location_name, event.address, event.city].filter(Boolean).join(", ");
+  const navigationUrl = buildNavigationUrl(event);
   dom.eventDetails.innerHTML = `
     ${event.image_url ? `<img class="event-details__image" src="${event.image_url}" alt="${event.name}" loading="lazy">` : ""}
     <h4>${event.name}</h4>
@@ -1750,6 +1824,17 @@ function renderEventDetails(event) {
       <li><strong>${t("details_price")}:</strong> ${formatPrice(event.price_text)}</li>
     </ul>
     <p>${event.description || t("details_no_description")}</p>
+    <div class="event-details__actions">
+      <button
+        type="button"
+        class="button-secondary button-secondary--primary button-secondary--navigate"
+        data-action="navigate-event"
+        data-event-id="${event.id}"
+        ${navigationUrl ? "" : "disabled"}
+      >
+        ${t("details_navigate")}
+      </button>
+    </div>
   `;
 }
 
@@ -2020,6 +2105,21 @@ function bindEvents() {
 
   if (dom.eventForm) {
     dom.eventForm.addEventListener("submit", handleCreateEventSubmit);
+  }
+  if (dom.eventDetails) {
+    dom.eventDetails.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-action='navigate-event']");
+      if (!button) return;
+
+      const eventId = button.dataset.eventId;
+      if (!eventId) return;
+      const selectedEvent =
+        state.filteredEvents.find((item) => item.id === eventId) ||
+        state.allEvents.find((item) => item.id === eventId);
+      if (!selectedEvent) return;
+
+      openNavigationForEvent(selectedEvent);
+    });
   }
   if (dom.adminAuthForm) {
     dom.adminAuthForm.addEventListener("submit", async (event) => {
