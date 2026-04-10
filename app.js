@@ -715,7 +715,8 @@ const state = {
     loading: false,
     pendingViewportChange: false,
     lastCenter: null,
-    lastZoom: null
+    lastZoom: null,
+    hideTimer: null
   },
   favoriteEventIds: new Set(),
   lang: "de",
@@ -810,6 +811,24 @@ let map;
 let markersLayer;
 const markersByEventId = new Map();
 const markerEventsById = new Map();
+let activeMarkerId = null;
+const throttledSelectEventMapFocus = throttle((event, zoom) => {
+  flyToEventWithMapSheetOffset(event, zoom);
+}, 180);
+const debouncedApplyFilters = debounce(() => {
+  applyFilters();
+}, 90);
+const debouncedHandleMapViewportChanged = debounce(() => {
+  handleMapViewportChanged();
+}, 120);
+const throttledFitMapToBounds = throttle((bounds) => {
+  if (!map) return;
+  if (bounds.length) {
+    map.fitBounds(bounds, { padding: [30, 30], maxZoom: 13 });
+  } else {
+    map.setView(DEFAULT_CENTER, DEFAULT_ZOOM);
+  }
+}, 140);
 
 function resolveLanguage(langValue) {
   return I18N[langValue] ? langValue : "de";
@@ -1354,6 +1373,47 @@ let lastGeocodingRequestAt = 0;
 
 function sleep(ms) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function debounce(func, waitMs) {
+  let timeoutId = null;
+  return (...args) => {
+    if (timeoutId) window.clearTimeout(timeoutId);
+    timeoutId = window.setTimeout(() => {
+      timeoutId = null;
+      func(...args);
+    }, waitMs);
+  };
+}
+
+function throttle(func, waitMs) {
+  let lastRunAt = 0;
+  let trailingTimeoutId = null;
+  let trailingArgs = null;
+  return (...args) => {
+    const now = Date.now();
+    const remaining = waitMs - (now - lastRunAt);
+    trailingArgs = args;
+    if (remaining <= 0) {
+      if (trailingTimeoutId) {
+        window.clearTimeout(trailingTimeoutId);
+        trailingTimeoutId = null;
+      }
+      lastRunAt = now;
+      func(...trailingArgs);
+      trailingArgs = null;
+      return;
+    }
+    if (trailingTimeoutId) return;
+    trailingTimeoutId = window.setTimeout(() => {
+      trailingTimeoutId = null;
+      lastRunAt = Date.now();
+      if (trailingArgs) {
+        func(...trailingArgs);
+        trailingArgs = null;
+      }
+    }, remaining);
+  };
 }
 
 async function geocodingRateLimitWait() {
@@ -2224,6 +2284,7 @@ function setMapSearchAreaCtaLoading(isLoading) {
   if (!dom.mapSearchAreaCta) return;
   state.mapSearchArea.loading = Boolean(isLoading);
   dom.mapSearchAreaCta.disabled = state.mapSearchArea.loading;
+  dom.mapSearchAreaCta.classList.toggle("is-loading", state.mapSearchArea.loading);
   dom.mapSearchAreaCta.textContent = state.mapSearchArea.loading
     ? t("map_search_loading")
     : t("map_search_area");
@@ -2232,7 +2293,23 @@ function setMapSearchAreaCtaLoading(isLoading) {
 function showMapSearchAreaCta(visible) {
   if (!dom.mapSearchAreaCta) return;
   state.mapSearchArea.visible = Boolean(visible);
-  dom.mapSearchAreaCta.hidden = !state.mapSearchArea.visible;
+  const cta = dom.mapSearchAreaCta;
+  if (state.mapSearchArea.hideTimer) {
+    window.clearTimeout(state.mapSearchArea.hideTimer);
+    state.mapSearchArea.hideTimer = null;
+  }
+
+  if (state.mapSearchArea.visible) {
+    cta.hidden = false;
+    window.requestAnimationFrame(() => cta.classList.add("is-visible"));
+    return;
+  }
+
+  cta.classList.remove("is-visible");
+  state.mapSearchArea.hideTimer = window.setTimeout(() => {
+    if (!state.mapSearchArea.visible) cta.hidden = true;
+    state.mapSearchArea.hideTimer = null;
+  }, 180);
 }
 
 function clearMapSearchAreaPendingState() {
@@ -2250,8 +2327,11 @@ function shouldShowMapSearchAreaCta(nextCenter, nextZoom) {
   const zoomChanged = Math.abs(nextZoom - previousZoom) >= 1;
   if (zoomChanged) return true;
 
-  const latThreshold = 0.02;
-  const lngThreshold = 0.02;
+  const bounds = map?.getBounds?.();
+  const latSpan = Math.abs((bounds?.getNorth?.() || nextCenter.lat) - (bounds?.getSouth?.() || nextCenter.lat));
+  const lngSpan = Math.abs((bounds?.getEast?.() || nextCenter.lng) - (bounds?.getWest?.() || nextCenter.lng));
+  const latThreshold = Math.max(0.004, latSpan * MAP_SEARCH_AREA_MOVE_THRESHOLD_RATIO);
+  const lngThreshold = Math.max(0.004, lngSpan * MAP_SEARCH_AREA_MOVE_THRESHOLD_RATIO);
   const latDelta = Math.abs(nextCenter.lat - previousCenter.lat);
   const lngDelta = Math.abs(nextCenter.lng - previousCenter.lng);
   return latDelta > latThreshold || lngDelta > lngThreshold;
@@ -2272,17 +2352,20 @@ function refreshEventsForVisibleMapBounds() {
   if (!map) return;
   state.mapSearchArea.pendingViewportChange = false;
   setMapSearchAreaCtaLoading(true);
-  try {
-    applyFilters();
-    refreshMapSearchAreaBaseline();
-    showMapSearchAreaCta(false);
-  } finally {
-    setMapSearchAreaCtaLoading(false);
-  }
+  window.setTimeout(() => {
+    try {
+      applyFilters();
+      refreshMapSearchAreaBaseline();
+      showMapSearchAreaCta(false);
+    } finally {
+      setMapSearchAreaCtaLoading(false);
+    }
+  }, 80);
 }
 
 function handleMapViewportChanged() {
   if (!map || state.viewMode !== "map") return;
+  if (state.mapSearchArea.loading) return;
   const nextCenter = map.getCenter();
   const nextZoom = map.getZoom();
   const shouldShow = shouldShowMapSearchAreaCta(nextCenter, nextZoom);
@@ -2495,10 +2578,22 @@ function createMarkerIcon(event, active = false) {
 }
 
 function syncActiveMarker(eventId) {
-  markersByEventId.forEach((marker, id) => {
-    const event = markerEventsById.get(id);
-    marker.setIcon(createMarkerIcon(event, id === eventId));
-  });
+  if (activeMarkerId === eventId) return;
+  if (activeMarkerId && markersByEventId.has(activeMarkerId)) {
+    const previousMarker = markersByEventId.get(activeMarkerId);
+    const previousEvent = markerEventsById.get(activeMarkerId);
+    if (previousMarker && previousEvent) {
+      previousMarker.setIcon(createMarkerIcon(previousEvent, false));
+    }
+  }
+  if (eventId && markersByEventId.has(eventId)) {
+    const nextMarker = markersByEventId.get(eventId);
+    const nextEvent = markerEventsById.get(eventId);
+    if (nextMarker && nextEvent) {
+      nextMarker.setIcon(createMarkerIcon(nextEvent, true));
+    }
+  }
+  activeMarkerId = eventId || null;
 }
 
 function initMap() {
@@ -2508,7 +2603,7 @@ function initMap() {
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
   }).addTo(map);
   markersLayer = L.layerGroup().addTo(map);
-  map.on("moveend", handleMapViewportChanged);
+  map.on("moveend", debouncedHandleMapViewportChanged);
   refreshMapSearchAreaBaseline();
   window.setTimeout(() => map.invalidateSize(), 250);
 }
@@ -2531,9 +2626,11 @@ function markerPopupHtml(event) {
 }
 
 function renderMapMarkers() {
+  if (!map) return;
   markersLayer.clearLayers();
   markersByEventId.clear();
   markerEventsById.clear();
+  activeMarkerId = null;
   const bounds = [];
 
   state.filteredEvents.forEach((event) => {
@@ -2551,8 +2648,7 @@ function renderMapMarkers() {
     bounds.push([event.lat, event.lng]);
   });
 
-  if (bounds.length) map.fitBounds(bounds, { padding: [30, 30], maxZoom: 13 });
-  else map.setView(DEFAULT_CENTER, DEFAULT_ZOOM);
+  throttledFitMapToBounds(bounds);
 
   syncActiveMarker(state.selectedEventId);
   if (state.viewMode === "map" && mapSheetIsAvailable()) {
@@ -2660,7 +2756,7 @@ function selectEvent(eventId, options = { flyTo: false, openPopup: false, scroll
 
   const marker = markersByEventId.get(event.id);
   if (marker && event.lat !== null && event.lng !== null) {
-    if (options.flyTo) flyToEventWithMapSheetOffset(event, 13);
+    if (options.flyTo) throttledSelectEventMapFocus(event, 13);
     if (options.openPopup) marker.openPopup();
   }
 }
@@ -2827,58 +2923,58 @@ function bindEvents() {
   dom.searchInput.addEventListener("input", () => {
     syncHeroControlsFromSidebar();
     syncMapSheetControlsFromSidebar();
-    applyFilters();
+    debouncedApplyFilters();
   });
   dom.cityFilter.addEventListener("change", () => {
     syncHeroControlsFromSidebar();
     syncMapSheetControlsFromSidebar();
-    applyFilters();
+    debouncedApplyFilters();
   });
   dom.dateFilter.addEventListener("change", () => {
     syncHeroControlsFromSidebar();
     syncMapSheetControlsFromSidebar();
-    applyFilters();
+    debouncedApplyFilters();
   });
   if (dom.heroSearchInput) {
     dom.heroSearchInput.addEventListener("input", () => {
       syncSidebarFromHeroControls();
       syncMapSheetControlsFromSidebar();
-      applyFilters();
+      debouncedApplyFilters();
     });
   }
   if (dom.heroCityFilter) {
     dom.heroCityFilter.addEventListener("change", () => {
       syncSidebarFromHeroControls();
       syncMapSheetControlsFromSidebar();
-      applyFilters();
+      debouncedApplyFilters();
     });
   }
   if (dom.heroDateFilter) {
     dom.heroDateFilter.addEventListener("change", () => {
       syncSidebarFromHeroControls();
       syncMapSheetControlsFromSidebar();
-      applyFilters();
+      debouncedApplyFilters();
     });
   }
   if (dom.mapSheetSearchInput) {
     dom.mapSheetSearchInput.addEventListener("input", () => {
       syncSidebarFromMapSheetControls();
       syncHeroControlsFromSidebar();
-      applyFilters();
+      debouncedApplyFilters();
     });
   }
   if (dom.mapSheetCityFilter) {
     dom.mapSheetCityFilter.addEventListener("change", () => {
       syncSidebarFromMapSheetControls();
       syncHeroControlsFromSidebar();
-      applyFilters();
+      debouncedApplyFilters();
     });
   }
   if (dom.mapSheetDateFilter) {
     dom.mapSheetDateFilter.addEventListener("change", () => {
       syncSidebarFromMapSheetControls();
       syncHeroControlsFromSidebar();
-      applyFilters();
+      debouncedApplyFilters();
     });
   }
   if (dom.languageSwitch) {

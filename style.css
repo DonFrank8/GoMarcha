@@ -1470,7 +1470,13 @@ body.body--modal-open {
   font-weight: 600;
   box-shadow: 0 14px 28px rgba(30, 82, 214, 0.35);
   cursor: pointer;
-  transition: transform var(--motion-fast), filter var(--motion-fast), box-shadow var(--motion-fast);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform var(--motion-fast),
+    filter var(--motion-fast),
+    box-shadow var(--motion-fast),
+    opacity 180ms var(--ease-out);
 }
 
 .map-search-area-cta:hover {
@@ -1485,8 +1491,12 @@ body.body--modal-open {
   display: none !important;
 }
 
+.map-search-area-cta.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 .map-search-area-cta.is-loading {
-  pointer-events: none;
   opacity: 0.84;
 }
 
@@ -1530,7 +1540,7 @@ body.body--modal-open {
   box-shadow:
     0 0 0 4px rgba(50, 167, 255, 0.35),
     0 12px 24px rgba(0, 0, 0, 0.38);
-  animation: markerPulse 1400ms ease-out infinite;
+  animation: markerPulse 1700ms ease-out infinite;
 }
 
 @keyframes markerPulse {
