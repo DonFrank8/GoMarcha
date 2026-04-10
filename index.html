@@ -63,39 +63,53 @@
               placeholder="Suche Events, Bands oder Locations"
             >
           </label>
-          <div class="hero-search__meta">
-            <label class="hero-search__field" for="heroCityFilter">
-              <span data-i18n="filter_city">Stadt</span>
-              <select id="heroCityFilter" class="hero-search__select">
-                <option value="" data-i18n="filter_city_all">Alle Städte</option>
-              </select>
-            </label>
-            <label class="hero-search__field" for="heroDateFilter">
-              <span data-i18n="filter_date">Datum</span>
-              <select id="heroDateFilter" class="hero-search__select">
-                <option value="" data-i18n="filter_date_all">Alle Daten</option>
-              </select>
-            </label>
-          </div>
         </form>
 
         <div class="hero__chips">
           <span data-i18n="hero_chip_vibe">Live Music • Beach • Lifestyle</span>
+          <button id="openSubmitModal" type="button" class="button-secondary button-secondary--primary" data-i18n="submit_cta">
+            Event einreichen
+          </button>
         </div>
       </div>
     </div>
   </header>
 
   <main class="app-shell">
-    <aside class="sidebar">
-      <section class="panel panel--status">
-        <h2 data-i18n="discover_title">Events entdecken</h2>
-        <p class="panel__intro" data-i18n="discover_subtitle">
-          Suche nach Events, Bands, DJs und Locations in deiner Nähe.
-        </p>
-        <button id="openSubmitModal" type="button" class="button-secondary button-secondary--primary" data-i18n="submit_cta">
-          Event einreichen
-        </button>
+    <aside class="sidebar sidebar--filters">
+      <section class="panel panel--filters">
+        <div class="panel__heading">
+          <h2 data-i18n="discover_title">Events entdecken</h2>
+        </div>
+
+        <form id="filtersForm" class="list-filters" autocomplete="off">
+          <div class="filter-grid">
+            <label class="field">
+              <span data-i18n="filter_city">Stadt</span>
+              <select id="cityFilter">
+                <option value="" data-i18n="filter_city_all">Alle Städte</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span data-i18n="filter_date">Datum</span>
+              <select id="dateFilter">
+                <option value="" data-i18n="filter_date_all">Alle Daten</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="genre-filter">
+            <div class="genre-filter__head">
+              <span data-i18n="filter_genre">Genres</span>
+              <button id="clearGenresButton" type="button" class="button-link" data-i18n="filter_genre_all">Alle Genres</button>
+            </div>
+            <div id="genreFilterGroup" class="genre-filter-group" aria-label="Genre Filter"></div>
+          </div>
+
+          <button id="resetFilters" type="button" class="button-secondary" data-i18n="filter_reset">Alle Filter zurücksetzen</button>
+        </form>
+
         <p id="status" class="status status--loading">Initialisiere Anwendung...</p>
       </section>
 
@@ -147,54 +161,19 @@
           <div id="moderationList" class="moderation-list"></div>
         </div>
       </section>
-
-      <section class="panel panel--list">
-        <form id="filtersForm" class="list-filters" autocomplete="off">
-          <label class="field">
-            <span data-i18n="filter_search">Suche</span>
-            <input id="searchInput" type="search" data-i18n-placeholder="filter_search_placeholder" placeholder="Suche Events, Bands oder Locations...">
-          </label>
-
-          <div class="filter-grid">
-            <label class="field">
-              <span data-i18n="filter_city">Stadt</span>
-              <select id="cityFilter">
-                <option value="" data-i18n="filter_city_all">Alle Städte</option>
-              </select>
-            </label>
-
-            <label class="field">
-              <span data-i18n="filter_date">Datum</span>
-              <select id="dateFilter">
-                <option value="" data-i18n="filter_date_all">Alle Daten</option>
-              </select>
-            </label>
-          </div>
-
-          <div class="genre-filter">
-            <div class="genre-filter__head">
-              <span data-i18n="filter_genre">Genres</span>
-              <button id="clearGenresButton" type="button" class="button-link" data-i18n="filter_genre_all">Alle Genres</button>
-            </div>
-            <div id="genreFilterGroup" class="genre-filter-group" aria-label="Genre Filter"></div>
-          </div>
-
-          <button id="resetFilters" type="button" class="button-secondary" data-i18n="filter_reset">Alle Filter zurücksetzen</button>
-        </form>
-
-        <div class="panel__heading">
-          <h3 data-i18n="list_title">Event-Liste</h3>
-          <span id="resultCount">0 Treffer</span>
-        </div>
-        <div id="eventList" class="event-list"></div>
-      </section>
-
     </aside>
 
     <section class="map-column">
       <div class="map-section">
         <div id="map" aria-label="Karte mit Event-Markern"></div>
       </div>
+      <section class="panel panel--events">
+        <div class="panel__heading">
+          <h3 data-i18n="list_title">Event-Liste</h3>
+          <span id="resultCount">0 Treffer</span>
+        </div>
+        <div id="eventList" class="event-list"></div>
+      </section>
       <section id="eventDetails" class="event-details event-details--empty">
         Wähle ein Event aus, um Details, Bild und Route zu sehen.
       </section>

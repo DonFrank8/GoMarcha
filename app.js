@@ -615,8 +615,7 @@ const dom = {
   languageSwitch: document.getElementById("languageSwitch"),
   heroSearchForm: document.getElementById("heroSearchForm"),
   heroSearchInput: document.getElementById("heroSearchInput"),
-  heroCityFilter: document.getElementById("heroCityFilter"),
-  heroDateFilter: document.getElementById("heroDateFilter"),
+  appShell: document.querySelector(".app-shell"),
   submitModal: document.getElementById("submitModal"),
   openSubmitModal: document.getElementById("openSubmitModal"),
   closeSubmitModal: document.getElementById("closeSubmitModal"),
@@ -637,7 +636,6 @@ const dom = {
   moderationList: document.getElementById("moderationList"),
   resultCount: document.getElementById("resultCount"),
   filtersForm: document.getElementById("filtersForm"),
-  searchInput: document.getElementById("searchInput"),
   cityFilter: document.getElementById("cityFilter"),
   dateFilter: document.getElementById("dateFilter"),
   genreFilterGroup: document.getElementById("genreFilterGroup"),
@@ -744,7 +742,6 @@ function switchLanguage(nextLangCode) {
   state.lang = nextLang;
   applyStaticTranslations();
   updateFilterOptions();
-  syncHeroFilterOptions();
   applyFiltersFromQuery();
   applyFilters();
   if (state.selectedEventId) {
@@ -765,8 +762,8 @@ function getLocale() {
 function setStatus(message, tone = "loading") {
   dom.status.className = `status status--${tone}`;
   dom.status.textContent = message;
-  if (dom.sidebar) {
-    dom.sidebar.classList.toggle("is-loading-cards", tone === "loading");
+  if (dom.appShell) {
+    dom.appShell.classList.toggle("is-loading-cards", tone === "loading");
   }
 }
 
@@ -1525,7 +1522,7 @@ function resolveAdminMode(queryValue) {
 
 function updateUrlFromFilters() {
   const params = new URLSearchParams();
-  const search = dom.searchInput.value.trim();
+  const search = dom.heroSearchInput ? dom.heroSearchInput.value.trim() : "";
   const city = dom.cityFilter.value;
   const date = dom.dateFilter.value;
 
@@ -1708,12 +1705,11 @@ function updateFilterOptions() {
     if (!state.availableGenres.includes(genre)) state.activeGenres.delete(genre);
   });
   renderGenreFilter();
-  syncHeroFilterOptions();
 }
 
 function applyFiltersFromQuery() {
   const query = readQueryParams();
-  if (query.q) dom.searchInput.value = query.q;
+  if (query.q && dom.heroSearchInput) dom.heroSearchInput.value = query.q;
   if (query.city && [...dom.cityFilter.options].some((option) => option.value === query.city)) {
     dom.cityFilter.value = query.city;
   }
@@ -1722,37 +1718,15 @@ function applyFiltersFromQuery() {
   }
   state.activeGenres = new Set(normalizeRequestedGenres(query.genres));
   renderGenreFilter();
-  syncHeroControlsFromSidebar();
 }
 
 function getActiveFilters() {
   return {
-    search: dom.searchInput.value.trim().toLowerCase(),
+    search: (dom.heroSearchInput?.value || "").trim().toLowerCase(),
     city: dom.cityFilter.value,
     date: dom.dateFilter.value,
     genres: new Set([...state.activeGenres].map((genre) => genre.toLowerCase()))
   };
-}
-
-function syncHeroFilterOptions() {
-  if (!dom.heroCityFilter || !dom.heroDateFilter || !dom.cityFilter || !dom.dateFilter) return;
-
-  dom.heroCityFilter.innerHTML = dom.cityFilter.innerHTML;
-  dom.heroDateFilter.innerHTML = dom.dateFilter.innerHTML;
-  dom.heroCityFilter.value = dom.cityFilter.value;
-  dom.heroDateFilter.value = dom.dateFilter.value;
-}
-
-function syncHeroControlsFromSidebar() {
-  if (dom.heroSearchInput && dom.searchInput) dom.heroSearchInput.value = dom.searchInput.value;
-  if (dom.heroCityFilter && dom.cityFilter) dom.heroCityFilter.value = dom.cityFilter.value;
-  if (dom.heroDateFilter && dom.dateFilter) dom.heroDateFilter.value = dom.dateFilter.value;
-}
-
-function syncSidebarFromHeroControls() {
-  if (dom.heroSearchInput && dom.searchInput) dom.searchInput.value = dom.heroSearchInput.value;
-  if (dom.heroCityFilter && dom.cityFilter) dom.cityFilter.value = dom.heroCityFilter.value;
-  if (dom.heroDateFilter && dom.dateFilter) dom.dateFilter.value = dom.heroDateFilter.value;
 }
 
 function eventMatchesGenres(event, activeGenresLower) {
@@ -2059,10 +2033,9 @@ function clearGenreSelection() {
 }
 
 function resetFilters() {
-  dom.searchInput.value = "";
+  if (dom.heroSearchInput) dom.heroSearchInput.value = "";
   dom.cityFilter.value = "";
   dom.dateFilter.value = "";
-  syncHeroControlsFromSidebar();
   state.activeGenres.clear();
   renderGenreFilter();
   state.selectedEventId = null;
@@ -2211,33 +2184,14 @@ function bindEvents() {
   if (dom.heroSearchForm) {
     dom.heroSearchForm.addEventListener("submit", (event) => event.preventDefault());
   }
-  dom.searchInput.addEventListener("input", () => {
-    syncHeroControlsFromSidebar();
-    applyFilters();
-  });
   dom.cityFilter.addEventListener("change", () => {
-    syncHeroControlsFromSidebar();
     applyFilters();
   });
   dom.dateFilter.addEventListener("change", () => {
-    syncHeroControlsFromSidebar();
     applyFilters();
   });
   if (dom.heroSearchInput) {
     dom.heroSearchInput.addEventListener("input", () => {
-      syncSidebarFromHeroControls();
-      applyFilters();
-    });
-  }
-  if (dom.heroCityFilter) {
-    dom.heroCityFilter.addEventListener("change", () => {
-      syncSidebarFromHeroControls();
-      applyFilters();
-    });
-  }
-  if (dom.heroDateFilter) {
-    dom.heroDateFilter.addEventListener("change", () => {
-      syncSidebarFromHeroControls();
       applyFilters();
     });
   }
@@ -2449,7 +2403,6 @@ async function startApp() {
   await loadEvents();
   updateFilterOptions();
   applyFiltersFromQuery();
-  syncHeroControlsFromSidebar();
   applyFilters();
   renderModerationPanel();
 }
