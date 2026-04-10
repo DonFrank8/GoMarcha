@@ -666,11 +666,32 @@ const markersByEventId = new Map();
 const markerEventsById = new Map();
 
 function enforceSinglePublicSearchInput() {
-  const legacyHeroMeta = document.querySelector(".hero-search__meta");
-  if (legacyHeroMeta) legacyHeroMeta.remove();
+  const appShell = document.querySelector(".app-shell");
+  const heroSection = document.querySelector("section.hero, header.hero");
+  if (!appShell || !heroSection) return;
 
-  const legacyHeroFilters = document.querySelectorAll("#heroCityFilter, #heroDateFilter");
-  legacyHeroFilters.forEach((element) => {
+  // Legacy -> current: move logo/language topbar out into a dedicated app header.
+  if (!document.querySelector(".app-header")) {
+    const topbar = heroSection.querySelector(".hero__topbar");
+    const brand = topbar?.querySelector(".hero__brand");
+    const languageSwitch = topbar?.querySelector("#languageSwitch");
+    if (brand || languageSwitch) {
+      const appHeader = document.createElement("header");
+      appHeader.className = "app-header";
+      const inner = document.createElement("div");
+      inner.className = "app-header__inner";
+      if (brand) inner.append(brand);
+      if (languageSwitch) inner.append(languageSwitch);
+      appHeader.append(inner);
+      document.body.insertBefore(appHeader, heroSection);
+      topbar.remove();
+    }
+  }
+
+  // Hero must only contain headline/subline + one search.
+  heroSection.querySelector(".hero__chips")?.remove();
+  heroSection.querySelector(".hero-search__meta")?.remove();
+  document.querySelectorAll("#heroCityFilter, #heroDateFilter").forEach((element) => {
     const parentLabel = element.closest("label");
     if (parentLabel) {
       parentLabel.remove();
@@ -679,15 +700,65 @@ function enforceSinglePublicSearchInput() {
     element.remove();
   });
 
-  const searchInputs = document.querySelectorAll('main input[type="search"]:not(#heroSearchInput)');
-  searchInputs.forEach((input) => {
-    const fieldLabel = input.closest("label.field");
-    if (fieldLabel) {
-      fieldLabel.remove();
-      return;
+  // Left column must only be filters.
+  const sidebar = appShell.querySelector(".sidebar");
+  const filtersForm = document.getElementById("filtersForm");
+  if (sidebar) {
+    sidebar.className = "sidebar sidebar--filters panel panel--filters";
+    if (filtersForm && filtersForm.parentElement !== sidebar) {
+      sidebar.append(filtersForm);
     }
-    input.remove();
-  });
+  }
+
+  if (filtersForm) {
+    filtersForm.querySelectorAll('input[type="search"], #searchInput').forEach((input) => {
+      const fieldLabel = input.closest("label.field");
+      if (fieldLabel) {
+        fieldLabel.remove();
+        return;
+      }
+      input.remove();
+    });
+  }
+
+  // Ensure right column structure: map -> events (with status) -> details.
+  let mapColumn = appShell.querySelector(".map-column");
+  if (!mapColumn) {
+    mapColumn = document.createElement("section");
+    mapColumn.className = "map-column";
+    appShell.append(mapColumn);
+  }
+  const mapSection = appShell.querySelector(".map-section");
+  const eventDetails = document.getElementById("eventDetails");
+  if (mapSection && mapSection.parentElement !== mapColumn) mapColumn.append(mapSection);
+
+  let eventsPanel = appShell.querySelector(".panel--events");
+  const eventList = document.getElementById("eventList");
+  const resultCount = document.getElementById("resultCount");
+  const status = document.getElementById("status");
+  if (!eventsPanel) {
+    eventsPanel = document.createElement("section");
+    eventsPanel.className = "panel panel--events";
+    const heading = document.createElement("div");
+    heading.className = "panel__heading";
+    const headingTitle = document.createElement("h3");
+    headingTitle.dataset.i18n = "list_title";
+    headingTitle.textContent = "Event-Liste";
+    heading.append(headingTitle);
+    const headingCount = resultCount || document.createElement("span");
+    if (!headingCount.id) headingCount.id = "resultCount";
+    if (!headingCount.textContent) headingCount.textContent = "0 Treffer";
+    heading.append(headingCount);
+    eventsPanel.append(heading);
+  }
+  if (status && status.parentElement !== eventsPanel) eventsPanel.append(status);
+  if (eventList && eventList.parentElement !== eventsPanel) eventsPanel.append(eventList);
+  if (eventsPanel.parentElement !== mapColumn) mapColumn.append(eventsPanel);
+  if (eventDetails && eventDetails.parentElement !== mapColumn) mapColumn.append(eventDetails);
+
+  // Remove legacy-only public panels/elements.
+  appShell.querySelectorAll("#moderationPanel, .panel--status, .panel--list").forEach((element) => element.remove());
+  document.getElementById("openSubmitModal")?.remove();
 }
 
 function resolveLanguage(langValue) {
