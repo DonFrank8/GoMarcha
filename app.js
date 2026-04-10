@@ -666,6 +666,19 @@ const markersByEventId = new Map();
 const markerEventsById = new Map();
 
 function enforceSinglePublicSearchInput() {
+  const legacyHeroMeta = document.querySelector(".hero-search__meta");
+  if (legacyHeroMeta) legacyHeroMeta.remove();
+
+  const legacyHeroFilters = document.querySelectorAll("#heroCityFilter, #heroDateFilter");
+  legacyHeroFilters.forEach((element) => {
+    const parentLabel = element.closest("label");
+    if (parentLabel) {
+      parentLabel.remove();
+      return;
+    }
+    element.remove();
+  });
+
   const searchInputs = document.querySelectorAll('main input[type="search"]:not(#heroSearchInput)');
   searchInputs.forEach((input) => {
     const fieldLabel = input.closest("label.field");
