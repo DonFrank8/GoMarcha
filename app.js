@@ -1281,6 +1281,19 @@ function parseCoordinateValue(rawValue) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function normalizeDateWithFallbackYear(rawDate, fallbackYear = null) {
+  const value = String(rawDate || "").trim();
+  const match = value.match(/^(\d{1,4})-(\d{2})-(\d{2})$/);
+  if (!match) return value;
+  const rawYear = Number(match[1]);
+  if (!Number.isFinite(rawYear)) return value;
+  const month = match[2];
+  const day = match[3];
+  if (rawYear >= 1000) return `${String(rawYear).padStart(4, "0")}-${month}-${day}`;
+  const safeYear = Number.isFinite(fallbackYear) ? fallbackYear : new Date().getFullYear();
+  return `${String(safeYear).padStart(4, "0")}-${month}-${day}`;
+}
+
 function normalizeEvent(event, index) {
   const lat = parseCoordinateValue(event.lat ?? event.latitude ?? event.latitude_decimal ?? null);
   const lng = parseCoordinateValue(event.lng ?? event.longitude ?? event.longitude_decimal ?? null);
@@ -1294,32 +1307,15 @@ function normalizeEvent(event, index) {
     .filter(Boolean)
     .join(", ");
   const normalizedGeocodingQuery = geocodingQuery || composedAddress;
-  const normalizeSuspiciousEventDate = (rawDate) => {
-    const value = String(rawDate || "").trim();
-    const match = value.match(/^(\d{1,4})-(\d{2})-(\d{2})$/);
-    if (!match) return value;
-    const rawYear = Number(match[1]);
-    if (!Number.isFinite(rawYear)) return value;
-    const month = match[2];
-    const day = match[3];
-    if (rawYear >= 1000) return `${String(rawYear).padStart(4, "0")}-${month}-${day}`;
-    // Legacy malformed years from submission parsing:
-    // 0006 -> current decade year ending in 6 (e.g. 2026), 0026 -> 2026.
-    const currentYear = new Date().getFullYear();
-    let correctedYear = rawYear;
-    if (rawYear >= 10) {
-      correctedYear = 2000 + rawYear;
-    } else {
-      correctedYear = currentYear - (currentYear % 10) + rawYear;
-    }
-    return `${String(correctedYear).padStart(4, "0")}-${month}-${day}`;
-  };
-
-  const normalizedEventDate = normalizeSuspiciousEventDate(event.event_date || event.date || "");
-  const normalizedRecurrenceStartDate = normalizeSuspiciousEventDate(
-    event.recurrence_start_date || event.event_date || event.date || ""
+  const createdAtYear = Number.isFinite(new Date(event.created_at || "").getFullYear())
+    ? new Date(event.created_at || "").getFullYear()
+    : null;
+  const normalizedEventDate = normalizeDateWithFallbackYear(event.event_date || event.date || "", createdAtYear);
+  const normalizedRecurrenceStartDate = normalizeDateWithFallbackYear(
+    event.recurrence_start_date || event.event_date || event.date || "",
+    createdAtYear
   );
-  const normalizedRecurrenceEndDate = normalizeSuspiciousEventDate(event.recurrence_end_date || "");
+  const normalizedRecurrenceEndDate = normalizeDateWithFallbackYear(event.recurrence_end_date || "", createdAtYear);
 
   return {
     id: String(event.id ?? `event-${index}`),
@@ -1513,12 +1509,19 @@ function buildInsertPayload(payload) {
   const geocoding_query = buildGeocodingQuery(payload);
   const recurrenceType = normalizeRecurrenceType(payload.recurrence_type);
   const isRecurring = recurrenceType !== RECURRENCE_TYPE_NONE;
-  const recurrenceStartDate = isRecurring ? String(payload.recurrence_start_date || "").trim() || null : null;
-  const recurrenceEndDate = isRecurring ? String(payload.recurrence_end_date || "").trim() || null : null;
+  const currentYear = new Date().getFullYear();
+  const recurrenceStartDate = isRecurring
+    ? normalizeDateWithFallbackYear(String(payload.recurrence_start_date || "").trim(), currentYear) || null
+    : null;
+  const recurrenceEndDate = isRecurring
+    ? normalizeDateWithFallbackYear(String(payload.recurrence_end_date || "").trim(), currentYear) || null
+    : null;
   const recurrenceWeekday = recurrenceType === RECURRENCE_TYPE_WEEKLY ? normalizeWeekday(payload.recurrence_weekday) : null;
   const recurrenceDayOfMonth =
     recurrenceType === RECURRENCE_TYPE_MONTHLY ? normalizeDayOfMonth(payload.recurrence_day_of_month) : null;
-  const eventDate = isRecurring ? recurrenceStartDate : payload.event_date;
+  const eventDate = isRecurring
+    ? recurrenceStartDate
+    : normalizeDateWithFallbackYear(String(payload.event_date || "").trim(), currentYear);
 
   return {
     name: payload.name,
