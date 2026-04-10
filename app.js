@@ -1059,9 +1059,37 @@ function getLocale() {
   return LOCALE_MAP[state.lang] || LOCALE_MAP.de;
 }
 
+function sanitizeStatusMessage(message) {
+  return String(message || "")
+    .replace(/\s*\([^)]*supabase[^)]*\)\.?/gi, "")
+    .replace(/supabase/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+([.,!?;:])/g, "$1")
+    .trim();
+}
+
+function applyLegacyUiCleanupOverrides() {
+  if (dom.searchInput) {
+    dom.searchInput.hidden = true;
+    dom.searchInput.setAttribute("aria-hidden", "true");
+    dom.searchInput.setAttribute("tabindex", "-1");
+    const legacySearchField = dom.searchInput.closest("label.field");
+    if (legacySearchField && dom.filtersForm?.contains(legacySearchField)) {
+      legacySearchField.hidden = true;
+    }
+  }
+
+  if (dom.openSubmitModal && dom.sidebar?.contains(dom.openSubmitModal)) {
+    dom.openSubmitModal.hidden = true;
+  }
+
+  const mapTop = dom.mapBottomSheet?.querySelector(".map-bottom-sheet__top");
+  if (mapTop) mapTop.hidden = true;
+}
+
 function setStatus(message, tone = "loading") {
   dom.status.className = `status status--${tone}`;
-  dom.status.textContent = message;
+  dom.status.textContent = sanitizeStatusMessage(message);
   if (dom.sidebar) {
     dom.sidebar.classList.toggle("is-loading-cards", tone === "loading");
   }
@@ -3845,6 +3873,7 @@ async function startApp() {
   state.lang = query.lang ? requestedLang : resolveLanguageFromBrowser(requestedLang);
   state.isAdminMode = resolveAdminMode(query.admin);
   applyStaticTranslations();
+  applyLegacyUiCleanupOverrides();
   renderQuickCategories();
   renderAdminAuthState(null);
   renderEventDetails(null);
