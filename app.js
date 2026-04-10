@@ -3236,6 +3236,9 @@ function createEventCard(event, index = 0) {
     }
 
     selectEvent(event.id, { flyTo: true, openPopup: true, scrollIntoView: false });
+    if (mapSheetIsMobileViewport()) {
+      setViewMode("map", { scroll: true });
+    }
   });
   return card;
 }
