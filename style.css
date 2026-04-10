@@ -1485,24 +1485,24 @@ body.body--modal-open {
 .map-bottom-sheet__utility {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  padding: 0 0.74rem 0.62rem;
+  gap: 0.46rem;
+  padding: 0.12rem 0.8rem 0.56rem;
 }
 
 .map-bottom-sheet__sticky-search {
   display: none;
-  padding: 0 0.74rem 0.62rem;
+  padding: 0.08rem 0.8rem 0.72rem;
 }
 
 .map-sheet-search {
   display: grid;
-  gap: 0.42rem;
+  gap: 0.48rem;
 }
 
 .map-sheet-search__row {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 0.4rem;
+  gap: 0.48rem;
 }
 
 .map-bottom-sheet__search {

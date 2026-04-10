@@ -103,9 +103,6 @@
         <p class="panel__intro" data-i18n="discover_subtitle">
           Suche nach Events, Bands, DJs und Locations in deiner Nähe.
         </p>
-        <button id="openSubmitModal" type="button" class="button-secondary button-secondary--primary" data-i18n="submit_cta">
-          Event einreichen
-        </button>
         <p id="status" class="status status--loading">Initialisiere Anwendung...</p>
       </section>
 
@@ -160,10 +157,7 @@
 
       <section id="listSection" class="panel panel--list">
         <form id="filtersForm" class="list-filters" autocomplete="off">
-          <label class="field">
-            <span data-i18n="filter_search">Suche</span>
-            <input id="searchInput" type="search" data-i18n-placeholder="filter_search_placeholder" placeholder="Suche Events, Bands oder Locations...">
-          </label>
+          <input id="searchInput" type="search" data-i18n-placeholder="filter_search_placeholder" placeholder="Suche Events, Bands oder Locations..." hidden aria-hidden="true" tabindex="-1">
 
           <div class="filter-grid">
             <label class="field">

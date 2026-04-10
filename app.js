@@ -205,6 +205,7 @@ const I18N = {
     hero_chip_vibe: "Live Music • Beach • Lifestyle",
     featured_title: "Featured heute",
     view_list: "Liste",
+    featured_open: "Mehr Infos",
     view_map: "Karte",
     nav_discover: "Entdecken",
     nav_map: "Karte",
@@ -238,18 +239,18 @@ const I18N = {
     list_title: "Für dich entdeckt",
     debug_title: "Debug-Modus",
     debug_table: "Tabelle:",
-    debug_loaded: "Supabase Events:",
+    debug_loaded: "Geladene Events:",
     debug_error: "Fehler:",
     debug_note: "Hinweis:",
     result_count: "{count} Treffer",
-    status_loading: "Lade Events aus Supabase...",
-    status_connected: "Supabase verbunden. {count} Events geladen.",
-    status_no_data: "Keine Daten aus Supabase. Demo-Events geladen.",
-    status_error: "Supabase nicht verfügbar: {message}. Demo-Events aktiv.",
-    status_filtered: "{shown} von {total} Events ({source}).",
-    source_supabase: "Supabase",
-    source_demo_no_data: "Demo-Fallback (Keine Daten aus Supabase)",
-    source_demo_error: "Demo-Fallback (Supabase Fehler)",
+    status_loading: "Events werden geladen...",
+    status_connected: "{count} Events verfügbar.",
+    status_no_data: "Aktuell sind keine Events verfügbar.",
+    status_error: "Events konnten aktuell nicht geladen werden.",
+    status_filtered: "{shown} von {total} Events",
+    source_supabase: "Live",
+    source_demo_no_data: "Keine Live-Daten",
+    source_demo_error: "Temporäre Daten",
     no_events_found: "Keine passenden Vibes gefunden.",
     details_empty: "Wähle ein Event aus, um Details, Bild und Route zu sehen.",
     details_location: "Location",
@@ -263,9 +264,9 @@ const I18N = {
     navigation_unavailable: "Für dieses Event sind keine Navigationsdaten vorhanden.",
     debug_no_error: "Nein",
     debug_note_pending: "Noch keine Entscheidung",
-    debug_note_supabase: "Kein Fallback - Daten aus Supabase aktiv",
-    debug_note_no_data: "Keine Daten aus Supabase",
-    debug_note_error: "Supabase Fehler - Demo-Fallback aktiv",
+    debug_note_supabase: "Live-Daten aktiv",
+    debug_note_no_data: "Keine Live-Daten gefunden",
+    debug_note_error: "Live-Daten derzeit nicht erreichbar",
     button_all: "Alle",
     submit_cta: "Event einreichen",
     admin_quick_access: "Admin",
@@ -393,6 +394,7 @@ const I18N = {
     hero_chip_vibe: "Live Music • Beach • Lifestyle",
     featured_title: "Featured tonight",
     view_list: "List",
+    featured_open: "Details",
     view_map: "Map",
     nav_discover: "Discover",
     nav_map: "Map",
@@ -426,18 +428,18 @@ const I18N = {
     list_title: "Curated for you",
     debug_title: "Debug mode",
     debug_table: "Table:",
-    debug_loaded: "Supabase events:",
+    debug_loaded: "Loaded events:",
     debug_error: "Error:",
     debug_note: "Note:",
     result_count: "{count} results",
-    status_loading: "Loading events from Supabase...",
-    status_connected: "Supabase connected. {count} events loaded.",
-    status_no_data: "No data from Supabase. Demo events loaded.",
-    status_error: "Supabase unavailable: {message}. Demo events active.",
-    status_filtered: "{shown} of {total} events ({source}).",
-    source_supabase: "Supabase",
-    source_demo_no_data: "Demo fallback (No data from Supabase)",
-    source_demo_error: "Demo fallback (Supabase error)",
+    status_loading: "Loading events...",
+    status_connected: "{count} events available.",
+    status_no_data: "No events are currently available.",
+    status_error: "Events could not be loaded right now.",
+    status_filtered: "{shown} of {total} events",
+    source_supabase: "Live",
+    source_demo_no_data: "No live data",
+    source_demo_error: "Temporary data",
     no_events_found: "No matching vibes found.",
     details_empty: "Select an event to view details, image and directions.",
     details_location: "Location",
@@ -451,9 +453,9 @@ const I18N = {
     navigation_unavailable: "No navigation data is available for this event.",
     debug_no_error: "No",
     debug_note_pending: "No decision yet",
-    debug_note_supabase: "No fallback - Supabase data active",
-    debug_note_no_data: "No data from Supabase",
-    debug_note_error: "Supabase error - demo fallback active",
+    debug_note_supabase: "Live data active",
+    debug_note_no_data: "No live data found",
+    debug_note_error: "Live data currently unavailable",
     button_all: "All",
     submit_cta: "Submit event",
     admin_quick_access: "Admin",
@@ -581,6 +583,7 @@ const I18N = {
     hero_chip_vibe: "Live Music • Beach • Lifestyle",
     featured_title: "Destacados de hoy",
     view_list: "Lista",
+    featured_open: "Más info",
     view_map: "Mapa",
     nav_discover: "Descubrir",
     nav_map: "Mapa",
@@ -614,18 +617,18 @@ const I18N = {
     list_title: "Seleccionado para ti",
     debug_title: "Modo debug",
     debug_table: "Tabla:",
-    debug_loaded: "Eventos Supabase:",
+    debug_loaded: "Eventos cargados:",
     debug_error: "Error:",
     debug_note: "Nota:",
     result_count: "{count} resultados",
-    status_loading: "Cargando eventos de Supabase...",
-    status_connected: "Supabase conectado. {count} eventos cargados.",
-    status_no_data: "Sin datos de Supabase. Eventos demo cargados.",
-    status_error: "Supabase no disponible: {message}. Demo activa.",
-    status_filtered: "{shown} de {total} eventos ({source}).",
-    source_supabase: "Supabase",
-    source_demo_no_data: "Fallback demo (Sin datos de Supabase)",
-    source_demo_error: "Fallback demo (Error de Supabase)",
+    status_loading: "Cargando eventos...",
+    status_connected: "{count} eventos disponibles.",
+    status_no_data: "Actualmente no hay eventos disponibles.",
+    status_error: "No se pudieron cargar eventos en este momento.",
+    status_filtered: "{shown} de {total} eventos",
+    source_supabase: "Live",
+    source_demo_no_data: "Sin datos en vivo",
+    source_demo_error: "Datos temporales",
     no_events_found: "No se encontraron vibes para tu búsqueda.",
     details_empty: "Selecciona un evento para ver detalles, imagen y ruta.",
     details_location: "Ubicación",
@@ -639,9 +642,9 @@ const I18N = {
     navigation_unavailable: "No hay datos de navegación disponibles para este evento.",
     debug_no_error: "No",
     debug_note_pending: "Sin decisión todavía",
-    debug_note_supabase: "Sin fallback - datos de Supabase activos",
-    debug_note_no_data: "Sin datos de Supabase",
-    debug_note_error: "Error de Supabase - fallback demo activo",
+    debug_note_supabase: "Datos en vivo activos",
+    debug_note_no_data: "No se encontraron datos en vivo",
+    debug_note_error: "Datos en vivo no disponibles temporalmente",
     button_all: "Todos",
     submit_cta: "Enviar evento",
     admin_quick_access: "Admin",
@@ -2030,10 +2033,7 @@ function eventSearchText(event) {
 }
 
 function sourceLabel() {
-  if (state.sourceType === "supabase") return t("source_supabase");
-  if (state.sourceType === "demo-no-data") return t("source_demo_no_data");
-  if (state.sourceType === "demo-error") return t("source_demo_error");
-  return "-";
+  return "";
 }
 
 function sourceTone() {
@@ -2404,8 +2404,7 @@ function applyFilters() {
   setStatus(
     t("status_filtered", {
       shown: state.filteredEvents.length,
-      total: state.allEvents.length,
-      source: sourceLabel()
+      total: state.allEvents.length
     }),
     sourceTone()
   );
@@ -2593,7 +2592,7 @@ function createFeaturedCard(event) {
         <h3>${event.name}</h3>
         <p>${formatDateTime(event)} • ${event.city || event.location_name || "-"}</p>
         <div class="featured-card__actions">
-          <button type="button" class="button-secondary button-secondary--primary" data-action="featured-open">${t("view_list")}</button>
+          <button type="button" class="button-secondary button-secondary--primary" data-action="featured-open">${t("featured_open")}</button>
           <button type="button" class="button-secondary" data-action="featured-navigate" ${navigationUrl ? "" : "disabled"}>${t("details_navigate")}</button>
         </div>
       </div>
@@ -3840,7 +3839,7 @@ async function loadEvents() {
     state.debug.hasError = true;
     state.debug.errorMessage = error.message;
     state.debug.fallbackReason = t("debug_note_error");
-    setStatus(t("status_error", { message: error.message }), "warning");
+    setStatus(t("status_error"), "warning");
     updateDebugPanel();
   }
 }
