@@ -159,7 +159,7 @@ const MAP_SHEET_DEFAULT_STATE = "half";
 const MAP_SHEET_DRAG_THRESHOLD = 56;
 const MAP_SHEET_VELOCITY_THRESHOLD = 0.55;
 const MAP_SEARCH_AREA_MOVE_THRESHOLD_RATIO = 0.18;
-const RECURRENCE_OCCURRENCE_HORIZON_DAYS = 120;
+const RECURRENCE_OCCURRENCE_HORIZON_DAYS = 60;
 const RECURRENCE_MAX_OCCURRENCES_PER_EVENT = 64;
 const RECURRENCE_TYPE_NONE = "none";
 const RECURRENCE_TYPE_WEEKLY = "weekly";
@@ -1444,6 +1444,17 @@ function validateFormPayload(payload) {
     }
   }
   return { valid: true, message: "" };
+}
+
+async function hasRecurrenceColumns(client) {
+  const probeColumns = "recurrence_type,recurrence_start_date,recurrence_end_date,recurrence_weekday,recurrence_day_of_month";
+  const { error } = await client
+    .from(state.debug.tableName || "events")
+    .select(probeColumns)
+    .limit(1);
+  if (!error) return true;
+  const message = String(error?.message || "").toLowerCase();
+  return !(message.includes("does not exist") && message.includes("recurrence_"));
 }
 
 function clearEventForm() {
@@ -3524,6 +3535,18 @@ async function handleCreateEventSubmit(submitEvent) {
   setFormSubmitting(true);
   try {
     const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const recurrenceType = normalizeRecurrenceType(payload.recurrence_type);
+    const requiresRecurrenceSchema = recurrenceType !== RECURRENCE_TYPE_NONE;
+    if (requiresRecurrenceSchema) {
+      const recurrenceColumnsReady = await hasRecurrenceColumns(client);
+      if (!recurrenceColumnsReady) {
+        setFormFeedback(
+          "Wiederkehrende Events sind noch nicht freigeschaltet. Bitte zuerst supabase-rls.sql mit Recurrence-Spalten in Supabase ausführen.",
+          "error"
+        );
+        return;
+      }
+    }
     let payloadWithCoordinates;
     let uploadedImagePath = null;
     try {
