@@ -153,6 +153,7 @@ const MAP_SHEET_STATE_ORDER = ["full", "half", "peek"];
 const MAP_SHEET_DEFAULT_STATE = "half";
 const MAP_SHEET_DRAG_THRESHOLD = 56;
 const MAP_SHEET_VELOCITY_THRESHOLD = 0.55;
+const MAP_SEARCH_AREA_MOVE_THRESHOLD_RATIO = 0.18;
 
 const NAVIGATION_URL_BUILDERS = {
   google: {
@@ -186,6 +187,8 @@ const I18N = {
     nav_map: "Karte",
     nav_submit: "Einreichen",
     sheet_title: "Events in deiner Nahe",
+    map_search_area: "In diesem Bereich suchen",
+    map_search_loading: "Suche...",
     quick_all: "Alle",
     quick_house: "House",
     quick_latino: "Latino",
@@ -346,6 +349,8 @@ const I18N = {
     nav_map: "Map",
     nav_submit: "Submit",
     sheet_title: "Events near you",
+    map_search_area: "Search this area",
+    map_search_loading: "Searching...",
     quick_all: "All",
     quick_house: "House",
     quick_latino: "Latino",
@@ -506,6 +511,8 @@ const I18N = {
     nav_map: "Mapa",
     nav_submit: "Enviar",
     sheet_title: "Eventos cerca de ti",
+    map_search_area: "Buscar en esta zona",
+    map_search_loading: "Buscando...",
     quick_all: "Todo",
     quick_house: "House",
     quick_latino: "Latino",
@@ -690,6 +697,13 @@ const state = {
     },
     currentTop: 0
   },
+  mapSearchArea: {
+    visible: false,
+    loading: false,
+    pendingViewportChange: false,
+    lastCenter: null,
+    lastZoom: null
+  },
   favoriteEventIds: new Set(),
   lang: "de",
   debug: {
@@ -708,6 +722,7 @@ const dom = {
   discoverSection: document.getElementById("discoverSection"),
   listSection: document.getElementById("listSection"),
   mapSection: document.getElementById("mapSection"),
+  mapSearchAreaCta: document.getElementById("mapSearchAreaCta"),
   mapBottomSheet: document.getElementById("mapBottomSheet"),
   mapBottomSheetHandle: document.getElementById("mapBottomSheetHandle"),
   mapBottomSheetCount: document.getElementById("mapBottomSheetCount"),
@@ -2126,6 +2141,76 @@ function updateMapBottomSheetMeta() {
   dom.mapBottomSheetCount.textContent = String(state.filteredEvents.length);
 }
 
+function setMapSearchAreaCtaLoading(isLoading) {
+  if (!dom.mapSearchAreaCta) return;
+  state.mapSearchArea.loading = Boolean(isLoading);
+  dom.mapSearchAreaCta.disabled = state.mapSearchArea.loading;
+  dom.mapSearchAreaCta.textContent = state.mapSearchArea.loading
+    ? t("map_search_loading")
+    : t("map_search_area");
+}
+
+function showMapSearchAreaCta(visible) {
+  if (!dom.mapSearchAreaCta) return;
+  state.mapSearchArea.visible = Boolean(visible);
+  dom.mapSearchAreaCta.hidden = !state.mapSearchArea.visible;
+}
+
+function clearMapSearchAreaPendingState() {
+  state.mapSearchArea.pendingViewportChange = false;
+  showMapSearchAreaCta(false);
+}
+
+function shouldShowMapSearchAreaCta(nextCenter, nextZoom) {
+  if (!nextCenter || !Number.isFinite(nextCenter.lat) || !Number.isFinite(nextCenter.lng)) return false;
+  const previousCenter = state.mapSearchArea.lastCenter;
+  const previousZoom = state.mapSearchArea.lastZoom;
+  if (!previousCenter || !Number.isFinite(previousCenter.lat) || !Number.isFinite(previousCenter.lng)) return false;
+  if (!Number.isFinite(previousZoom)) return false;
+
+  const zoomChanged = Math.abs(nextZoom - previousZoom) >= 1;
+  if (zoomChanged) return true;
+
+  const latThreshold = 0.02;
+  const lngThreshold = 0.02;
+  const latDelta = Math.abs(nextCenter.lat - previousCenter.lat);
+  const lngDelta = Math.abs(nextCenter.lng - previousCenter.lng);
+  return latDelta > latThreshold || lngDelta > lngThreshold;
+}
+
+function refreshMapSearchAreaBaseline() {
+  if (!map) return;
+  const center = map.getCenter();
+  state.mapSearchArea.lastCenter = { lat: center.lat, lng: center.lng };
+  state.mapSearchArea.lastZoom = map.getZoom();
+}
+
+function rememberCurrentMapViewport() {
+  refreshMapSearchAreaBaseline();
+}
+
+function refreshEventsForVisibleMapBounds() {
+  if (!map) return;
+  state.mapSearchArea.pendingViewportChange = false;
+  setMapSearchAreaCtaLoading(true);
+  try {
+    applyFilters();
+    refreshMapSearchAreaBaseline();
+    showMapSearchAreaCta(false);
+  } finally {
+    setMapSearchAreaCtaLoading(false);
+  }
+}
+
+function handleMapViewportChanged() {
+  if (!map || state.viewMode !== "map") return;
+  const nextCenter = map.getCenter();
+  const nextZoom = map.getZoom();
+  const shouldShow = shouldShowMapSearchAreaCta(nextCenter, nextZoom);
+  state.mapSearchArea.pendingViewportChange = shouldShow;
+  showMapSearchAreaCta(shouldShow);
+}
+
 function updateMapBottomSheetLayout() {
   if (!mapSheetIsAvailable()) return;
   updateMapSheetEnabledFlag();
@@ -2201,6 +2286,12 @@ function setViewMode(nextMode, { scroll = false } = {}) {
   state.viewMode = resolvedMode;
   document.body.dataset.viewMode = resolvedMode;
   updateMapSheetEnabledFlag();
+  if (resolvedMode !== "map") {
+    clearMapSearchAreaPendingState();
+  } else {
+    showMapSearchAreaCta(Boolean(state.mapSearchArea.pendingViewportChange));
+    setMapSearchAreaCtaLoading(false);
+  }
   if (dom.viewToggleList) dom.viewToggleList.classList.toggle("is-active", resolvedMode === "list");
   if (dom.viewToggleMap) dom.viewToggleMap.classList.toggle("is-active", resolvedMode === "map");
   if (dom.bottomNavDiscover) dom.bottomNavDiscover.classList.toggle("is-active", resolvedMode === "list");
@@ -2338,6 +2429,8 @@ function initMap() {
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
   }).addTo(map);
   markersLayer = L.layerGroup().addTo(map);
+  map.on("moveend", handleMapViewportChanged);
+  refreshMapSearchAreaBaseline();
   window.setTimeout(() => map.invalidateSize(), 250);
 }
 
@@ -2739,6 +2832,11 @@ function bindEvents() {
       state.activeQuickCategoryId = categoryId;
       renderQuickCategories();
       applyFilters();
+    });
+  }
+  if (dom.mapSearchAreaCta) {
+    dom.mapSearchAreaCta.addEventListener("click", () => {
+      refreshEventsForVisibleMapBounds();
     });
   }
 
