@@ -1320,6 +1320,67 @@ body.body--modal-open {
   padding: 0 0.74rem 0.62rem;
 }
 
+.map-bottom-sheet__sticky-search {
+  display: none;
+  padding: 0 0.74rem 0.62rem;
+}
+
+.map-sheet-search {
+  display: grid;
+  gap: 0.42rem;
+}
+
+.map-sheet-search__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem;
+}
+
+.map-bottom-sheet__search {
+  width: 100%;
+  min-height: 40px;
+  border-radius: 12px;
+  border: 1px solid rgba(166, 191, 255, 0.36);
+  background: rgba(9, 13, 26, 0.88);
+  color: #e7f0ff;
+  padding: 0.48rem 0.72rem;
+  font-size: 0.84rem;
+}
+
+.map-bottom-sheet__search::placeholder {
+  color: #a9bcdf;
+}
+
+.map-bottom-sheet__search:focus {
+  border-color: transparent;
+  outline: 2px solid rgba(50, 167, 255, 0.62);
+  box-shadow: var(--glow-blue);
+}
+
+.map-sheet-search__select {
+  width: 100%;
+  min-height: 38px;
+  border-radius: 12px;
+  border: 1px solid rgba(166, 191, 255, 0.32);
+  background: rgba(9, 13, 26, 0.86);
+  color: #e2ecff;
+  padding: 0.42rem 0.62rem;
+  font-size: 0.8rem;
+}
+
+.map-sheet-search__select:focus {
+  border-color: transparent;
+  outline: 2px solid rgba(50, 167, 255, 0.62);
+  box-shadow: var(--glow-blue);
+}
+
+.map-sheet-search__filters {
+  margin-top: 0.45rem;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.45rem;
+}
+
 .map-sheet-chip {
   min-height: 30px;
   border-radius: 999px;
@@ -1366,7 +1427,8 @@ body.body--modal-open {
 .map-bottom-sheet[data-sheet-state="peek"] .event-details__actions,
 .map-bottom-sheet[data-sheet-state="peek"] .event-details__grid,
 .map-bottom-sheet[data-sheet-state="peek"] .event-details__card--description,
-.map-bottom-sheet[data-sheet-state="peek"] .event-details__badge + .event-details__badge {
+.map-bottom-sheet[data-sheet-state="peek"] .event-details__badge + .event-details__badge,
+.map-bottom-sheet[data-sheet-state="peek"] .map-bottom-sheet__sticky-search {
   display: none;
 }
 
@@ -1386,6 +1448,10 @@ body.body--modal-open {
 
 .map-bottom-sheet[data-sheet-state="full"] .map-bottom-sheet__top {
   box-shadow: 0 8px 18px rgba(2, 5, 14, 0.42);
+}
+
+.map-bottom-sheet[data-sheet-state="full"] .map-bottom-sheet__sticky-search {
+  display: block;
 }
 
 .map-search-area-cta {
@@ -2290,6 +2356,16 @@ body.body--modal-open {
   .map-section,
   #map {
     min-height: 390px;
+  }
+
+  .map-sheet-search__row {
+    grid-template-columns: 1fr;
+  }
+
+  .map-sheet-search__select,
+  .map-bottom-sheet__search {
+    min-height: 36px;
+    font-size: 0.78rem;
   }
 
   .modal {

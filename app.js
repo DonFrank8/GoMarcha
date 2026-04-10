@@ -190,6 +190,7 @@ const I18N = {
     sheet_sort_nearby: "Nahe",
     sheet_sort_soonest: "Bald",
     sheet_filter: "Filter",
+    sheet_search_placeholder: "Im Bereich suchen...",
     map_search_area: "In diesem Bereich suchen",
     map_search_loading: "Suche...",
     quick_all: "Alle",
@@ -355,6 +356,7 @@ const I18N = {
     sheet_sort_nearby: "Nearby",
     sheet_sort_soonest: "Soonest",
     sheet_filter: "Filter",
+    sheet_search_placeholder: "Search in this area...",
     map_search_area: "Search this area",
     map_search_loading: "Searching...",
     quick_all: "All",
@@ -520,6 +522,7 @@ const I18N = {
     sheet_sort_nearby: "Cerca",
     sheet_sort_soonest: "Pronto",
     sheet_filter: "Filtros",
+    sheet_search_placeholder: "Buscar en esta zona...",
     map_search_area: "Buscar en esta zona",
     map_search_loading: "Buscando...",
     quick_all: "Todo",
@@ -739,6 +742,9 @@ const dom = {
   mapSheetSortNearby: document.getElementById("mapSheetSortNearby"),
   mapSheetSortSoonest: document.getElementById("mapSheetSortSoonest"),
   mapSheetFilter: document.getElementById("mapSheetFilter"),
+  mapSheetSearchInput: document.getElementById("mapSheetSearchInput"),
+  mapSheetCityFilter: document.getElementById("mapSheetCityFilter"),
+  mapSheetDateFilter: document.getElementById("mapSheetDateFilter"),
   locationChip: document.getElementById("locationChip"),
   locationChipLabel: document.getElementById("locationChipLabel"),
   openSubmitModalHero: document.getElementById("openSubmitModalHero"),
@@ -915,6 +921,14 @@ function switchLanguage(nextLangCode) {
   }
   updateDebugPanel();
   renderModerationPanel();
+  syncMapSheetFilterOptions();
+  syncMapSheetControlsFromSidebar();
+  updateMapSheetSortControls();
+  if (dom.mapSearchAreaCta) {
+    dom.mapSearchAreaCta.textContent = state.mapSearchArea.loading
+      ? t("map_search_loading")
+      : t("map_search_area");
+  }
   updateUrlFromFilters();
 }
 
@@ -1869,6 +1883,7 @@ function updateFilterOptions() {
   });
   renderGenreFilter();
   syncHeroFilterOptions();
+  syncMapSheetFilterOptions();
 }
 
 function applyFiltersFromQuery() {
@@ -1883,6 +1898,7 @@ function applyFiltersFromQuery() {
   state.activeGenres = new Set(normalizeRequestedGenres(query.genres));
   renderGenreFilter();
   syncHeroControlsFromSidebar();
+  syncMapSheetControlsFromSidebar();
 }
 
 function getActiveFilters() {
@@ -1905,6 +1921,14 @@ function syncHeroFilterOptions() {
   dom.heroDateFilter.value = dom.dateFilter.value;
 }
 
+function syncMapSheetFilterOptions() {
+  if (!dom.mapSheetCityFilter || !dom.mapSheetDateFilter || !dom.cityFilter || !dom.dateFilter) return;
+  dom.mapSheetCityFilter.innerHTML = dom.cityFilter.innerHTML;
+  dom.mapSheetDateFilter.innerHTML = dom.dateFilter.innerHTML;
+  dom.mapSheetCityFilter.value = dom.cityFilter.value;
+  dom.mapSheetDateFilter.value = dom.dateFilter.value;
+}
+
 function syncHeroControlsFromSidebar() {
   if (dom.heroSearchInput && dom.searchInput) dom.heroSearchInput.value = dom.searchInput.value;
   if (dom.heroCityFilter && dom.cityFilter) dom.heroCityFilter.value = dom.cityFilter.value;
@@ -1915,6 +1939,18 @@ function syncSidebarFromHeroControls() {
   if (dom.heroSearchInput && dom.searchInput) dom.searchInput.value = dom.heroSearchInput.value;
   if (dom.heroCityFilter && dom.cityFilter) dom.cityFilter.value = dom.heroCityFilter.value;
   if (dom.heroDateFilter && dom.dateFilter) dom.dateFilter.value = dom.heroDateFilter.value;
+}
+
+function syncMapSheetControlsFromSidebar() {
+  if (dom.mapSheetSearchInput && dom.searchInput) dom.mapSheetSearchInput.value = dom.searchInput.value;
+  if (dom.mapSheetCityFilter && dom.cityFilter) dom.mapSheetCityFilter.value = dom.cityFilter.value;
+  if (dom.mapSheetDateFilter && dom.dateFilter) dom.mapSheetDateFilter.value = dom.dateFilter.value;
+}
+
+function syncSidebarFromMapSheetControls() {
+  if (dom.mapSheetSearchInput && dom.searchInput) dom.searchInput.value = dom.mapSheetSearchInput.value;
+  if (dom.mapSheetCityFilter && dom.cityFilter) dom.cityFilter.value = dom.mapSheetCityFilter.value;
+  if (dom.mapSheetDateFilter && dom.dateFilter) dom.dateFilter.value = dom.mapSheetDateFilter.value;
 }
 
 function updateLocationChipLabel() {
@@ -2790,31 +2826,58 @@ function bindEvents() {
   }
   dom.searchInput.addEventListener("input", () => {
     syncHeroControlsFromSidebar();
+    syncMapSheetControlsFromSidebar();
     applyFilters();
   });
   dom.cityFilter.addEventListener("change", () => {
     syncHeroControlsFromSidebar();
+    syncMapSheetControlsFromSidebar();
     applyFilters();
   });
   dom.dateFilter.addEventListener("change", () => {
     syncHeroControlsFromSidebar();
+    syncMapSheetControlsFromSidebar();
     applyFilters();
   });
   if (dom.heroSearchInput) {
     dom.heroSearchInput.addEventListener("input", () => {
       syncSidebarFromHeroControls();
+      syncMapSheetControlsFromSidebar();
       applyFilters();
     });
   }
   if (dom.heroCityFilter) {
     dom.heroCityFilter.addEventListener("change", () => {
       syncSidebarFromHeroControls();
+      syncMapSheetControlsFromSidebar();
       applyFilters();
     });
   }
   if (dom.heroDateFilter) {
     dom.heroDateFilter.addEventListener("change", () => {
       syncSidebarFromHeroControls();
+      syncMapSheetControlsFromSidebar();
+      applyFilters();
+    });
+  }
+  if (dom.mapSheetSearchInput) {
+    dom.mapSheetSearchInput.addEventListener("input", () => {
+      syncSidebarFromMapSheetControls();
+      syncHeroControlsFromSidebar();
+      applyFilters();
+    });
+  }
+  if (dom.mapSheetCityFilter) {
+    dom.mapSheetCityFilter.addEventListener("change", () => {
+      syncSidebarFromMapSheetControls();
+      syncHeroControlsFromSidebar();
+      applyFilters();
+    });
+  }
+  if (dom.mapSheetDateFilter) {
+    dom.mapSheetDateFilter.addEventListener("change", () => {
+      syncSidebarFromMapSheetControls();
+      syncHeroControlsFromSidebar();
       applyFilters();
     });
   }
@@ -2906,6 +2969,27 @@ function bindEvents() {
       dom.searchInput?.focus();
     });
   }
+  if (dom.mapBottomSheet) {
+    dom.mapBottomSheet.addEventListener("focusin", (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (!target) return;
+      if (target.closest(".map-sheet-search__input") || target.closest(".map-sheet-search__select")) {
+        if (state.viewMode === "map") {
+          setMapBottomSheetState("full");
+          window.setTimeout(() => map?.invalidateSize(), 120);
+        }
+      }
+    });
+    dom.mapBottomSheet.addEventListener("focusout", () => {
+      window.setTimeout(() => {
+        const activeElement = document.activeElement;
+        if (activeElement instanceof Element && dom.mapBottomSheet.contains(activeElement)) return;
+        if (state.viewMode === "map" && state.mapSheet.state === "full") {
+          setMapBottomSheetState("half");
+        }
+      }, 120);
+    });
+  }
 
   window.addEventListener("resize", () => {
     updateMapBottomSheetLayout();
@@ -2935,6 +3019,11 @@ function bindEvents() {
     }
   });
   dom.resetFilters.addEventListener("click", resetFilters);
+  if (dom.mapSheetSearchInput || dom.mapSheetCityFilter || dom.mapSheetDateFilter) {
+    dom.resetFilters.addEventListener("click", () => {
+      syncMapSheetControlsFromSidebar();
+    });
+  }
   dom.clearGenresButton.addEventListener("click", clearGenreSelection);
 
   dom.genreFilterGroup.addEventListener("click", (event) => {

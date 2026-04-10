@@ -216,6 +216,20 @@
               <h3 class="map-bottom-sheet__title" data-i18n="sheet_title">Events near you</h3>
               <span id="mapBottomSheetCount" class="map-bottom-sheet__count">0</span>
             </header>
+            <div class="map-bottom-sheet__search-row">
+              <label class="map-bottom-sheet__search" for="mapSheetSearchInput">
+                <span class="sr-only" data-i18n="hero_search_label">Search</span>
+                <input
+                  id="mapSheetSearchInput"
+                  type="search"
+                  data-i18n-placeholder="hero_search_placeholder"
+                  placeholder="Search events, bands or locations"
+                >
+              </label>
+              <button id="mapSheetInlineFilter" type="button" class="map-sheet-chip map-sheet-chip--inline-filter" data-i18n="sheet_filter">
+                Filter
+              </button>
+            </div>
             <div class="map-bottom-sheet__utility">
               <button id="mapSheetSortNearby" type="button" class="map-sheet-chip" data-i18n="sheet_sort_nearby">Nearby</button>
               <button id="mapSheetSortSoonest" type="button" class="map-sheet-chip is-active" data-i18n="sheet_sort_soonest">Soonest</button>
