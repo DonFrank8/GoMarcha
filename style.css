@@ -2127,6 +2127,10 @@ body.body--modal-open {
   grid-column: 1 / -1;
 }
 
+.field[hidden] {
+  display: none !important;
+}
+
 .field__hint {
   margin-top: 0.25rem;
   display: block;

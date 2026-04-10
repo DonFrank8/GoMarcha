@@ -311,13 +311,54 @@
               <span data-i18n="form_label_country">Land</span>
               <input name="country" id="formCountry" type="text" required>
             </label>
-            <label class="field">
+            <label class="field" id="formEventDateField">
               <span data-i18n="form_label_event_date">Datum</span>
               <input name="event_date" id="formDate" type="date" required>
             </label>
-            <label class="field">
+            <label class="field" id="formEventTimeField">
               <span data-i18n="form_label_event_time">Uhrzeit</span>
               <input name="event_time" id="formTime" type="time">
+            </label>
+            <label class="field">
+              <span data-i18n="form_label_recurrence_type">Event Type</span>
+              <select name="recurrence_type" id="formRecurrenceType">
+                <option value="none" data-i18n="form_recurrence_none">One-time event</option>
+                <option value="weekly" data-i18n="form_recurrence_weekly">Recurring weekly</option>
+                <option value="monthly" data-i18n="form_recurrence_monthly">Recurring monthly</option>
+              </select>
+            </label>
+            <label class="field" id="formRecurrenceStartDateField" hidden>
+              <span data-i18n="form_label_recurrence_start_date">Recurrence start date</span>
+              <input name="recurrence_start_date" id="formRecurrenceStartDate" type="date">
+            </label>
+            <label class="field" id="formRecurrenceEndDateField" hidden>
+              <span data-i18n="form_label_recurrence_end_date">Recurrence end date (optional)</span>
+              <input name="recurrence_end_date" id="formRecurrenceEndDate" type="date">
+            </label>
+            <label class="field" id="formRecurrenceWeekdayField" hidden>
+              <span data-i18n="form_label_recurrence_weekday">Weekday</span>
+              <select name="recurrence_weekday" id="formRecurrenceWeekday">
+                <option value="" data-i18n="form_recurrence_weekday_choose">Choose weekday</option>
+                <option value="1" data-i18n="weekday_monday">Monday</option>
+                <option value="2" data-i18n="weekday_tuesday">Tuesday</option>
+                <option value="3" data-i18n="weekday_wednesday">Wednesday</option>
+                <option value="4" data-i18n="weekday_thursday">Thursday</option>
+                <option value="5" data-i18n="weekday_friday">Friday</option>
+                <option value="6" data-i18n="weekday_saturday">Saturday</option>
+                <option value="0" data-i18n="weekday_sunday">Sunday</option>
+              </select>
+            </label>
+            <label class="field" id="formRecurrenceDayOfMonthField" hidden>
+              <span data-i18n="form_label_recurrence_day_of_month">Day of month</span>
+              <input
+                name="recurrence_day_of_month"
+                id="formRecurrenceDayOfMonth"
+                type="number"
+                min="1"
+                max="31"
+                step="1"
+                inputmode="numeric"
+              >
             </label>
             <label class="field">
               <span data-i18n="form_label_genre">Genre</span>
