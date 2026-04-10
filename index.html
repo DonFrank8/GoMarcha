@@ -47,9 +47,17 @@
       </div>
 
       <div class="hero__center">
-        <h1 data-i18n="hero_title">Entdecke, wo dein Vibe passiert.</h1>
+        <div class="hero__utility-row">
+          <button id="locationChip" type="button" class="location-chip">
+            <span aria-hidden="true">📍</span>
+            <span id="locationChipLabel" data-i18n="hero_location_label">Near you</span>
+          </button>
+          <button id="openSubmitModalHero" type="button" class="button-secondary" data-i18n="submit_cta">Event einreichen</button>
+        </div>
+
+        <h1 data-i18n="hero_title">Events today near you</h1>
         <p class="hero__subtitle" data-i18n="hero_subtitle">
-          Live Musik, Beach Vibes und echte Events in deiner Nähe.
+          Local live music, DJs, beach bars and curated events around you.
         </p>
 
         <form id="heroSearchForm" class="hero-search" autocomplete="off">
@@ -63,21 +71,23 @@
               placeholder="Suche Events, Bands oder Locations"
             >
           </label>
-          <div class="hero-search__meta">
-            <label class="hero-search__field" for="heroCityFilter">
-              <span data-i18n="filter_city">Stadt</span>
-              <select id="heroCityFilter" class="hero-search__select">
-                <option value="" data-i18n="filter_city_all">Alle Städte</option>
-              </select>
-            </label>
-            <label class="hero-search__field" for="heroDateFilter">
-              <span data-i18n="filter_date">Datum</span>
-              <select id="heroDateFilter" class="hero-search__select">
-                <option value="" data-i18n="filter_date_all">Alle Daten</option>
-              </select>
-            </label>
-          </div>
         </form>
+
+        <section class="featured" aria-labelledby="featuredEventsTitle">
+          <div class="featured__head">
+            <h2 id="featuredEventsTitle" data-i18n="featured_title">Featured tonight</h2>
+            <span id="featuredCount" class="featured__count">0</span>
+          </div>
+          <div id="featuredCarousel" class="featured-carousel" aria-label="Featured events carousel"></div>
+        </section>
+
+        <div class="quick-controls">
+          <div id="quickCategoryRail" class="quick-category-rail" aria-label="Quick categories"></div>
+          <div class="view-toggle" role="group" aria-label="View mode">
+            <button id="viewToggleList" type="button" class="view-toggle__button is-active" data-view-mode="list" data-i18n="view_list">List</button>
+            <button id="viewToggleMap" type="button" class="view-toggle__button" data-view-mode="map" data-i18n="view_map">Map</button>
+          </div>
+        </div>
 
         <div class="hero__chips">
           <span data-i18n="hero_chip_vibe">Live Music • Beach • Lifestyle</span>
@@ -86,7 +96,7 @@
     </div>
   </header>
 
-  <main class="app-shell">
+  <main id="discoverSection" class="app-shell">
     <aside class="sidebar">
       <section class="panel panel--status">
         <h2 data-i18n="discover_title">Events entdecken</h2>
@@ -148,7 +158,7 @@
         </div>
       </section>
 
-      <section class="panel panel--list">
+      <section id="listSection" class="panel panel--list">
         <form id="filtersForm" class="list-filters" autocomplete="off">
           <label class="field">
             <span data-i18n="filter_search">Suche</span>
@@ -191,7 +201,7 @@
 
     </aside>
 
-    <section class="map-column">
+    <section id="mapSection" class="map-column">
       <div class="map-section">
         <div id="map" aria-label="Karte mit Event-Markern"></div>
       </div>
@@ -200,6 +210,21 @@
       </section>
     </section>
   </main>
+
+  <nav class="bottom-nav" aria-label="Primary">
+    <a id="bottomNavDiscover" class="bottom-nav__item is-active" href="#discoverSection" data-nav-mode="list">
+      <span aria-hidden="true">✨</span>
+      <span data-i18n="nav_discover">Discover</span>
+    </a>
+    <a id="bottomNavMap" class="bottom-nav__item" href="#mapSection" data-nav-mode="map">
+      <span aria-hidden="true">🗺️</span>
+      <span data-i18n="nav_map">Map</span>
+    </a>
+    <button id="bottomNavSubmit" class="bottom-nav__item" type="button">
+      <span aria-hidden="true">＋</span>
+      <span data-i18n="nav_submit">Submit</span>
+    </button>
+  </nav>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>

@@ -116,6 +116,39 @@ const GENRE_ICON_MAP = {
   "DJ Set": "🎛️"
 };
 
+const QUICK_CATEGORY_DEFINITIONS = [
+  {
+    id: "all",
+    labelKey: "quick_all",
+    keywords: []
+  },
+  {
+    id: "house",
+    labelKey: "quick_house",
+    keywords: ["house", "tech house", "deep house", "electro", "dj"]
+  },
+  {
+    id: "latino",
+    labelKey: "quick_latino",
+    keywords: ["latin", "salsa", "bachata", "reggaeton", "latino"]
+  },
+  {
+    id: "live-band",
+    labelKey: "quick_live_band",
+    keywords: ["live band", "live music", "band", "rock", "jazz", "flamenco", "acoustic"]
+  },
+  {
+    id: "beach",
+    labelKey: "quick_beach",
+    keywords: ["beach", "sunset", "coast", "seaside", "ocean", "pool"]
+  },
+  {
+    id: "dj",
+    labelKey: "quick_dj",
+    keywords: ["dj", "dj set", "techno", "electro", "afterhours"]
+  }
+];
+
 const NAVIGATION_URL_BUILDERS = {
   google: {
     byCoordinates: ({ lat, lng }) =>
@@ -136,10 +169,23 @@ const NAVIGATION_URL_BUILDERS = {
 
 const I18N = {
   de: {
-    hero_title: "Entdecke, wo dein Vibe passiert.",
-    hero_subtitle: "Live Musik, Beach Vibes und echte Events in deiner Nähe.",
+    hero_title: "Events heute in deiner Nähe",
+    hero_subtitle: "Live Musik, DJs, Beach Bars und kuratierte Erlebnisse in deiner Umgebung.",
+    hero_location_label: "In deiner Nähe",
     hero_chip_fallback: "Live-Momente entdecken",
     hero_chip_vibe: "Live Music • Beach • Lifestyle",
+    featured_title: "Featured heute",
+    view_list: "Liste",
+    view_map: "Karte",
+    nav_discover: "Entdecken",
+    nav_map: "Karte",
+    nav_submit: "Einreichen",
+    quick_all: "Alle",
+    quick_house: "House",
+    quick_latino: "Latino",
+    quick_live_band: "Live Band",
+    quick_beach: "Beach",
+    quick_dj: "DJ",
     hero_search_label: "Suche",
     hero_search_placeholder: "Suche Events, Bands oder Locations",
     discover_title: "Events entdecken",
@@ -282,10 +328,23 @@ const I18N = {
     create_submit: "Speichern"
   },
   en: {
-    hero_title: "Find where your vibe lives.",
-    hero_subtitle: "Live music, beach vibes and real events near you.",
+    hero_title: "Events today near you",
+    hero_subtitle: "Live music, DJs, beach bars and curated experiences around you.",
+    hero_location_label: "Near you",
     hero_chip_fallback: "Discover live moments",
     hero_chip_vibe: "Live Music • Beach • Lifestyle",
+    featured_title: "Featured tonight",
+    view_list: "List",
+    view_map: "Map",
+    nav_discover: "Discover",
+    nav_map: "Map",
+    nav_submit: "Submit",
+    quick_all: "All",
+    quick_house: "House",
+    quick_latino: "Latino",
+    quick_live_band: "Live Band",
+    quick_beach: "Beach",
+    quick_dj: "DJ",
     hero_search_label: "Search",
     hero_search_placeholder: "Search events, bands or locations",
     discover_title: "Discover vibes",
@@ -428,10 +487,23 @@ const I18N = {
     create_submit: "Save"
   },
   es: {
-    hero_title: "Descubre dónde está tu vibe.",
-    hero_subtitle: "Música en vivo, beach vibes y eventos reales cerca de ti.",
+    hero_title: "Eventos hoy cerca de ti",
+    hero_subtitle: "Música en vivo, DJs, beach bars y experiencias curadas a tu alrededor.",
+    hero_location_label: "Cerca de ti",
     hero_chip_fallback: "Descubre momentos en vivo",
     hero_chip_vibe: "Live Music • Beach • Lifestyle",
+    featured_title: "Destacados de hoy",
+    view_list: "Lista",
+    view_map: "Mapa",
+    nav_discover: "Descubrir",
+    nav_map: "Mapa",
+    nav_submit: "Enviar",
+    quick_all: "Todo",
+    quick_house: "House",
+    quick_latino: "Latino",
+    quick_live_band: "Live Band",
+    quick_beach: "Beach",
+    quick_dj: "DJ",
     hero_search_label: "Buscar",
     hero_search_placeholder: "Busca eventos, bandas o locations",
     discover_title: "Descubrir vibes",
@@ -598,6 +670,8 @@ const state = {
   availableGenres: [],
   availableDates: [],
   activeGenres: new Set(),
+  activeQuickCategoryId: "all",
+  viewMode: "list",
   favoriteEventIds: new Set(),
   lang: "de",
   debug: {
@@ -612,6 +686,21 @@ const state = {
 
 const dom = {
   htmlRoot: document.documentElement,
+  sidebar: document.querySelector(".sidebar"),
+  discoverSection: document.getElementById("discoverSection"),
+  listSection: document.getElementById("listSection"),
+  mapSection: document.getElementById("mapSection"),
+  locationChip: document.getElementById("locationChip"),
+  locationChipLabel: document.getElementById("locationChipLabel"),
+  openSubmitModalHero: document.getElementById("openSubmitModalHero"),
+  bottomNavDiscover: document.getElementById("bottomNavDiscover"),
+  bottomNavMap: document.getElementById("bottomNavMap"),
+  bottomNavSubmit: document.getElementById("bottomNavSubmit"),
+  featuredCarousel: document.getElementById("featuredCarousel"),
+  featuredCount: document.getElementById("featuredCount"),
+  quickCategoryRail: document.getElementById("quickCategoryRail"),
+  viewToggleList: document.getElementById("viewToggleList"),
+  viewToggleMap: document.getElementById("viewToggleMap"),
   languageSwitch: document.getElementById("languageSwitch"),
   heroSearchForm: document.getElementById("heroSearchForm"),
   heroSearchInput: document.getElementById("heroSearchInput"),
@@ -738,11 +827,29 @@ function renderLanguageControls() {
   }
 }
 
+function quickCategoryById(categoryId) {
+  return QUICK_CATEGORY_DEFINITIONS.find((category) => category.id === categoryId) || QUICK_CATEGORY_DEFINITIONS[0];
+}
+
+function renderQuickCategories() {
+  if (!dom.quickCategoryRail) return;
+  dom.quickCategoryRail.innerHTML = "";
+  QUICK_CATEGORY_DEFINITIONS.forEach((category) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `quick-category-chip ${state.activeQuickCategoryId === category.id ? "is-active" : ""}`;
+    button.dataset.quickCategory = category.id;
+    button.textContent = t(category.labelKey);
+    dom.quickCategoryRail.append(button);
+  });
+}
+
 function switchLanguage(nextLangCode) {
   const nextLang = resolveLanguage(nextLangCode);
   if (nextLang === state.lang) return;
   state.lang = nextLang;
   applyStaticTranslations();
+  renderQuickCategories();
   updateFilterOptions();
   syncHeroFilterOptions();
   applyFiltersFromQuery();
@@ -1726,11 +1833,13 @@ function applyFiltersFromQuery() {
 }
 
 function getActiveFilters() {
+  const activeQuickCategory = quickCategoryById(state.activeQuickCategoryId);
   return {
     search: dom.searchInput.value.trim().toLowerCase(),
     city: dom.cityFilter.value,
     date: dom.dateFilter.value,
-    genres: new Set([...state.activeGenres].map((genre) => genre.toLowerCase()))
+    genres: new Set([...state.activeGenres].map((genre) => genre.toLowerCase())),
+    quickKeywords: activeQuickCategory.keywords.map((keyword) => keyword.toLowerCase())
   };
 }
 
@@ -1755,6 +1864,12 @@ function syncSidebarFromHeroControls() {
   if (dom.heroDateFilter && dom.dateFilter) dom.dateFilter.value = dom.heroDateFilter.value;
 }
 
+function updateLocationChipLabel() {
+  if (!dom.locationChipLabel) return;
+  const selectedCity = String(dom.cityFilter?.value || "").trim();
+  dom.locationChipLabel.textContent = selectedCity || t("hero_location_label");
+}
+
 function eventMatchesGenres(event, activeGenresLower) {
   if (!activeGenresLower.size) return true;
   const eventGenresLower = splitGenres(event.genre).map((genre) => genre.toLowerCase());
@@ -1767,6 +1882,11 @@ function applyFilters() {
     if (filters.city && event.city !== filters.city) return false;
     if (filters.date && event.event_date !== filters.date) return false;
     if (!eventMatchesGenres(event, filters.genres)) return false;
+    if (filters.quickKeywords.length) {
+      const haystack = eventSearchText(event);
+      const hasQuickMatch = filters.quickKeywords.some((keyword) => haystack.includes(keyword));
+      if (!hasQuickMatch) return false;
+    }
     if (filters.search && !eventSearchText(event).includes(filters.search)) return false;
     return true;
   });
@@ -1778,6 +1898,7 @@ function applyFilters() {
 
   renderEventList();
   renderMapMarkers();
+  renderFeaturedEvents();
   setStatus(
     t("status_filtered", {
       shown: state.filteredEvents.length,
@@ -1786,7 +1907,113 @@ function applyFilters() {
     }),
     sourceTone()
   );
+  updateLocationChipLabel();
   updateUrlFromFilters();
+}
+
+function eventTimestamp(event) {
+  const date = String(event.event_date || "").trim();
+  const time = String(event.event_time || "23:59").trim();
+  if (!date) return Number.POSITIVE_INFINITY;
+  const iso = `${date}T${time}`;
+  const parsed = new Date(iso).getTime();
+  return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
+}
+
+function pickFeaturedEvents() {
+  const source = state.filteredEvents.length ? state.filteredEvents : state.allEvents;
+  return [...source]
+    .sort((a, b) => {
+      const imageWeightA = a.image_url ? 0 : 1;
+      const imageWeightB = b.image_url ? 0 : 1;
+      if (imageWeightA !== imageWeightB) return imageWeightA - imageWeightB;
+      return eventTimestamp(a) - eventTimestamp(b);
+    })
+    .slice(0, 6);
+}
+
+function createFeaturedCard(event) {
+  const card = document.createElement("article");
+  card.className = "featured-card";
+  const navigationUrl = buildNavigationUrl(event);
+  const genre = splitGenres(event.genre)[0] || event.genre || "-";
+  card.innerHTML = `
+    <div class="featured-card__media">
+      ${
+        event.image_url
+          ? `<img class="featured-card__image" src="${event.image_url}" alt="${event.name}" loading="lazy">`
+          : `<div class="featured-card__image-fallback" aria-hidden="true"><span>${iconForGenre(genre)}</span></div>`
+      }
+      <div class="featured-card__shade"></div>
+      <div class="featured-card__content">
+        <span class="featured-card__badge">${genre}</span>
+        <h3>${event.name}</h3>
+        <p>${formatDateTime(event)} • ${event.city || event.location_name || "-"}</p>
+        <div class="featured-card__actions">
+          <button type="button" class="button-secondary button-secondary--primary" data-action="featured-open">${t("view_list")}</button>
+          <button type="button" class="button-secondary" data-action="featured-navigate" ${navigationUrl ? "" : "disabled"}>${t("details_navigate")}</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  card.addEventListener("click", (clickEvent) => {
+    const target = clickEvent.target instanceof Element ? clickEvent.target : null;
+    const navigateButton = target?.closest("button[data-action='featured-navigate']");
+    const openButton = target?.closest("button[data-action='featured-open']");
+    if (navigateButton) {
+      clickEvent.preventDefault();
+      clickEvent.stopPropagation();
+      openNavigationForEvent(event);
+      return;
+    }
+
+    selectEvent(event.id, { flyTo: true, openPopup: true, scrollIntoView: true });
+    if (openButton) {
+      setViewMode("list", { scroll: true });
+      return;
+    }
+    setViewMode("map", { scroll: true });
+  });
+
+  return card;
+}
+
+function renderFeaturedEvents() {
+  if (!dom.featuredCarousel || !dom.featuredCount) return;
+  const featuredEvents = pickFeaturedEvents();
+  dom.featuredCount.textContent = String(featuredEvents.length);
+  dom.featuredCarousel.innerHTML = "";
+  if (!featuredEvents.length) {
+    const empty = document.createElement("div");
+    empty.className = "featured-empty";
+    empty.textContent = t("no_events_found");
+    dom.featuredCarousel.append(empty);
+    return;
+  }
+
+  featuredEvents.forEach((event) => {
+    dom.featuredCarousel.append(createFeaturedCard(event));
+  });
+}
+
+function setViewMode(nextMode, { scroll = false } = {}) {
+  const resolvedMode = nextMode === "map" ? "map" : "list";
+  state.viewMode = resolvedMode;
+  document.body.dataset.viewMode = resolvedMode;
+  if (dom.viewToggleList) dom.viewToggleList.classList.toggle("is-active", resolvedMode === "list");
+  if (dom.viewToggleMap) dom.viewToggleMap.classList.toggle("is-active", resolvedMode === "map");
+  if (dom.bottomNavDiscover) dom.bottomNavDiscover.classList.toggle("is-active", resolvedMode === "list");
+  if (dom.bottomNavMap) dom.bottomNavMap.classList.toggle("is-active", resolvedMode === "map");
+
+  if (resolvedMode === "map") {
+    window.setTimeout(() => {
+      if (map) map.invalidateSize();
+    }, 220);
+    if (scroll && dom.mapSection) dom.mapSection.scrollIntoView({ behavior: "smooth", block: "start" });
+  } else if (scroll && dom.listSection) {
+    dom.listSection.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 }
 
 function createEventCard(event, index = 0) {
@@ -2248,10 +2475,56 @@ function bindEvents() {
       switchLanguage(button.dataset.langSwitch);
     });
   }
+  if (dom.locationChip) {
+    dom.locationChip.addEventListener("click", () => {
+      setViewMode("list", { scroll: true });
+      dom.heroSearchInput?.focus();
+    });
+  }
   if (dom.openSubmitModal) {
     dom.openSubmitModal.addEventListener("click", () => {
       setFormFeedback("");
       openSubmitModal();
+    });
+  }
+  if (dom.openSubmitModalHero) {
+    dom.openSubmitModalHero.addEventListener("click", () => {
+      setFormFeedback("");
+      openSubmitModal();
+    });
+  }
+  if (dom.bottomNavSubmit) {
+    dom.bottomNavSubmit.addEventListener("click", () => {
+      setFormFeedback("");
+      openSubmitModal();
+    });
+  }
+  if (dom.bottomNavDiscover) {
+    dom.bottomNavDiscover.addEventListener("click", (event) => {
+      event.preventDefault();
+      setViewMode("list", { scroll: true });
+    });
+  }
+  if (dom.bottomNavMap) {
+    dom.bottomNavMap.addEventListener("click", (event) => {
+      event.preventDefault();
+      setViewMode("map", { scroll: true });
+    });
+  }
+  if (dom.viewToggleList) {
+    dom.viewToggleList.addEventListener("click", () => setViewMode("list", { scroll: true }));
+  }
+  if (dom.viewToggleMap) {
+    dom.viewToggleMap.addEventListener("click", () => setViewMode("map", { scroll: true }));
+  }
+  if (dom.quickCategoryRail) {
+    dom.quickCategoryRail.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-quick-category]");
+      if (!button) return;
+      const categoryId = String(button.dataset.quickCategory || "all");
+      state.activeQuickCategoryId = categoryId;
+      renderQuickCategories();
+      applyFilters();
     });
   }
   if (dom.closeSubmitModal) {
@@ -2440,8 +2713,10 @@ async function startApp() {
   state.lang = query.lang ? requestedLang : resolveLanguageFromBrowser(requestedLang);
   state.isAdminMode = resolveAdminMode(query.admin);
   applyStaticTranslations();
+  renderQuickCategories();
   renderAdminAuthState(null);
   renderEventDetails(null);
+  setViewMode("list");
 
   initMap();
   bindEvents();
