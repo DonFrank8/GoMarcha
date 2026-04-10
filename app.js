@@ -2006,12 +2006,17 @@ function renderEventDetails(event) {
 function selectEvent(eventId, options = { flyTo: false, openPopup: false, scrollIntoView: false }) {
   state.selectedEventId = eventId;
   const event = state.filteredEvents.find((item) => item.id === eventId);
+  const isNarrowMobile = window.matchMedia("(max-width: 520px)").matches;
 
   document.querySelectorAll(".event-card").forEach((card) => {
     const isActive = card.dataset.eventId === eventId;
     card.classList.toggle("event-card--active", isActive);
     if (isActive && options.scrollIntoView) {
-      card.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      if (isNarrowMobile) {
+        card.scrollIntoView({ inline: "start", block: "nearest", behavior: "smooth" });
+      } else {
+        card.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      }
     }
   });
 

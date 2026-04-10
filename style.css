@@ -1533,6 +1533,21 @@ body.body--modal-open {
     padding: 0.66rem;
   }
 
+  .genre-filter-group {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 0.2rem;
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .genre-chip {
+    white-space: nowrap;
+    scroll-snap-align: start;
+    min-height: 38px;
+    padding: 0.42rem 0.8rem;
+  }
+
   .event-list {
     max-height: 42vh;
   }
@@ -1631,11 +1646,20 @@ body.body--modal-open {
 
   .hero__chips {
     margin-top: 0.72rem;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.42rem;
   }
 
   .hero__chips span {
     font-size: 0.72rem;
     padding: 0.32rem 0.64rem;
+  }
+
+  .hero__chips .button-secondary {
+    min-height: 44px;
+    padding-inline: 0.9rem;
   }
 
   .app-shell {
@@ -1655,6 +1679,11 @@ body.body--modal-open {
     font-size: 1rem;
   }
 
+  .list-filters {
+    gap: 0.62rem;
+    padding: 0.62rem;
+  }
+
   .panel__intro,
   .status,
   .field span,
@@ -1663,7 +1692,44 @@ body.body--modal-open {
     font-size: 0.8rem;
   }
 
+  .field input,
+  .field select,
+  .field textarea {
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  .button-secondary,
+  .genre-chip {
+    min-height: 42px;
+  }
+
+  .event-list {
+    display: flex;
+    gap: 0.72rem;
+    overflow-x: auto;
+    overflow-y: hidden;
+    max-height: none;
+    padding-right: 0;
+    padding-bottom: 0.34rem;
+    scroll-snap-type: x mandatory;
+    scroll-padding-inline: 0.2rem;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .event-list::-webkit-scrollbar {
+    height: 6px;
+  }
+
+  .event-list::-webkit-scrollbar-thumb {
+    background: rgba(150, 174, 238, 0.4);
+    border-radius: 999px;
+  }
+
   .event-card {
+    flex: 0 0 min(86vw, 320px);
+    min-width: min(86vw, 320px);
+    scroll-snap-align: start;
     border-radius: 18px;
   }
 
@@ -1676,8 +1742,8 @@ body.body--modal-open {
   }
 
   .event-card__favorite {
-    width: 32px;
-    height: 32px;
+    width: 36px;
+    height: 36px;
     top: 0.56rem;
     right: 0.56rem;
   }
@@ -1688,12 +1754,12 @@ body.body--modal-open {
 
   .map-column {
     gap: 0.72rem;
-    grid-template-rows: 340px auto;
+    grid-template-rows: 320px auto;
   }
 
   .map-section,
   #map {
-    min-height: 340px;
+    min-height: 320px;
   }
 
   .event-details {
@@ -1712,6 +1778,35 @@ body.body--modal-open {
   .modal__dialog {
     padding: 0.8rem;
     border-radius: 16px;
+  }
+}
+
+@media (max-width: 430px) {
+  .app-shell {
+    padding: 0 0.42rem 0.68rem;
+  }
+
+  .panel__heading {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .hero-search__main input {
+    min-height: 48px;
+  }
+
+  .event-card {
+    flex-basis: min(90vw, 300px);
+    min-width: min(90vw, 300px);
+  }
+
+  .map-column {
+    grid-template-rows: 300px auto;
+  }
+
+  .map-section,
+  #map {
+    min-height: 300px;
   }
 }
 
