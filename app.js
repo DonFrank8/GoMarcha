@@ -15,6 +15,11 @@ const ALLOWED_EVENT_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "imag
 const DEFAULT_NAVIGATION_PROVIDER = "google";
 const FAVORITES_STORAGE_KEY = "vibeon_event_favorites";
 const SUBMITTER_PROFILE_STORAGE_KEY = "vibeon.submitterProfile.v1";
+const INSTALL_BANNER_DISMISS_STORAGE_KEY = "vibeon.installBanner.dismissedUntil";
+const INSTALL_BANNER_INSTALLED_STORAGE_KEY = "vibeon.installBanner.installedUntil";
+const INSTALL_BANNER_DISMISS_DAYS = 5;
+const INSTALL_BANNER_INSTALLED_DAYS = 180;
+const INSTALL_BANNER_SHOW_DELAY_MS = 2800;
 
 window.PARTYRADAR_CACHE_BUSTER = APP_BUILD_VERSION;
 
@@ -370,6 +375,12 @@ const I18N = {
     form_placeholder_genre: "z. B. Latin, DJ Set",
     form_placeholder_price_text: "z. B. 25 EUR",
     form_placeholder_description: "Kurzbeschreibung des Events",
+    install_banner_title: "VIBEON installieren",
+    install_banner_text_ios: "In Safari öffnen, auf Teilen tippen und „Zum Home-Bildschirm“ wählen.",
+    install_banner_text_android_prompt: "Installiere VIBEON für schnelleren Zugriff direkt vom Homescreen.",
+    install_banner_text_android_manual: "Über das Browser-Menü „Zum Startbildschirm hinzufügen“ auswählen.",
+    install_banner_cta: "Installieren",
+    install_banner_dismiss: "Später",
     create_title: "Neues Event",
     create_toggle: "Event hinzufügen",
     create_name: "Name",
@@ -559,6 +570,12 @@ const I18N = {
     form_placeholder_genre: "e.g. Latin, DJ Set",
     form_placeholder_price_text: "e.g. 25 EUR",
     form_placeholder_description: "Short event description",
+    install_banner_title: "Install VIBEON",
+    install_banner_text_ios: "Open in Safari, tap Share, then choose Add to Home Screen.",
+    install_banner_text_android_prompt: "Install VIBEON for faster access from your home screen.",
+    install_banner_text_android_manual: "Use your browser menu and choose Add to Home screen.",
+    install_banner_cta: "Install",
+    install_banner_dismiss: "Not now",
     create_title: "New event",
     create_toggle: "Add event",
     create_name: "Name",
@@ -748,6 +765,12 @@ const I18N = {
     form_placeholder_genre: "p. ej. Latin, DJ Set",
     form_placeholder_price_text: "p. ej. 25 EUR",
     form_placeholder_description: "Descripción breve del evento",
+    install_banner_title: "Instala VIBEON",
+    install_banner_text_ios: "Ábrelo en Safari, toca Compartir y elige Añadir a pantalla de inicio.",
+    install_banner_text_android_prompt: "Instala VIBEON para acceder más rápido desde tu pantalla de inicio.",
+    install_banner_text_android_manual: "Usa el menú del navegador y selecciona Añadir a pantalla de inicio.",
+    install_banner_cta: "Instalar",
+    install_banner_dismiss: "Ahora no",
     create_title: "Nuevo evento",
     create_toggle: "Añadir evento",
     create_name: "Nombre",
@@ -908,7 +931,11 @@ const dom = {
   formMainImage: document.getElementById("formMainImage"),
   formSubmittedBy: document.getElementById("formSubmittedBy"),
   formContactEmail: document.getElementById("formContactEmail"),
-  formDescription: document.getElementById("formDescription")
+  formDescription: document.getElementById("formDescription"),
+  installBanner: document.getElementById("installBanner"),
+  installBannerText: document.getElementById("installBannerText"),
+  installBannerPrimary: document.getElementById("installBannerInstall"),
+  installBannerDismiss: document.getElementById("installBannerDismiss")
 };
 
 let map;
@@ -916,6 +943,8 @@ let markersLayer;
 const markersByEventId = new Map();
 const markerEventsById = new Map();
 let activeMarkerId = null;
+let deferredInstallPromptEvent = null;
+let installBannerShowTimer = null;
 const throttledSelectEventMapFocus = throttle((event, zoom) => {
   flyToEventWithMapSheetOffset(event, zoom);
 }, 180);
@@ -1027,6 +1056,7 @@ function switchLanguage(nextLangCode) {
   if (nextLang === state.lang) return;
   state.lang = nextLang;
   applyStaticTranslations();
+  updateInstallBannerContent();
   if (dom.mapBottomSheet) {
     const titleElement = dom.mapBottomSheet.querySelector("[data-i18n='sheet_title']");
     if (titleElement) titleElement.textContent = t("sheet_title");
@@ -1951,6 +1981,114 @@ function persistFavoriteEventIds() {
     window.localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify([...state.favoriteEventIds]));
   } catch (_error) {
     // Ignore storage errors to keep the UI usable.
+  }
+}
+
+function isIosDevice() {
+  return /iphone|ipad|ipod/i.test(window.navigator.userAgent || "");
+}
+
+function isAndroidDevice() {
+  return /android/i.test(window.navigator.userAgent || "");
+}
+
+function isStandaloneMode() {
+  const isIosStandalone = window.navigator.standalone === true;
+  const isDisplayModeStandalone = window.matchMedia?.("(display-mode: standalone)")?.matches === true;
+  return isIosStandalone || isDisplayModeStandalone;
+}
+
+function persistInstallBannerTimestamp(key, days) {
+  try {
+    const expiresAt = Date.now() + days * 24 * 60 * 60 * 1000;
+    window.localStorage.setItem(key, String(expiresAt));
+  } catch (_error) {
+    // Ignore storage errors to keep the app usable.
+  }
+}
+
+function isInstallBannerSuppressed(key) {
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return false;
+    const timestamp = Number(raw);
+    if (!Number.isFinite(timestamp)) return false;
+    return Date.now() < timestamp;
+  } catch (_error) {
+    return false;
+  }
+}
+
+function hideInstallBanner() {
+  if (!dom.installBanner) return;
+  dom.installBanner.classList.remove("is-visible");
+  dom.installBanner.hidden = true;
+}
+
+function showInstallBanner() {
+  if (!dom.installBanner) return;
+  dom.installBanner.hidden = false;
+  window.requestAnimationFrame(() => dom.installBanner?.classList.add("is-visible"));
+}
+
+function updateInstallBannerContent() {
+  if (!dom.installBannerText || !dom.installBannerPrimary) return;
+  if (isIosDevice()) {
+    dom.installBannerText.textContent = t("install_banner_text_ios");
+    dom.installBannerPrimary.disabled = true;
+    return;
+  }
+  if (isAndroidDevice() && deferredInstallPromptEvent) {
+    dom.installBannerText.textContent = t("install_banner_text_android_prompt");
+    dom.installBannerPrimary.disabled = false;
+    return;
+  }
+  dom.installBannerText.textContent = t("install_banner_text_android_manual");
+  dom.installBannerPrimary.disabled = true;
+}
+
+function canShowInstallBanner() {
+  if (!dom.installBanner) return false;
+  if (isStandaloneMode()) return false;
+  if (!isIosDevice() && !isAndroidDevice()) return false;
+  if (isInstallBannerSuppressed(INSTALL_BANNER_DISMISS_STORAGE_KEY)) return false;
+  if (isInstallBannerSuppressed(INSTALL_BANNER_INSTALLED_STORAGE_KEY)) return false;
+  return true;
+}
+
+function setupInstallBanner() {
+  if (!dom.installBanner) return;
+
+  if (installBannerShowTimer) {
+    window.clearTimeout(installBannerShowTimer);
+    installBannerShowTimer = null;
+  }
+
+  if (!canShowInstallBanner()) {
+    hideInstallBanner();
+    return;
+  }
+
+  updateInstallBannerContent();
+  installBannerShowTimer = window.setTimeout(() => {
+    if (canShowInstallBanner()) showInstallBanner();
+  }, INSTALL_BANNER_SHOW_DELAY_MS);
+}
+
+async function handleInstallBannerPrimaryAction() {
+  if (!deferredInstallPromptEvent) return;
+  try {
+    await deferredInstallPromptEvent.prompt();
+    const choice = await deferredInstallPromptEvent.userChoice;
+    if (choice?.outcome === "accepted") {
+      persistInstallBannerTimestamp(INSTALL_BANNER_INSTALLED_STORAGE_KEY, INSTALL_BANNER_INSTALLED_DAYS);
+      hideInstallBanner();
+    }
+  } catch (_error) {
+    // Keep banner visible so users can retry.
+  } finally {
+    deferredInstallPromptEvent = null;
+    updateInstallBannerContent();
   }
 }
 
@@ -3480,6 +3618,17 @@ function bindEvents() {
   if (dom.heroSearchForm) {
     dom.heroSearchForm.addEventListener("submit", (event) => event.preventDefault());
   }
+  window.addEventListener("beforeinstallprompt", (event) => {
+    event.preventDefault();
+    deferredInstallPromptEvent = event;
+    updateInstallBannerContent();
+    setupInstallBanner();
+  });
+  window.addEventListener("appinstalled", () => {
+    deferredInstallPromptEvent = null;
+    persistInstallBannerTimestamp(INSTALL_BANNER_INSTALLED_STORAGE_KEY, INSTALL_BANNER_INSTALLED_DAYS);
+    hideInstallBanner();
+  });
   dom.searchInput.addEventListener("input", () => {
     syncHeroControlsFromSidebar();
     syncMapSheetControlsFromSidebar();
@@ -3560,6 +3709,17 @@ function bindEvents() {
     dom.openSubmitModalHero.addEventListener("click", () => {
       setFormFeedback("");
       openSubmitModal();
+    });
+  }
+  if (dom.installBannerPrimary) {
+    dom.installBannerPrimary.addEventListener("click", () => {
+      handleInstallBannerPrimaryAction();
+    });
+  }
+  if (dom.installBannerDismiss) {
+    dom.installBannerDismiss.addEventListener("click", () => {
+      persistInstallBannerTimestamp(INSTALL_BANNER_DISMISS_STORAGE_KEY, INSTALL_BANNER_DISMISS_DAYS);
+      hideInstallBanner();
     });
   }
   if (dom.bottomNavSubmit) {
@@ -3910,6 +4070,7 @@ async function startApp() {
   initMap();
   setViewMode("list");
   bindEvents();
+  setupInstallBanner();
   await checkAdminSession();
   await loadEvents();
   updateFilterOptions();

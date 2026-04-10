@@ -263,6 +263,28 @@
     </button>
   </nav>
 
+  <aside id="installBanner" class="install-banner" hidden aria-live="polite" aria-atomic="true">
+    <div class="install-banner__content">
+      <h3 class="install-banner__title" data-i18n="install_banner_title">Install VIBEON</h3>
+      <p id="installBannerText" class="install-banner__text" data-i18n="install_banner_text_android_manual">
+        Add VIBEON to your home screen for faster access.
+      </p>
+      <div class="install-banner__actions">
+        <button
+          id="installBannerPrimary"
+          type="button"
+          class="button-secondary button-secondary--primary"
+          data-i18n="install_banner_cta"
+        >
+          Install
+        </button>
+        <button id="installBannerDismiss" type="button" class="button-secondary" data-i18n="install_banner_dismiss">
+          Not now
+        </button>
+      </div>
+    </div>
+  </aside>
+
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <div id="submitModal" class="modal" hidden aria-hidden="true">
