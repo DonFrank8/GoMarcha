@@ -2401,13 +2401,7 @@ function applyFilters() {
   if (!state.filteredEvents.length && state.viewMode === "map") {
     renderMapSheetEmptyState();
   }
-  setStatus(
-    t("status_filtered", {
-      shown: state.filteredEvents.length,
-      total: state.allEvents.length
-    }),
-    sourceTone()
-  );
+  setStatus(t("result_count", { count: state.filteredEvents.length }), sourceTone());
   updateLocationChipLabel();
   updateUrlFromFilters();
 }
