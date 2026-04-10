@@ -2043,6 +2043,25 @@ function mapSheetStateIndex(sheetState) {
   return Math.max(0, MAP_SHEET_STATE_ORDER.indexOf(sheetState));
 }
 
+function mapSheetOffsetYByState(sheetState) {
+  if (sheetState === "peek") return -70;
+  if (sheetState === "full") return 0;
+  return -120;
+}
+
+function flyToEventWithMapSheetOffset(event, zoom = 13) {
+  if (!map || !event || !Number.isFinite(event.lat) || !Number.isFinite(event.lng)) return;
+  if (!(state.viewMode === "map" && mapSheetIsAvailable() && mapSheetIsMobileViewport())) {
+    map.flyTo([event.lat, event.lng], zoom, { duration: 0.6 });
+    return;
+  }
+
+  const offsetY = mapSheetOffsetYByState(state.mapSheet.state);
+  const targetPoint = map.project([event.lat, event.lng], map.getZoom()).add([0, offsetY]);
+  const targetLatLng = map.unproject(targetPoint, map.getZoom());
+  map.flyTo(targetLatLng, zoom, { duration: 0.6 });
+}
+
 function getNextMapSheetState(sheetState, direction) {
   const index = mapSheetStateIndex(sheetState);
   const nextIndex = clampNumber(index + direction, 0, MAP_SHEET_STATE_ORDER.length - 1);
@@ -2469,7 +2488,7 @@ function selectEvent(eventId, options = { flyTo: false, openPopup: false, scroll
 
   const marker = markersByEventId.get(event.id);
   if (marker && event.lat !== null && event.lng !== null) {
-    if (options.flyTo) map.flyTo([event.lat, event.lng], 13, { duration: 0.6 });
+    if (options.flyTo) flyToEventWithMapSheetOffset(event, 13);
     if (options.openPopup) marker.openPopup();
   }
 }
