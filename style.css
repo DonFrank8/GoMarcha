@@ -98,6 +98,11 @@ body::after {
   animation: auroraDrift 20s ease-in-out infinite alternate-reverse;
 }
 
+body > * {
+  position: relative;
+  z-index: 1;
+}
+
 body.is-transitioning .app-shell {
   animation: shellFocusIn 360ms var(--ease-out) both;
 }
@@ -2617,5 +2622,13 @@ body.body--modal-open {
     animation: none !important;
     transform: none !important;
     filter: none !important;
+  }
+
+  body.is-transitioning .app-shell,
+  body.is-transitioning-to-map .map-column,
+  body.is-transitioning-to-list .sidebar,
+  body.is-transitioning-to-map .sidebar,
+  body.is-transitioning-to-list .map-column {
+    animation: none !important;
   }
 }
