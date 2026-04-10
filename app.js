@@ -2629,9 +2629,13 @@ function formatIsoDate(dateValue) {
 }
 
 function isPastOccurrence(event) {
-  const timestamp = eventTimestamp(event);
-  if (!Number.isFinite(timestamp)) return false;
-  return timestamp < Date.now();
+  const eventDateValue = String(event?.event_date || "").trim();
+  if (!eventDateValue) return false;
+  const eventDate = parseIsoDate(eventDateValue);
+  if (!eventDate) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return eventDate < today;
 }
 
 function appendOneTimeOccurrence(list, event) {
