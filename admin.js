@@ -93,6 +93,12 @@ function escapeHtml(value) {
 
 function normalizeEvent(event) {
   const status = String(event.status || "").toLowerCase();
+  const normalizeRecurrenceType = (value) => {
+    const normalized = String(value || "").trim().toLowerCase();
+    if (normalized === "weekly" || normalized === "monthly") return normalized;
+    return "none";
+  };
+  const recurrenceType = normalizeRecurrenceType(event.recurrence_type);
   return {
     id: event.id,
     name: event.name || "-",
@@ -112,6 +118,17 @@ function normalizeEvent(event) {
     image_url: event.image_url || "",
     lat: Number.isFinite(event.lat) ? event.lat : null,
     lng: Number.isFinite(event.lng) ? event.lng : null,
+    recurrence_type: recurrenceType,
+    recurrence_start_date: String(event.recurrence_start_date || "").trim(),
+    recurrence_end_date: String(event.recurrence_end_date || "").trim(),
+    recurrence_weekday:
+      recurrenceType === "weekly" && Number.isInteger(Number(event.recurrence_weekday))
+        ? Number(event.recurrence_weekday)
+        : null,
+    recurrence_day_of_month:
+      recurrenceType === "monthly" && Number.isInteger(Number(event.recurrence_day_of_month))
+        ? Number(event.recurrence_day_of_month)
+        : null,
     featured: Boolean(event.featured),
     promoted: Boolean(event.promoted)
   };
@@ -131,6 +148,32 @@ function formatDate(dateValue) {
 
 function formatDateTime(event) {
   return `${formatDate(event.event_date)} ${event.event_time || "tbd"}`.trim();
+}
+
+function recurrenceLabel(event) {
+  if (event.recurrence_type === "weekly") return "Wöchentlich";
+  if (event.recurrence_type === "monthly") return "Monatlich";
+  return "Einmalig";
+}
+
+function recurrenceDetails(event) {
+  if (event.recurrence_type === "weekly") {
+    const weekdays = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
+    const weekdayLabel =
+      Number.isInteger(event.recurrence_weekday) && event.recurrence_weekday >= 0 && event.recurrence_weekday <= 6
+        ? weekdays[event.recurrence_weekday]
+        : "-";
+    const start = event.recurrence_start_date ? formatDate(event.recurrence_start_date) : "-";
+    const end = event.recurrence_end_date ? formatDate(event.recurrence_end_date) : "offen";
+    return `Tag: ${weekdayLabel}, ab ${start}, bis ${end}`;
+  }
+  if (event.recurrence_type === "monthly") {
+    const day = Number.isInteger(event.recurrence_day_of_month) ? event.recurrence_day_of_month : "-";
+    const start = event.recurrence_start_date ? formatDate(event.recurrence_start_date) : "-";
+    const end = event.recurrence_end_date ? formatDate(event.recurrence_end_date) : "offen";
+    return `Tag ${day}, ab ${start}, bis ${end}`;
+  }
+  return "Kein Wiederholungsmuster";
 }
 
 function eventPlace(event) {
@@ -225,6 +268,8 @@ function renderEventCard(event) {
 
     <ul class="event-meta">
       <li><strong>Datum:</strong> ${escapeHtml(formatDateTime(event))}</li>
+      <li><strong>Wiederholung:</strong> ${escapeHtml(recurrenceLabel(event))}</li>
+      <li><strong>Regel:</strong> ${escapeHtml(recurrenceDetails(event))}</li>
       <li><strong>Genre:</strong> ${escapeHtml(event.genre || "-")}</li>
       <li><strong>Preis:</strong> ${escapeHtml(event.price_text || "-")}</li>
       <li><strong>Eingereicht von:</strong> ${escapeHtml(event.submitted_by || "-")}</li>
