@@ -330,6 +330,8 @@ const I18N = {
     form_error_recurrence_day_of_month_required: "Bitte Tag im Monat für monatliche Wiederholung angeben.",
     form_error_recurrence_end_before_start: "Enddatum darf nicht vor Startdatum liegen.",
     form_error_recurrence_day_of_month_invalid: "Tag im Monat muss zwischen 1 und 31 liegen.",
+    form_error_recurrence_schema_missing:
+      "Wiederkehrende Events sind noch nicht freigeschaltet. Bitte zuerst supabase-rls.sql mit Recurrence-Spalten in Supabase ausführen.",
     form_error_geocode_pending: "Adresse gespeichert. Koordinaten werden bei der Freigabe ergänzt.",
     form_section_event_details: "Event Details",
     form_section_submitter_details: "Deine Angaben",
@@ -525,6 +527,8 @@ const I18N = {
     form_error_recurrence_day_of_month_required: "Please provide a day of month for monthly recurrence.",
     form_error_recurrence_end_before_start: "Recurrence end date cannot be before start date.",
     form_error_recurrence_day_of_month_invalid: "Day of month must be between 1 and 31.",
+    form_error_recurrence_schema_missing:
+      "Recurring events are not enabled yet. Please run supabase-rls.sql in Supabase to add recurrence columns first.",
     form_error_geocode_pending: "Address saved. Coordinates can be added during moderation.",
     form_section_event_details: "Event Details",
     form_section_submitter_details: "Your Details",
@@ -720,6 +724,8 @@ const I18N = {
     form_error_recurrence_day_of_month_required: "Indica el día del mes para recurrencia mensual.",
     form_error_recurrence_end_before_start: "La fecha de fin no puede ser anterior a la fecha de inicio.",
     form_error_recurrence_day_of_month_invalid: "El día del mes debe estar entre 1 y 31.",
+    form_error_recurrence_schema_missing:
+      "Los eventos recurrentes aún no están habilitados. Ejecuta supabase-rls.sql en Supabase para agregar primero las columnas de recurrencia.",
     form_error_geocode_pending: "Dirección guardada. Las coordenadas se pueden completar durante la moderación.",
     form_section_event_details: "Detalles del evento",
     form_section_submitter_details: "Tus datos",
@@ -3540,10 +3546,7 @@ async function handleCreateEventSubmit(submitEvent) {
     if (requiresRecurrenceSchema) {
       const recurrenceColumnsReady = await hasRecurrenceColumns(client);
       if (!recurrenceColumnsReady) {
-        setFormFeedback(
-          "Wiederkehrende Events sind noch nicht freigeschaltet. Bitte zuerst supabase-rls.sql mit Recurrence-Spalten in Supabase ausführen.",
-          "error"
-        );
+        setFormFeedback(t("form_error_recurrence_schema_missing"), "error");
         return;
       }
     }
