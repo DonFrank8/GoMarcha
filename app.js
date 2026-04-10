@@ -1082,9 +1082,6 @@ function applyLegacyUiCleanupOverrides() {
   if (dom.openSubmitModal && dom.sidebar?.contains(dom.openSubmitModal)) {
     dom.openSubmitModal.hidden = true;
   }
-
-  const mapTop = dom.mapBottomSheet?.querySelector(".map-bottom-sheet__top");
-  if (mapTop) mapTop.hidden = true;
 }
 
 function setStatus(message, tone = "loading") {
@@ -1267,6 +1264,33 @@ function normalizeEvent(event, index) {
     .filter(Boolean)
     .join(", ");
   const normalizedGeocodingQuery = geocodingQuery || composedAddress;
+  const normalizeSuspiciousEventDate = (rawDate) => {
+    const value = String(rawDate || "").trim();
+    const match = value.match(/^(\d{1,4})-(\d{2})-(\d{2})$/);
+    if (!match) return value;
+    const rawYear = Number(match[1]);
+    if (!Number.isFinite(rawYear)) return value;
+    const month = match[2];
+    const day = match[3];
+    if (rawYear >= 1000) return `${String(rawYear).padStart(4, "0")}-${month}-${day}`;
+    // Legacy malformed years from submission parsing:
+    // 0006 -> current decade year ending in 6 (e.g. 2026), 0026 -> 2026.
+    const currentYear = new Date().getFullYear();
+    let correctedYear = rawYear;
+    if (rawYear >= 10) {
+      correctedYear = 2000 + rawYear;
+    } else {
+      correctedYear = currentYear - (currentYear % 10) + rawYear;
+    }
+    return `${String(correctedYear).padStart(4, "0")}-${month}-${day}`;
+  };
+
+  const normalizedEventDate = normalizeSuspiciousEventDate(event.event_date || event.date || "");
+  const normalizedRecurrenceStartDate = normalizeSuspiciousEventDate(
+    event.recurrence_start_date || event.event_date || event.date || ""
+  );
+  const normalizedRecurrenceEndDate = normalizeSuspiciousEventDate(event.recurrence_end_date || "");
+
   return {
     id: String(event.id ?? `event-${index}`),
     name: event.name || event.title || "Untitled Event",
@@ -1275,7 +1299,7 @@ function normalizeEvent(event, index) {
     postal_code,
     city: event.city || event.location_city || "",
     country: event.country || event.country_name || "",
-    event_date: event.event_date || event.date || "",
+    event_date: normalizedEventDate,
     event_time: event.event_time || event.time || "",
     genre: event.genre || event.music_genre || "",
     price_text: event.price_text || event.price || t("details_free"),
@@ -1288,8 +1312,8 @@ function normalizeEvent(event, index) {
     verification_notes: event.verification_notes || "",
     geocoding_query: normalizedGeocodingQuery || "",
     recurrence_type: recurrenceType,
-    recurrence_start_date: String(event.recurrence_start_date || event.event_date || event.date || "").trim() || "",
-    recurrence_end_date: String(event.recurrence_end_date || "").trim() || "",
+    recurrence_start_date: normalizedRecurrenceStartDate,
+    recurrence_end_date: normalizedRecurrenceEndDate,
     recurrence_weekday: recurrenceType === RECURRENCE_TYPE_WEEKLY ? recurrenceWeekday : null,
     recurrence_day_of_month: recurrenceType === RECURRENCE_TYPE_MONTHLY ? recurrenceDayOfMonth : null,
     parent_event_id: String(event.parent_event_id || (event.id ?? `event-${index}`)),
@@ -2424,6 +2448,10 @@ function applyFilters() {
   renderEventList();
   renderMapMarkers();
   renderFeaturedEvents();
+  if (!state.selectedEventId && state.filteredEvents.length) {
+    state.selectedEventId = state.filteredEvents[0].id;
+    renderEventDetails(state.filteredEvents[0]);
+  }
   updateMapSheetSortControls();
   updateMapBottomSheetMeta();
   if (!state.filteredEvents.length && state.viewMode === "map") {

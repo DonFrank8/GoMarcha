@@ -1465,6 +1465,10 @@ body.body--modal-open {
   display: none !important;
 }
 
+.map-bottom-sheet__top {
+  display: block !important;
+}
+
 .map-bottom-sheet__title {
   margin: 0;
   font-size: 0.9rem;
