@@ -837,6 +837,10 @@ body.body--modal-open {
   transition: border-color var(--motion-fast), color var(--motion-fast), box-shadow var(--motion-fast);
 }
 
+.panel--status #status {
+  display: none;
+}
+
 .status--loading {
   border-color: rgba(255, 255, 255, 0.28);
   background:
@@ -1453,6 +1457,12 @@ body.body--modal-open {
   background:
     linear-gradient(180deg, rgba(9, 13, 25, 0.98), rgba(9, 13, 25, 0.94));
   border-bottom: 1px solid rgba(146, 174, 255, 0.2);
+}
+
+.map-bottom-sheet__search-row,
+.map-bottom-sheet__utility,
+.map-bottom-sheet__sticky-search {
+  display: none !important;
 }
 
 .map-bottom-sheet__title {
