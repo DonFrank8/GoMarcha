@@ -50,15 +50,16 @@ body {
 .admin-header__inner {
   max-width: 1400px;
   margin: 0 auto;
+  position: relative;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 1rem;
+  gap: 1.05rem;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow);
-  padding: 0.95rem 1rem;
+  padding: 1rem 1.08rem;
 }
 
 .admin-header__inner::after {
@@ -74,39 +75,52 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 0.52rem;
+  min-width: 0;
+  padding: 0.12rem 0.16rem;
+  border-radius: 12px;
+  border: 1px solid rgba(164, 138, 237, 0.2);
+  background: rgba(12, 19, 36, 0.56);
 }
 
 .brand-logo {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  background: rgba(9, 12, 22, 0.72);
-  box-shadow: 0 8px 16px rgba(6, 9, 20, 0.4);
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  object-fit: contain;
 }
 
 .brand-logo.brand-logo--full {
-  width: auto;
-  height: 34px;
-  max-width: 200px;
+  display: block;
+  width: min(220px, 36vw);
+  max-width: 220px;
+  height: auto;
+  max-height: 36px;
   padding: 0;
   border: 0;
   border-radius: 0;
   background: transparent;
   box-shadow: none;
   overflow: visible;
-  object-fit: contain;
+}
+
+.brand-logo.brand-logo--icon {
+  display: none;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(9, 12, 22, 0.72);
+  box-shadow: 0 8px 16px rgba(6, 9, 20, 0.34);
 }
 
 .brand-logo img {
   width: 100%;
   height: 100%;
   display: block;
-  object-fit: cover;
+  object-fit: contain;
 }
 
 .admin-header__eyebrow {
@@ -511,6 +525,19 @@ body {
   .admin-header__inner {
     flex-direction: column;
     align-items: stretch;
+    gap: 0.84rem;
+    padding: 0.8rem 0.86rem;
+  }
+
+  .admin-header__brand {
+    align-self: flex-start;
+    padding: 0.1rem 0.14rem;
+  }
+
+  .brand-logo.brand-logo--full {
+    width: min(190px, 56vw);
+    max-width: 190px;
+    max-height: 34px;
   }
 
   .filter-grid {
@@ -570,5 +597,33 @@ body {
   .mini-toggle {
     flex: 1 1 calc(50% - 0.25rem);
     justify-content: center;
+  }
+}
+
+@media (max-width: 520px) {
+  .admin-header {
+    padding: 0.64rem;
+  }
+
+  .admin-header__inner {
+    gap: 0.72rem;
+    padding: 0.7rem 0.74rem;
+    border-radius: 16px;
+  }
+
+  .admin-header__brand {
+    padding: 0.08rem 0.12rem;
+  }
+
+  .brand-logo.brand-logo--full {
+    display: none;
+  }
+
+  .brand-logo.brand-logo--icon {
+    display: block;
+    width: 30px;
+    height: 30px;
+    min-width: 30px;
+    min-height: 30px;
   }
 }
