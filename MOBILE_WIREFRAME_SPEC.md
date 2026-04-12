@@ -1,4 +1,4 @@
-# VIBEON Mobile Wireframe Spec (v2)
+# MARCHA Mobile Wireframe Spec (v2)
 
 This document defines screen-by-screen mobile wireframes with exact spacing, component sizes, and interaction states for direct frontend implementation.
 

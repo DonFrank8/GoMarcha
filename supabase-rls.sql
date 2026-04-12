@@ -1,4 +1,4 @@
--- PartyRadar security baseline for moderated admin workflow
+-- Marcha security baseline for moderated admin workflow
 -- Run these statements in the Supabase SQL editor.
 
 -- 0) Bootstrap legacy schemas (idempotent)

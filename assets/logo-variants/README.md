@@ -1,4 +1,4 @@
-VIBEON Logo Variants
+MARCHA Logo Variants
 ====================
 
 This folder stores all provided logo variants from Google Drive for future brand usage.

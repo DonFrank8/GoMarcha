@@ -290,7 +290,7 @@ const I18N = {
     form_error_image_upload: "Bild-Upload fehlgeschlagen. Bitte erneut versuchen.",
     form_error_image_cleanup: "Hinweis: Das hochgeladene Bild konnte nicht automatisch bereinigt werden.",
     admin_title: "Moderation",
-    admin_subtitle: "Prüfe Einreichungen und entscheide, was im VIBEON Feed sichtbar wird.",
+    admin_subtitle: "Prüfe Einreichungen und entscheide, was im MARCHA Feed sichtbar wird.",
     admin_pending_count: "{count} ausstehend",
     admin_no_pending: "Keine ausstehenden Einreichungen.",
     admin_submitted_by: "Eingereicht von",
@@ -377,9 +377,9 @@ const I18N = {
     form_placeholder_genre: "z. B. Latin, DJ Set",
     form_placeholder_price_text: "z. B. 25 EUR",
     form_placeholder_description: "Kurzbeschreibung des Events",
-    install_banner_title: "VIBEON installieren",
+    install_banner_title: "MARCHA installieren",
     install_banner_text_ios: "In Safari öffnen, auf Teilen tippen und „Zum Home-Bildschirm“ wählen.",
-    install_banner_text_android_prompt: "Installiere VIBEON für schnelleren Zugriff direkt vom Homescreen.",
+    install_banner_text_android_prompt: "Installiere MARCHA für schnelleren Zugriff direkt vom Homescreen.",
     install_banner_text_android_manual: "Über das Browser-Menü „Zum Startbildschirm hinzufügen“ auswählen.",
     install_banner_cta: "Installieren",
     install_banner_dismiss: "Später",
@@ -487,7 +487,7 @@ const I18N = {
     form_error_image_upload: "Image upload failed. Please try again.",
     form_error_image_cleanup: "Note: Uploaded image could not be cleaned up automatically.",
     admin_title: "Moderation",
-    admin_subtitle: "Review submissions and decide what appears in the VIBEON feed.",
+    admin_subtitle: "Review submissions and decide what appears in the MARCHA feed.",
     admin_pending_count: "{count} pending",
     admin_no_pending: "No pending submissions.",
     admin_submitted_by: "Submitted by",
@@ -574,9 +574,9 @@ const I18N = {
     form_placeholder_genre: "e.g. Latin, DJ Set",
     form_placeholder_price_text: "e.g. 25 EUR",
     form_placeholder_description: "Short event description",
-    install_banner_title: "Install VIBEON",
+    install_banner_title: "Install MARCHA",
     install_banner_text_ios: "Open in Safari, tap Share, then choose Add to Home Screen.",
-    install_banner_text_android_prompt: "Install VIBEON for faster access from your home screen.",
+    install_banner_text_android_prompt: "Install MARCHA for faster access from your home screen.",
     install_banner_text_android_manual: "Use your browser menu and choose Add to Home screen.",
     install_banner_cta: "Install",
     install_banner_dismiss: "Not now",
@@ -684,7 +684,7 @@ const I18N = {
     form_error_image_upload: "La carga de imagen falló. Inténtalo de nuevo.",
     form_error_image_cleanup: "Nota: la imagen subida no se pudo limpiar automáticamente.",
     admin_title: "Moderación",
-    admin_subtitle: "Revisa envíos y decide qué aparece en el feed de VIBEON.",
+    admin_subtitle: "Revisa envíos y decide qué aparece en el feed de MARCHA.",
     admin_pending_count: "{count} pendientes",
     admin_no_pending: "No hay envíos pendientes.",
     admin_submitted_by: "Enviado por",
@@ -771,9 +771,9 @@ const I18N = {
     form_placeholder_genre: "p. ej. Latin, DJ Set",
     form_placeholder_price_text: "p. ej. 25 EUR",
     form_placeholder_description: "Descripción breve del evento",
-    install_banner_title: "Instala VIBEON",
+    install_banner_title: "Instala MARCHA",
     install_banner_text_ios: "Ábrelo en Safari, toca Compartir y elige Añadir a pantalla de inicio.",
-    install_banner_text_android_prompt: "Instala VIBEON para acceder más rápido desde tu pantalla de inicio.",
+    install_banner_text_android_prompt: "Instala MARCHA para acceder más rápido desde tu pantalla de inicio.",
     install_banner_text_android_manual: "Usa el menú del navegador y selecciona Añadir a pantalla de inicio.",
     install_banner_cta: "Instalar",
     install_banner_dismiss: "Ahora no",
@@ -1632,7 +1632,7 @@ async function geocodeAddressWithNominatim(query) {
     headers: {
       Accept: "application/json",
       "Accept-Language": "de,en,es",
-      "User-Agent": "PartyRadar/1.0 (event-submission geocoding)"
+      "User-Agent": "Marcha/1.0 (event-submission geocoding)"
     }
   });
 
@@ -1884,7 +1884,7 @@ async function resolveCoordinatesForPayload(payload) {
     }
     throw new Error("No geocoding result");
   } catch (error) {
-    console.warn("[PartyRadar Debug] Geocoding failed:", error);
+    console.warn("[Marcha Debug] Geocoding failed:", error);
     throw new Error(error?.message || "Geocoding failed");
   }
 }
@@ -1969,7 +1969,7 @@ async function insertEventWithSchemaFallback(client, payload) {
 
     removedColumns.add(missingColumn);
     delete fallbackPayload[missingColumn];
-    console.warn(`[PartyRadar Debug] Retrying insert without missing column: ${missingColumn}`);
+    console.warn(`[Marcha Debug] Retrying insert without missing column: ${missingColumn}`);
   }
 
   return lastResult || { data: null, error: { message: "Insert failed" } };
@@ -3578,15 +3578,15 @@ async function handleCreateEventSubmit(submitEvent) {
     const insertPayload = buildInsertPayload(payloadWithCoordinates);
     const { data, error } = await insertEventWithSchemaFallback(client, insertPayload);
 
-    console.log("[PartyRadar Debug] Event insert data:", data);
-    console.log("[PartyRadar Debug] Event insert error:", error);
+    console.log("[Marcha Debug] Event insert data:", data);
+    console.log("[Marcha Debug] Event insert error:", error);
 
     if (error) {
       if (uploadedImagePath) {
         try {
           await deleteUploadedEventImage(client, uploadedImagePath);
         } catch (cleanupError) {
-          console.warn("[PartyRadar Debug] Image cleanup failed:", cleanupError);
+          console.warn("[Marcha Debug] Image cleanup failed:", cleanupError);
           throw new Error(`${error.message || "Insert failed"} ${t("form_error_image_cleanup")}`.trim());
         }
       }
@@ -3629,8 +3629,8 @@ async function updateModerationStatus(eventId, nextStatus, verificationNotes) {
         verification_notes: payload.verification_notes
       }
     });
-    console.log("[PartyRadar Debug] Moderation edge data:", data);
-    console.log("[PartyRadar Debug] Moderation edge error:", error);
+    console.log("[Marcha Debug] Moderation edge data:", data);
+    console.log("[Marcha Debug] Moderation edge error:", error);
     if (error) throw new Error(error.message);
     return;
   }
@@ -3642,8 +3642,8 @@ async function updateModerationStatus(eventId, nextStatus, verificationNotes) {
     .select("*")
     .single();
 
-  console.log("[PartyRadar Debug] Moderation update data:", data);
-  console.log("[PartyRadar Debug] Moderation update error:", error);
+  console.log("[Marcha Debug] Moderation update data:", data);
+  console.log("[Marcha Debug] Moderation update error:", error);
   if (error) throw new Error(error.message);
 }
 
@@ -4037,9 +4037,9 @@ async function fetchEventsFromSupabase() {
   const tableName = state.debug.tableName || "events";
   const { data, error } = await client.from(tableName).select("*").order("event_date", { ascending: true });
 
-  console.log("[PartyRadar Debug] Supabase table:", tableName);
-  console.log("[PartyRadar Debug] Supabase data:", data);
-  console.log("[PartyRadar Debug] Supabase error:", error);
+  console.log("[Marcha Debug] Supabase table:", tableName);
+  console.log("[Marcha Debug] Supabase data:", data);
+  console.log("[Marcha Debug] Supabase error:", error);
 
   if (error) throw new Error(error.message);
   return (data || []).map(normalizeEvent);

@@ -556,7 +556,7 @@ async function start() {
     renderAuthState();
     if (isSessionAdmin(state.adminSession)) {
       await loadEvents();
-      setGlobalFeedback("VIBEON Admin Studio ready.", "success");
+      setGlobalFeedback("MARCHA Admin Studio ready.", "success");
     } else {
       setGlobalFeedback("Bitte als Admin anmelden.", "info");
     }
