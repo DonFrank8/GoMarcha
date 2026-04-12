@@ -54,12 +54,12 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 1.05rem;
+  gap: 0.95rem;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow);
-  padding: 1rem 1.08rem;
+  padding: 0.9rem 0.98rem;
 }
 
 .admin-header__inner::after {
@@ -74,12 +74,12 @@ body {
 .admin-header__brand {
   display: inline-flex;
   align-items: center;
-  gap: 0.52rem;
+  gap: 0.4rem;
   min-width: 0;
-  padding: 0.12rem 0.16rem;
-  border-radius: 12px;
-  border: 1px solid rgba(164, 138, 237, 0.2);
-  background: rgba(12, 19, 36, 0.56);
+  padding: 0.04rem 0.06rem;
+  border-radius: 10px;
+  border: 1px solid rgba(164, 138, 237, 0.14);
+  background: rgba(12, 19, 36, 0.42);
 }
 
 .brand-logo {
@@ -92,28 +92,16 @@ body {
 
 .brand-logo.brand-logo--full {
   display: block;
-  width: min(220px, 36vw);
-  max-width: 220px;
+  width: min(146px, 28vw);
+  max-width: 146px;
   height: auto;
-  max-height: 36px;
+  max-height: 34px;
   padding: 0;
   border: 0;
   border-radius: 0;
   background: transparent;
   box-shadow: none;
   overflow: visible;
-}
-
-.brand-logo.brand-logo--icon {
-  display: none;
-  width: 32px;
-  height: 32px;
-  min-width: 32px;
-  min-height: 32px;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  background: rgba(9, 12, 22, 0.72);
-  box-shadow: 0 8px 16px rgba(6, 9, 20, 0.34);
 }
 
 .brand-logo img {
@@ -525,19 +513,19 @@ body {
   .admin-header__inner {
     flex-direction: column;
     align-items: stretch;
-    gap: 0.84rem;
-    padding: 0.8rem 0.86rem;
+    gap: 0.74rem;
+    padding: 0.74rem 0.8rem;
   }
 
   .admin-header__brand {
     align-self: flex-start;
-    padding: 0.1rem 0.14rem;
+    padding: 0.04rem 0.08rem;
   }
 
   .brand-logo.brand-logo--full {
-    width: min(190px, 56vw);
-    max-width: 190px;
-    max-height: 34px;
+    width: min(140px, 48vw);
+    max-width: 140px;
+    max-height: 32px;
   }
 
   .filter-grid {
@@ -612,18 +600,12 @@ body {
   }
 
   .admin-header__brand {
-    padding: 0.08rem 0.12rem;
+    padding: 0.02rem 0.04rem;
   }
 
   .brand-logo.brand-logo--full {
-    display: none;
-  }
-
-  .brand-logo.brand-logo--icon {
-    display: block;
-    width: 30px;
-    height: 30px;
-    min-width: 30px;
-    min-height: 30px;
+    width: min(132px, 54vw);
+    max-width: 132px;
+    max-height: 30px;
   }
 }
