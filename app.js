@@ -2628,8 +2628,7 @@ function applyFilters() {
   renderMapMarkers();
   renderFeaturedEvents();
   if (!state.selectedEventId && state.filteredEvents.length) {
-    state.selectedEventId = state.filteredEvents[0].id;
-    renderEventDetails(state.filteredEvents[0]);
+    selectEvent(state.filteredEvents[0], "auto");
   }
   updateMapSheetSortControls();
   updateMapBottomSheetMeta();
@@ -2843,7 +2842,7 @@ function createFeaturedCard(event) {
       return;
     }
 
-    selectEvent(event.id, { flyTo: true, openPopup: true, scrollIntoView: true });
+    selectEvent(event, "featured");
     if (openButton) {
       setViewMode("list", { scroll: true });
       return;
@@ -3257,10 +3256,7 @@ function createEventCard(event, index = 0) {
       return;
     }
 
-    selectEvent(event.id, { flyTo: true, openPopup: true, scrollIntoView: false });
-    if (mapSheetIsMobileViewport()) {
-      setViewMode("map", { scroll: true });
-    }
+    selectEvent(event, "list");
   });
   return card;
 }
@@ -3385,7 +3381,7 @@ function renderMapMarkers() {
       icon: createMarkerIcon(event, false)
     })
       .bindPopup(markerPopupHtml(event))
-      .on("click", () => selectEvent(event.id, { flyTo: false, openPopup: false, scrollIntoView: true }));
+      .on("click", () => selectEvent(event, "marker"));
 
     markersLayer.addLayer(marker);
     markersByEventId.set(event.id, marker);
@@ -3534,11 +3530,19 @@ function renderEventDetails(event) {
   }
 }
 
+function findEventById(eventId) {
+  const normalizedId = String(eventId || "").trim();
+  if (!normalizedId) return null;
+  return state.filteredEvents.find((item) => item.id === normalizedId) || state.allEvents.find((item) => item.id === normalizedId) || null;
+}
+
 function resolveSelectEventData(eventData) {
   if (!eventData) return null;
-  if (typeof eventData === "object") return eventData;
-  const eventId = String(eventData);
-  return state.filteredEvents.find((item) => item.id === eventId) || state.allEvents.find((item) => item.id === eventId) || null;
+  if (typeof eventData === "object") {
+    const resolved = findEventById(eventData.id);
+    return resolved || eventData;
+  }
+  return findEventById(eventData);
 }
 
 function resolveSelectEventOptions(source) {
@@ -3546,14 +3550,22 @@ function resolveSelectEventOptions(source) {
     return {
       flyTo: Boolean(source.flyTo),
       openPopup: Boolean(source.openPopup),
-      scrollIntoView: Boolean(source.scrollIntoView)
+      scrollIntoView: Boolean(source.scrollIntoView),
+      preferMapOnMobile: Boolean(source.preferMapOnMobile)
     };
   }
-  return {
-    flyTo: false,
-    openPopup: false,
-    scrollIntoView: source !== "list"
-  };
+
+  const sourceKey = String(source || "list").toLowerCase();
+  if (sourceKey === "featured") {
+    return { flyTo: true, openPopup: true, scrollIntoView: true, preferMapOnMobile: false };
+  }
+  if (sourceKey === "marker") {
+    return { flyTo: false, openPopup: false, scrollIntoView: true, preferMapOnMobile: false };
+  }
+  if (sourceKey === "list") {
+    return { flyTo: true, openPopup: true, scrollIntoView: false, preferMapOnMobile: true };
+  }
+  return { flyTo: false, openPopup: false, scrollIntoView: false, preferMapOnMobile: false };
 }
 
 function renderActiveCard(options = { scrollIntoView: false }) {
@@ -3569,10 +3581,11 @@ function renderActiveCard(options = { scrollIntoView: false }) {
 }
 
 function focusMapOnEvent(eventData, options = { flyTo: false, openPopup: false }) {
+  if (!eventData) return;
+  if (!Number.isFinite(eventData.lat) || !Number.isFinite(eventData.lng)) return;
   const marker = markersByEventId.get(eventData.id);
-  if (!marker || eventData.lat === null || eventData.lng === null) return;
   if (options.flyTo) throttledSelectEventMapFocus(eventData, 13);
-  if (options.openPopup) marker.openPopup();
+  if (options.openPopup && marker) marker.openPopup();
 }
 
 function openMapDetails() {
@@ -3586,14 +3599,17 @@ function selectEvent(eventData, source = "list") {
   if (!resolvedEvent) return;
 
   const options = resolveSelectEventOptions(source);
+  if (options.preferMapOnMobile && mapSheetIsMobileViewport() && state.viewMode !== "map") {
+    setViewMode("map", { scroll: true });
+  }
   state.activeEventId = resolvedEvent.id;
   state.activeEvent = resolvedEvent;
   state.selectedEventId = resolvedEvent.id;
 
   renderActiveCard({ scrollIntoView: options.scrollIntoView });
   renderEventDetails(resolvedEvent);
-  focusMapOnEvent(resolvedEvent, { flyTo: options.flyTo, openPopup: options.openPopup });
-  openMapDetails(resolvedEvent);
+  focusMapOnEvent(resolvedEvent, options);
+  openMapDetails();
 }
 
 function clearGenreSelection() {
