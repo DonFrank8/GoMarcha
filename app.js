@@ -3419,6 +3419,55 @@ function renderEventDetails(event) {
     .join(", ");
   const fallbackLocationLine = [locationName, event.address, event.city].filter(Boolean).join(", ");
   const navigationUrl = buildNavigationUrl(event);
+  const mainArtist = String(event.main_artist || "").trim();
+  const artistLine = mainArtist ? `<p class="event-details__artist" style="margin:0.28rem 0 0;color:#e9f1ff;font-weight:600;">Mit ${mainArtist}</p>` : "";
+  const recurrenceType = normalizeRecurrenceType(event.recurrence_type || RECURRENCE_TYPE_NONE);
+  const isRecurring = Boolean(event.is_recurring) || recurrenceType !== RECURRENCE_TYPE_NONE;
+  const recurrenceInterval = Math.max(1, Number.parseInt(String(event.recurrence_interval || "1"), 10) || 1);
+  const weekdayLabelByNumber = ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"];
+  const weekdayLabelByName = {
+    monday: "Montag",
+    tuesday: "Dienstag",
+    wednesday: "Mittwoch",
+    thursday: "Donnerstag",
+    friday: "Freitag",
+    saturday: "Samstag",
+    sunday: "Sonntag"
+  };
+  const recurrenceDays = Array.isArray(event.recurrence_days)
+    ? event.recurrence_days
+    : String(event.recurrence_days || "")
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean);
+  const primaryDayFromList = recurrenceDays
+    .map((value) => weekdayLabelByName[String(value).toLowerCase()] || "")
+    .find(Boolean);
+  const fallbackWeekday = (() => {
+    const numeric = normalizeWeekday(event.recurrence_weekday);
+    return numeric === null ? "" : weekdayLabelByNumber[numeric];
+  })();
+  const primaryDay = primaryDayFromList || fallbackWeekday;
+  let recurringText = "";
+  if (isRecurring) {
+    if (primaryDay) {
+      recurringText = recurrenceInterval > 1 ? `Jeden ${recurrenceInterval}. ${primaryDay}` : `Jeden ${primaryDay}`;
+    } else if (recurrenceType === RECURRENCE_TYPE_MONTHLY) {
+      recurringText = recurrenceInterval > 1 ? `Jeden ${recurrenceInterval}. Monat` : "Jeden Monat";
+    } else if (recurrenceType === RECURRENCE_TYPE_WEEKLY) {
+      recurringText = recurrenceInterval > 1 ? `Jede ${recurrenceInterval}. Woche` : "Jede Woche";
+    } else {
+      recurringText = `Jeden ${String(event.recurrence_type || "Termin")}`;
+    }
+    const recurrenceEndDate = parseIsoDate(event.recurrence_end_date || "");
+    if (recurrenceEndDate) {
+      const formattedEnd = new Intl.DateTimeFormat("de-DE").format(recurrenceEndDate);
+      recurringText += ` • bis ${formattedEnd}`;
+    }
+  }
+  const recurringLine = recurringText
+    ? `<p class="event-details__recurrence" style="margin:0.15rem 0 0;color:#bfd0f5;font-size:0.82rem;line-height:1.3;">📅 ${recurringText}</p>`
+    : "";
   dom.eventDetails.innerHTML = `
     <div class="event-details__media">
       ${
@@ -3429,6 +3478,8 @@ function renderEventDetails(event) {
     </div>
     <div class="event-details__header">
       <h4>${event.name}</h4>
+      ${artistLine}
+      ${recurringLine}
       <div class="event-details__badges">
         <span class="event-details__badge">${event.genre || "-"}</span>
         <span class="event-details__badge">${formatDateTime(event)}</span>
