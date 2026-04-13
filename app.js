@@ -2628,8 +2628,7 @@ function applyFilters() {
   renderMapMarkers();
   renderFeaturedEvents();
   if (!state.selectedEventId && state.filteredEvents.length) {
-    state.selectedEventId = state.filteredEvents[0].id;
-    renderEventDetails(state.filteredEvents[0]);
+    selectEvent(state.filteredEvents[0], "auto");
   }
   updateMapSheetSortControls();
   updateMapBottomSheetMeta();
@@ -2843,7 +2842,7 @@ function createFeaturedCard(event) {
       return;
     }
 
-    selectEvent(event.id, { flyTo: true, openPopup: true, scrollIntoView: true });
+    selectEvent(event, "featured");
     if (openButton) {
       setViewMode("list", { scroll: true });
       return;
@@ -3257,10 +3256,7 @@ function createEventCard(event, index = 0) {
       return;
     }
 
-    selectEvent(event.id, { flyTo: true, openPopup: true, scrollIntoView: false });
-    if (mapSheetIsMobileViewport()) {
-      setViewMode("map", { scroll: true });
-    }
+    selectEvent(event, "list");
   });
   return card;
 }
@@ -3385,7 +3381,7 @@ function renderMapMarkers() {
       icon: createMarkerIcon(event, false)
     })
       .bindPopup(markerPopupHtml(event))
-      .on("click", () => selectEvent(event.id, { flyTo: false, openPopup: false, scrollIntoView: true }));
+      .on("click", () => selectEvent(event, "marker"));
 
     markersLayer.addLayer(marker);
     markersByEventId.set(event.id, marker);
@@ -3534,27 +3530,86 @@ function renderEventDetails(event) {
   }
 }
 
-function selectEvent(eventId, options = { flyTo: false, openPopup: false, scrollIntoView: false }) {
-  state.selectedEventId = eventId;
-  const event = state.filteredEvents.find((item) => item.id === eventId);
+function findEventById(eventId) {
+  const normalizedId = String(eventId || "").trim();
+  if (!normalizedId) return null;
+  return state.filteredEvents.find((item) => item.id === normalizedId) || state.allEvents.find((item) => item.id === normalizedId) || null;
+}
 
+function resolveSelectEventData(eventData) {
+  if (!eventData) return null;
+  if (typeof eventData === "object") {
+    const resolved = findEventById(eventData.id);
+    return resolved || eventData;
+  }
+  return findEventById(eventData);
+}
+
+function resolveSelectEventOptions(source) {
+  if (source && typeof source === "object") {
+    return {
+      flyTo: Boolean(source.flyTo),
+      openPopup: Boolean(source.openPopup),
+      scrollIntoView: Boolean(source.scrollIntoView),
+      preferMapOnMobile: Boolean(source.preferMapOnMobile)
+    };
+  }
+
+  const sourceKey = String(source || "list").toLowerCase();
+  if (sourceKey === "featured") {
+    return { flyTo: true, openPopup: true, scrollIntoView: true, preferMapOnMobile: false };
+  }
+  if (sourceKey === "marker") {
+    return { flyTo: false, openPopup: false, scrollIntoView: true, preferMapOnMobile: false };
+  }
+  if (sourceKey === "list") {
+    return { flyTo: true, openPopup: true, scrollIntoView: false, preferMapOnMobile: true };
+  }
+  return { flyTo: false, openPopup: false, scrollIntoView: false, preferMapOnMobile: false };
+}
+
+function renderActiveCard(options = { scrollIntoView: false }) {
+  const activeEventId = String(state.activeEventId || state.selectedEventId || "");
   document.querySelectorAll(".event-card").forEach((card) => {
-    const isActive = card.dataset.eventId === eventId;
+    const isActive = card.dataset.eventId === activeEventId;
     card.classList.toggle("event-card--active", isActive);
     if (isActive && options.scrollIntoView) {
       card.scrollIntoView({ block: "nearest", behavior: "smooth" });
     }
   });
+  syncActiveMarker(activeEventId);
+}
 
-  syncActiveMarker(eventId);
-  renderEventDetails(event || null);
-  if (!event) return;
+function focusMapOnEvent(eventData, options = { flyTo: false, openPopup: false }) {
+  if (!eventData) return;
+  if (!Number.isFinite(eventData.lat) || !Number.isFinite(eventData.lng)) return;
+  const marker = markersByEventId.get(eventData.id);
+  if (options.flyTo) throttledSelectEventMapFocus(eventData, 13);
+  if (options.openPopup && marker) marker.openPopup();
+}
 
-  const marker = markersByEventId.get(event.id);
-  if (marker && event.lat !== null && event.lng !== null) {
-    if (options.flyTo) throttledSelectEventMapFocus(event, 13);
-    if (options.openPopup) marker.openPopup();
+function openMapDetails() {
+  if (state.viewMode === "map" && mapSheetIsAvailable()) {
+    setMapBottomSheetState("half");
   }
+}
+
+function selectEvent(eventData, source = "list") {
+  const resolvedEvent = resolveSelectEventData(eventData);
+  if (!resolvedEvent) return;
+
+  const options = resolveSelectEventOptions(source);
+  if (options.preferMapOnMobile && mapSheetIsMobileViewport() && state.viewMode !== "map") {
+    setViewMode("map", { scroll: true });
+  }
+  state.activeEventId = resolvedEvent.id;
+  state.activeEvent = resolvedEvent;
+  state.selectedEventId = resolvedEvent.id;
+
+  renderActiveCard({ scrollIntoView: options.scrollIntoView });
+  renderEventDetails(resolvedEvent);
+  focusMapOnEvent(resolvedEvent, options);
+  openMapDetails();
 }
 
 function clearGenreSelection() {
