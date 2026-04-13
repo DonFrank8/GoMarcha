@@ -204,7 +204,7 @@ const NAVIGATION_URL_BUILDERS = {
 const I18N = {
   de: {
     hero_title: "Erlebe die besten Events in deiner Nähe",
-    hero_subtitle: "Live Musik, DJs und besondere Orte – alles an einem Ort.",
+    hero_subtitle: "Live Musik, DJs und besondere Locations – alles an einem Ort.",
     hero_location_label: "In deiner Nähe",
     hero_chip_fallback: "Live-Momente entdecken",
     hero_chip_vibe: "Live Music • Beach • Lifestyle",
@@ -400,12 +400,12 @@ const I18N = {
     create_submit: "Speichern"
   },
   en: {
-    hero_title: "Find the events that matter tonight",
-    hero_subtitle: "Live music, DJs and unique places – all in one place.",
+    hero_title: "Discover the best events near you",
+    hero_subtitle: "Live music, DJs and unique venues – all in one place.",
     hero_location_label: "Near you",
     hero_chip_fallback: "Discover live moments",
     hero_chip_vibe: "Live Music • Beach • Lifestyle",
-    featured_title: "Featured tonight",
+    featured_title: "Featured events",
     view_list: "List",
     featured_open: "Details",
     view_map: "Map",
@@ -597,7 +597,7 @@ const I18N = {
     create_submit: "Save"
   },
   es: {
-    hero_title: "Encuentra tu marcha esta noche",
+    hero_title: "Encuentra la mejor marcha cerca de ti",
     hero_subtitle: "Música en vivo, DJs y lugares únicos – todo en un solo lugar.",
     hero_location_label: "Cerca de ti",
     hero_chip_fallback: "Descubre momentos en vivo",
