@@ -3192,7 +3192,6 @@ function createEventCard(event, index = 0) {
   card.className = "event-card";
   card.dataset.eventId = event.id;
   card.style.setProperty("--card-index", String(index));
-  const navigationUrl = buildNavigationUrl(event);
   const primaryGenre = splitGenres(event.genre)[0] || event.genre || "-";
   const favoriteActive = isFavoriteEvent(event.id);
   card.innerHTML = `
@@ -3202,7 +3201,6 @@ function createEventCard(event, index = 0) {
           ? `<img class="event-card__image" src="${event.image_url}" alt="${event.name}" loading="lazy">`
           : `<div class="event-card__image-fallback" aria-hidden="true"><span>${iconForGenre(primaryGenre)}</span></div>`
       }
-      <div class="event-card__overlay"></div>
       <span class="event-card__genre-badge">${primaryGenre}</span>
       <button
         type="button"
@@ -3215,36 +3213,21 @@ function createEventCard(event, index = 0) {
       </button>
     </div>
     <div class="event-card__body">
-      <h4 class="event-card__title">${event.name}</h4>
-      <div class="event-card_artist">${event.main_artist ? `Mit ${event.main_artist}` : ""}</div>
-      <p class="event-card__location">${formatEventPlace(event)}</p>
-      <p class="event-card__datetime">${formatDateTime(event)}</p>
+      <div class="event-card__header">
+        <h4 class="event-card__title">${event.name}</h4>
+        <div class="event-card_artist">${event.main_artist ? `Mit ${event.main_artist}` : ""}</div>
+      </div>
+      <p class="event-card__line event-card__line--datetime">🗓 ${formatDateTime(event)}</p>
+      <p class="event-card__line event-card__line--location">📍 ${formatEventPlace(event)}</p>
       <div class="event-card__chips">
         <span class="event-card__chip">${primaryGenre}</span>
         <span class="event-card__chip event-card__chip--price">${formatPrice(event.price_text)}</span>
-      </div>
-      <div class="event-card__actions">
-        <button
-          type="button"
-          class="button-secondary button-secondary--primary event-card__navigate"
-          data-action="navigate-from-list"
-          ${navigationUrl ? "" : "disabled"}
-        >
-          ${t("details_navigate")}
-        </button>
       </div>
     </div>
   `;
   card.addEventListener("click", (clickEvent) => {
     const target = clickEvent.target instanceof Element ? clickEvent.target : null;
-    const navigateButton = target?.closest("button[data-action='navigate-from-list']");
     const favoriteButton = target?.closest("button[data-action='favorite-toggle']");
-    if (navigateButton) {
-      clickEvent.preventDefault();
-      clickEvent.stopPropagation();
-      openNavigationForEvent(event);
-      return;
-    }
     if (favoriteButton) {
       clickEvent.preventDefault();
       clickEvent.stopPropagation();
@@ -3397,28 +3380,11 @@ function renderMapMarkers() {
   }
 }
 
-function renderEventDetails(event) {
-  if (!event) {
-    dom.eventDetails.className = "event-details event-details--empty";
-    dom.eventDetails.textContent = t("details_empty");
-    if (state.viewMode === "map" && mapSheetIsAvailable()) {
-      setMapBottomSheetState("peek");
-    }
-    return;
-  }
-
-  dom.eventDetails.className = "event-details event-details--filled";
-  const locationName = String(event.location_name || "").trim();
-  const addressLine = [event.address, event.postal_code, event.city, event.country]
-    .map((value) => String(value || "").trim())
-    .filter(Boolean)
-    .join(", ");
-  const fallbackLocationLine = [locationName, event.address, event.city].filter(Boolean).join(", ");
-  const navigationUrl = buildNavigationUrl(event);
-  const mainArtist = String(event.main_artist || "").trim();
-  const artistLine = mainArtist ? `<p class="event-details__artist" style="margin:0.28rem 0 0;color:#e9f1ff;font-weight:600;">Mit ${mainArtist}</p>` : "";
+function formatRecurringDetail(event) {
   const recurrenceType = normalizeRecurrenceType(event.recurrence_type || RECURRENCE_TYPE_NONE);
   const isRecurring = Boolean(event.is_recurring) || recurrenceType !== RECURRENCE_TYPE_NONE;
+  if (!isRecurring) return "";
+
   const recurrenceInterval = Math.max(1, Number.parseInt(String(event.recurrence_interval || "1"), 10) || 1);
   const weekdayLabelByNumber = ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"];
   const weekdayLabelByName = {
@@ -3444,26 +3410,78 @@ function renderEventDetails(event) {
     return numeric === null ? "" : weekdayLabelByNumber[numeric];
   })();
   const primaryDay = primaryDayFromList || fallbackWeekday;
+
   let recurringText = "";
-  if (isRecurring) {
-    if (primaryDay) {
-      recurringText = recurrenceInterval > 1 ? `Jeden ${recurrenceInterval}. ${primaryDay}` : `Jeden ${primaryDay}`;
-    } else if (recurrenceType === RECURRENCE_TYPE_MONTHLY) {
-      recurringText = recurrenceInterval > 1 ? `Jeden ${recurrenceInterval}. Monat` : "Jeden Monat";
-    } else if (recurrenceType === RECURRENCE_TYPE_WEEKLY) {
-      recurringText = recurrenceInterval > 1 ? `Jede ${recurrenceInterval}. Woche` : "Jede Woche";
-    } else {
-      recurringText = `Jeden ${String(event.recurrence_type || "Termin")}`;
-    }
-    const recurrenceEndDate = parseIsoDate(event.recurrence_end_date || "");
-    if (recurrenceEndDate) {
-      const formattedEnd = new Intl.DateTimeFormat("de-DE").format(recurrenceEndDate);
-      recurringText += ` • bis ${formattedEnd}`;
-    }
+  if (primaryDay) {
+    recurringText = recurrenceInterval > 1 ? `Jeden ${recurrenceInterval}. ${primaryDay}` : `Jeden ${primaryDay}`;
+  } else if (recurrenceType === RECURRENCE_TYPE_MONTHLY) {
+    recurringText = recurrenceInterval > 1 ? `Jeden ${recurrenceInterval}. Monat` : "Jeden Monat";
+  } else if (recurrenceType === RECURRENCE_TYPE_WEEKLY) {
+    recurringText = recurrenceInterval > 1 ? `Jede ${recurrenceInterval}. Woche` : "Jede Woche";
+  } else {
+    recurringText = "Wiederkehrendes Event";
   }
-  const recurringLine = recurringText
-    ? `<p class="event-details__recurrence" style="margin:0.15rem 0 0;color:#bfd0f5;font-size:0.82rem;line-height:1.3;">📅 ${recurringText}</p>`
+
+  const recurrenceEndDate = parseIsoDate(event.recurrence_end_date || "");
+  if (recurrenceEndDate) {
+    recurringText += ` • bis ${formatDate(formatIsoDate(recurrenceEndDate), false)}`;
+  }
+
+  return recurringText;
+}
+
+function renderEventDetails(event) {
+  if (!event) {
+    dom.eventDetails.className = "event-details event-details--empty";
+    dom.eventDetails.textContent = t("details_empty");
+    if (state.viewMode === "map" && mapSheetIsAvailable()) {
+      setMapBottomSheetState("peek");
+    }
+    return;
+  }
+
+  dom.eventDetails.className = "event-details event-details--filled";
+  const locationName = String(event.location_name || "").trim();
+  const addressLine = [event.address, event.postal_code, event.city, event.country]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .join(", ");
+  const fallbackLocationLine = [locationName, event.address, event.city].filter(Boolean).join(", ");
+  const navigationUrl = buildNavigationUrl(event);
+  const mainArtist = String(event.main_artist || "").trim();
+  const additionalArtists = String(event.additional_artists || "").trim();
+  const artistLine = mainArtist ? `<p class="event-details__artist">Mit ${mainArtist}</p>` : "";
+  const additionalArtistsLine = additionalArtists
+    ? `<p class="event-details__subtitle">${additionalArtists}</p>`
     : "";
+  const recurringText = formatRecurringDetail(event);
+  const recurringLine = recurringText
+    ? `<p class="event-details__recurrence">📅 ${recurringText}</p>`
+    : "";
+  const dateText = formatDate(event.event_date, true);
+  const timeText = event.event_time || t("details_time_fallback");
+  const genreText = event.genre || "-";
+  const priceText = formatPrice(event.price_text);
+  const navigationCta = navigationUrl
+    ? `
+      <a
+        class="button-secondary button-secondary--primary button-secondary--navigate event-details__navigate-cta"
+        href="${navigationUrl}"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        ${t("details_navigate")}
+      </a>
+      `
+    : `
+      <button
+        type="button"
+        class="button-secondary button-secondary--primary button-secondary--navigate event-details__navigate-cta"
+        disabled
+      >
+        ${t("details_navigate")}
+      </button>
+      `;
   dom.eventDetails.innerHTML = `
     <div class="event-details__media">
       ${
@@ -3475,51 +3493,36 @@ function renderEventDetails(event) {
     <div class="event-details__header">
       <h4>${event.name}</h4>
       ${artistLine}
+      ${additionalArtistsLine}
       ${recurringLine}
-      <div class="event-details__badges">
-        <span class="event-details__badge">${event.genre || "-"}</span>
-        <span class="event-details__badge">${formatDateTime(event)}</span>
-      </div>
     </div>
-    <div class="event-details__actions event-details__actions--top">
-      ${
-        navigationUrl
-          ? `
-      <a
-        class="button-secondary button-secondary--primary button-secondary--navigate"
-        href="${navigationUrl}"
-        target="_blank"
-        rel="noopener noreferrer"
-      >
-        ${t("details_navigate")}
-      </a>
-      `
-          : `
-      <button
-        type="button"
-        class="button-secondary button-secondary--primary button-secondary--navigate"
-        disabled
-      >
-        ${t("details_navigate")}
-      </button>
-      `
-      }
-    </div>
-    <div class="event-details__grid">
+    <div class="event-details__grid event-details__meta-grid">
+      <article class="event-details__card">
+        <h5>${t("details_date")}</h5>
+        <p>${dateText}</p>
+        <p class="event-details__muted">${timeText}</p>
+      </article>
       <article class="event-details__card">
         <h5>${t("details_location")}</h5>
         <p>${locationName || fallbackLocationLine || "-"}</p>
         <p class="event-details__muted">${addressLine || "-"}</p>
       </article>
       <article class="event-details__card">
+        <h5>${t("details_genre")}</h5>
+        <p>${genreText}</p>
+      </article>
+      <article class="event-details__card">
         <h5>${t("details_price")}</h5>
-        <p>${formatPrice(event.price_text)}</p>
+        <p>${priceText}</p>
       </article>
     </div>
     <article class="event-details__card event-details__card--description">
       <h5>${t("form_label_description")}</h5>
       <p>${event.description || t("details_no_description")}</p>
     </article>
+    <div class="event-details__actions event-details__actions--bottom">
+      ${navigationCta}
+    </div>
   `;
   dom.eventDetails.classList.remove("event-details--animate-in");
   window.requestAnimationFrame(() => {
