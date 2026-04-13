@@ -1256,12 +1256,20 @@ body.body--modal-open {
   gap: 0.52rem;
 }
 
-.event-card__artist {
-  margin: 0;
-  font-size: 0.98rem;
+.event-card__artist,
+.event-card_artist {
+  margin: 6px 0 2px 0;
+  font-size: 1.12rem;
   line-height: 1.2;
   font-weight: 700;
   color: #e9f1ff;
+  letter-spacing: -0.01em;
+}
+
+.event-card__artist::before,
+.event-card_artist::before {
+  content: "🎤 ";
+  opacity: 0.85;
 }
 
 .event-card__header {
