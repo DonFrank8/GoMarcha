@@ -356,10 +356,10 @@ body.body--modal-open {
 }
 
 .brand-logo--icon {
-  width: 34px;
-  height: 34px;
-  min-width: 34px;
-  min-height: 34px;
+  width: auto;
+  height: 48px;
+  min-width: 48px;
+  min-height: 48px;
 }
 
 .brand-wordmark {
@@ -2374,10 +2374,10 @@ body.body--modal-open {
   }
 
   .brand-logo--icon {
-    width: 32px;
-    height: 32px;
-    min-width: 32px;
-    min-height: 32px;
+    width: auto;
+    height: 46px;
+    min-width: 46px;
+    min-height: 46px;
   }
 
   .brand-wordmark {
@@ -2533,10 +2533,10 @@ body.body--modal-open {
   }
 
   .brand-logo--icon {
-    width: 30px;
-    height: 30px;
-    min-width: 30px;
-    min-height: 30px;
+    width: auto;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
   }
 
   .brand-wordmark {

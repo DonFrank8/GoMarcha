@@ -83,10 +83,10 @@ body {
 
 .brand-logo {
   display: block;
-  width: 34px;
-  height: 34px;
-  min-width: 34px;
-  min-height: 34px;
+  width: 48px;
+  height: 48px;
+  min-width: 48px;
+  min-height: 48px;
   object-fit: contain;
   background: transparent;
   border: 0;
@@ -525,10 +525,10 @@ body {
   }
 
   .brand-logo {
-    width: 32px;
-    height: 32px;
-    min-width: 32px;
-    min-height: 32px;
+    width: 46px;
+    height: 46px;
+    min-width: 46px;
+    min-height: 46px;
   }
 
   .admin-header__brand-text {
@@ -611,10 +611,10 @@ body {
   }
 
   .brand-logo {
-    width: 30px;
-    height: 30px;
-    min-width: 30px;
-    min-height: 30px;
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
   }
 
   .admin-header__brand-text {
