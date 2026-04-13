@@ -3534,27 +3534,66 @@ function renderEventDetails(event) {
   }
 }
 
-function selectEvent(eventId, options = { flyTo: false, openPopup: false, scrollIntoView: false }) {
-  state.selectedEventId = eventId;
-  const event = state.filteredEvents.find((item) => item.id === eventId);
+function resolveSelectEventData(eventData) {
+  if (!eventData) return null;
+  if (typeof eventData === "object") return eventData;
+  const eventId = String(eventData);
+  return state.filteredEvents.find((item) => item.id === eventId) || state.allEvents.find((item) => item.id === eventId) || null;
+}
 
+function resolveSelectEventOptions(source) {
+  if (source && typeof source === "object") {
+    return {
+      flyTo: Boolean(source.flyTo),
+      openPopup: Boolean(source.openPopup),
+      scrollIntoView: Boolean(source.scrollIntoView)
+    };
+  }
+  return {
+    flyTo: false,
+    openPopup: false,
+    scrollIntoView: source !== "list"
+  };
+}
+
+function renderActiveCard(options = { scrollIntoView: false }) {
+  const activeEventId = String(state.activeEventId || state.selectedEventId || "");
   document.querySelectorAll(".event-card").forEach((card) => {
-    const isActive = card.dataset.eventId === eventId;
+    const isActive = card.dataset.eventId === activeEventId;
     card.classList.toggle("event-card--active", isActive);
     if (isActive && options.scrollIntoView) {
       card.scrollIntoView({ block: "nearest", behavior: "smooth" });
     }
   });
+  syncActiveMarker(activeEventId);
+}
 
-  syncActiveMarker(eventId);
-  renderEventDetails(event || null);
-  if (!event) return;
+function focusMapOnEvent(eventData, options = { flyTo: false, openPopup: false }) {
+  const marker = markersByEventId.get(eventData.id);
+  if (!marker || eventData.lat === null || eventData.lng === null) return;
+  if (options.flyTo) throttledSelectEventMapFocus(eventData, 13);
+  if (options.openPopup) marker.openPopup();
+}
 
-  const marker = markersByEventId.get(event.id);
-  if (marker && event.lat !== null && event.lng !== null) {
-    if (options.flyTo) throttledSelectEventMapFocus(event, 13);
-    if (options.openPopup) marker.openPopup();
+function openMapDetails() {
+  if (state.viewMode === "map" && mapSheetIsAvailable()) {
+    setMapBottomSheetState("half");
   }
+}
+
+function selectEvent(eventData, source = "list") {
+  const resolvedEvent = resolveSelectEventData(eventData);
+  if (!resolvedEvent) return;
+
+  const options = resolveSelectEventOptions(source);
+  state.activeEventId = resolvedEvent.id;
+  state.activeEvent = resolvedEvent;
+  state.selectedEventId = resolvedEvent.id;
+
+  renderActiveCard({ scrollIntoView: options.scrollIntoView });
+  renderEventDetails(resolvedEvent);
+  focusMapOnEvent(resolvedEvent, { flyTo: options.flyTo, openPopup: options.openPopup });
+  openMapDetails(resolvedEvent);
 }
 
 function clearGenreSelection() {
