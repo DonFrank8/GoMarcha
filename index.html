@@ -397,6 +397,20 @@
               <input name="genre" id="formGenre" type="text" required>
             </label>
             <label class="field">
+              <span data-i18n="form_label_main_artist">Künstler</span>
+              <input name="main_artist" id="formMainArtist" type="text" required>
+            </label>
+            <label class="field">
+              <span data-i18n="form_label_additional_artists">Weitere Künstler (optional)</span>
+              <textarea
+                name="additional_artists"
+                id="formAdditionalArtists"
+                rows="2"
+                data-i18n-placeholder="form_placeholder_additional_artists"
+                placeholder="z. B. DJ X, Live Band Y"
+              ></textarea>
+            </label>
+            <label class="field">
               <span data-i18n="form_label_price_text">Preis (EUR)</span>
               <input name="price_text" id="formPrice" type="text" data-i18n-placeholder="form_placeholder_price_text" placeholder="z. B. 25 EUR">
               <small class="field__hint field__hint--currency" data-i18n="form_hint_price_eur">
@@ -419,6 +433,9 @@
             >
             <small class="field__hint" data-i18n="form_hint_main_image">
               1 Bild (JPG/PNG/WebP), max. 5 MB
+            </small>
+            <small class="field__hint" data-i18n="form_hint_gallery_premium">
+              Weitere Bilder und erweiterte Galerie kommen in der bezahlten Version.
             </small>
           </label>
         </section>
