@@ -4210,9 +4210,9 @@ async function loadEvents() {
     state.debug.supabaseLoadedCount = data.length;
 
     if (!data.length) {
-      state.allEvents = demoEvents.map(normalizeEvent);
+      state.allEvents = [];
       state.moderationEvents = [];
-      state.sourceType = "demo-no-data";
+      state.sourceType = "supabase-empty";
       state.debug.fallbackReason = t("debug_note_no_data");
       setStatus(t("status_no_data"), "warning");
       updateDebugPanel();
@@ -4231,9 +4231,9 @@ async function loadEvents() {
     updateDebugPanel();
   } catch (error) {
     console.error("Supabase Fehler:", error);
-    state.allEvents = demoEvents.map(normalizeEvent);
+    state.allEvents = [];
     state.moderationEvents = [];
-    state.sourceType = "demo-error";
+    state.sourceType = "supabase-error";
     state.debug.hasError = true;
     state.debug.errorMessage = error.message;
     state.debug.fallbackReason = t("debug_note_error");
