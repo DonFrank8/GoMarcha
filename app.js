@@ -3603,9 +3603,9 @@ function focusMapOnEvent(eventData, options = { flyTo: false, openPopup: false }
 }
 
 function openMapDetails() {
-  if (state.viewMode === "map" && mapSheetIsAvailable()) {
-    setMapBottomSheetState("half");
-  }
+  if (!mapSheetIsAvailable()) return;
+  // Detail content should open from every selection entry point, even if desktop view mode is "list".
+  setMapBottomSheetState("half");
 }
 
 function selectEvent(eventData, source = "list") {
