@@ -3472,7 +3472,7 @@ function renderEventDetails(event) {
         data-action="details-navigate"
         data-event-id="${event.id}"
       >
-        Navigate
+        ${t("details_navigate")}
       </button>
       `
     : `
@@ -3483,7 +3483,7 @@ function renderEventDetails(event) {
         data-event-id="${event.id}"
         disabled
       >
-        Navigate
+        ${t("details_navigate")}
       </button>
       `;
   dom.eventDetails.innerHTML = `
