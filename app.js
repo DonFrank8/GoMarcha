@@ -3464,6 +3464,8 @@ function renderEventDetails(event) {
   const timeText = event.event_time || t("details_time_fallback");
   const genreText = event.genre || "-";
   const priceText = formatPrice(event.price_text);
+  const locationLead = locationName || event.city || fallbackLocationLine || "-";
+  const addressDetail = addressLine || [event.city, event.country].filter(Boolean).join(", ") || "-";
   const navigationCta = navigationUrl
     ? `
       <button
@@ -3487,45 +3489,50 @@ function renderEventDetails(event) {
       </button>
       `;
   dom.eventDetails.innerHTML = `
-    <div class="event-details__media">
-      ${
-        event.image_url
-          ? `<img class="event-details__image" src="${event.image_url}" alt="${event.name}" loading="lazy">`
-          : `<div class="event-details__image-fallback" aria-hidden="true"><span>🎵</span></div>`
-      }
-    </div>
-    <div class="event-details__header">
-      <h4>${event.name}</h4>
-      ${artistLine}
-      ${additionalArtistsLine}
-      ${recurringLine}
-    </div>
-    <div class="event-details__grid event-details__meta-grid">
-      <article class="event-details__card">
-        <h5>${t("details_date")}</h5>
-        <p>${dateText}</p>
-        <p class="event-details__muted">${timeText}</p>
-      </article>
-      <article class="event-details__card">
-        <h5>${t("details_location")}</h5>
-        <p>${locationName || fallbackLocationLine || "-"}</p>
-        <p class="event-details__muted">${addressLine || "-"}</p>
-      </article>
-      <article class="event-details__card">
-        <h5>${t("details_genre")}</h5>
-        <p>${genreText}</p>
-      </article>
-      <article class="event-details__card">
-        <h5>${t("details_price")}</h5>
-        <p>${priceText}</p>
-      </article>
-    </div>
-    <article class="event-details__card event-details__card--description">
-      <h5>${t("form_label_description")}</h5>
-      <p>${event.description || t("details_no_description")}</p>
-    </article>
-    <div class="event-details__actions event-details__actions--bottom">
-      ${navigationCta}
+    <div class="event-details__layout">
+      <div class="event-details__media">
+        ${
+          event.image_url
+            ? `<img class="event-details__image" src="${event.image_url}" alt="${event.name}" loading="lazy">`
+            : `<div class="event-details__image-fallback" aria-hidden="true"><span>🎵</span></div>`
+        }
+      </div>
+      <div class="event-details__content">
+        <div class="event-details__header">
+          <h4>${event.name}</h4>
+          ${artistLine}
+          ${additionalArtistsLine}
+          <p class="event-details__location-lead">📍 ${locationLead}</p>
+          ${recurringLine}
+        </div>
+        <div class="event-details__grid event-details__meta-grid">
+          <article class="event-details__card">
+            <h5>${t("details_date")}</h5>
+            <p>${dateText}</p>
+            <p class="event-details__muted">${timeText}</p>
+          </article>
+          <article class="event-details__card">
+            <h5>${t("details_location")}</h5>
+            <p>${locationLead}</p>
+            <p class="event-details__muted">${addressDetail}</p>
+          </article>
+          <article class="event-details__card">
+            <h5>${t("details_genre")}</h5>
+            <p>${genreText}</p>
+          </article>
+          <article class="event-details__card">
+            <h5>${t("details_price")}</h5>
+            <p>${priceText}</p>
+          </article>
+        </div>
+        <article class="event-details__card event-details__card--description">
+          <h5>${t("form_label_description")}</h5>
+          <p>${event.description || t("details_no_description")}</p>
+        </article>
+        <div class="event-details__actions event-details__actions--bottom">
+          ${navigationCta}
+        </div>
+      </div>
     </div>
   `;
   dom.eventDetails.classList.remove("event-details--animate-in");
