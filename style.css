@@ -1385,6 +1385,10 @@ body.body--modal-open {
   color: #aebfe5 !important;
 }
 
+.event-card__line--distance {
+  color: #9fb2d8 !important;
+}
+
 .event-card__chips {
   display: flex;
   flex-wrap: wrap;
@@ -2151,6 +2155,10 @@ body.body--modal-open {
   font-size: 0.78rem;
   line-height: 1.28;
   min-height: 1.18em;
+}
+
+.event-card__line--distance {
+  color: #9fb2d8 !important;
 }
 
 .event-details__muted {
