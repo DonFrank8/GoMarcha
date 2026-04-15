@@ -205,6 +205,30 @@
             </div>
           </div>
 
+          <div class="nearby-filter">
+            <button
+              id="nearbyToggle"
+              type="button"
+              class="time-chip nearby-filter__toggle"
+              aria-pressed="false"
+              data-i18n="filter_nearby_toggle"
+            >
+              In meiner Nähe
+            </button>
+            <p id="nearbyHint" class="nearby-filter__hint" data-i18n="filter_nearby_hint" hidden>
+              Standortzugriff aktivieren, um Nähe-Filter zu nutzen.
+            </p>
+            <div id="nearbyRadiusWrap" class="nearby-filter__radius" hidden aria-hidden="true">
+              <span class="nearby-filter__radius-label" data-i18n="filter_nearby_radius">Radius</span>
+              <div id="nearbyRadiusGroup" class="nearby-filter__radius-group" role="group" aria-label="Nearby radius">
+                <button type="button" class="time-chip" data-radius-km="5">5 km</button>
+                <button type="button" class="time-chip" data-radius-km="10">10 km</button>
+                <button type="button" class="time-chip" data-radius-km="25">25 km</button>
+                <button type="button" class="time-chip" data-radius-km="50">50 km</button>
+              </div>
+            </div>
+          </div>
+
           <select id="dateFilter" hidden aria-hidden="true" tabindex="-1">
             <option value="" data-i18n="filter_date_all">Alle Daten</option>
           </select>

@@ -1019,6 +1019,38 @@ body.body--modal-open {
   gap: 0.65rem;
 }
 
+.nearby-filter {
+  display: grid;
+  gap: 0.46rem;
+}
+
+.nearby-filter__radius {
+  display: grid;
+  gap: 0.34rem;
+}
+
+.nearby-filter__radius-label {
+  color: var(--text-muted);
+  font-size: 0.79rem;
+}
+
+.nearby-filter__radius-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.nearby-filter__hint {
+  margin: 0;
+  color: rgba(237, 203, 129, 0.92);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.time-chip.is-pending-location {
+  border-color: rgba(237, 203, 129, 0.52);
+}
+
 .genre-filter__head {
   display: flex;
   justify-content: space-between;

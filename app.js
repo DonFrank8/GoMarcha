@@ -189,6 +189,8 @@ const DATE_PRESET_IDS = Object.freeze({
   NEXT_WEEKEND: "next-weekend",
   CUSTOM: "custom"
 });
+const NEARBY_RADIUS_OPTIONS = Object.freeze([5, 10, 25, 50]);
+const DEFAULT_NEARBY_RADIUS_KM = 10;
 
 const NAVIGATION_URL_BUILDERS = {
   google: {
@@ -253,6 +255,9 @@ const I18N = {
     filter_time_custom: "Datum wählen",
     filter_time_custom_start: "Von",
     filter_time_custom_end: "Bis",
+    filter_nearby_toggle: "In meiner Nähe",
+    filter_nearby_radius: "Radius",
+    filter_nearby_hint: "Standortzugriff aktivieren, um Nähe-Filter zu nutzen.",
     filter_genre: "Genres",
     filter_genre_all: "Alle Genres",
     filter_reset: "Alle Filter zurücksetzen",
@@ -464,6 +469,9 @@ const I18N = {
     filter_time_custom: "Pick date",
     filter_time_custom_start: "Start",
     filter_time_custom_end: "End",
+    filter_nearby_toggle: "Near me",
+    filter_nearby_radius: "Radius",
+    filter_nearby_hint: "Enable location access to use nearby filtering.",
     filter_genre: "Genres",
     filter_genre_all: "All genres",
     filter_reset: "Reset all filters",
@@ -675,6 +683,9 @@ const I18N = {
     filter_time_custom: "Elegir fecha",
     filter_time_custom_start: "Desde",
     filter_time_custom_end: "Hasta",
+    filter_nearby_toggle: "Cerca de mí",
+    filter_nearby_radius: "Radio",
+    filter_nearby_hint: "Activa la ubicación para usar el filtro cercano.",
     filter_genre: "Géneros",
     filter_genre_all: "Todos los géneros",
     filter_reset: "Restablecer filtros",
@@ -875,6 +886,9 @@ const state = {
     end: null
   },
   activeDatePreset: "",
+  nearbyOnly: false,
+  radiusKm: DEFAULT_NEARBY_RADIUS_KM,
+  nearbyHintVisible: false,
   discoverySort: "soonest",
   activeQuickCategoryId: "all",
   viewMode: "list",
@@ -970,6 +984,10 @@ const dom = {
   customDateRange: document.getElementById("customDateRange"),
   dateRangeStart: document.getElementById("dateRangeStart"),
   dateRangeEnd: document.getElementById("dateRangeEnd"),
+  nearbyToggle: document.getElementById("nearbyToggle"),
+  nearbyRadiusWrap: document.getElementById("nearbyRadiusWrap"),
+  nearbyRadiusGroup: document.getElementById("nearbyRadiusGroup"),
+  nearbyHint: document.getElementById("nearbyHint"),
   genreFilterGroup: document.getElementById("genreFilterGroup"),
   clearGenresButton: document.getElementById("clearGenresButton"),
   resetFilters: document.getElementById("resetFilters"),
@@ -2591,6 +2609,8 @@ function readQueryParams() {
     dateStart: params.get("date_start") || "",
     dateEnd: params.get("date_end") || "",
     datePreset: params.get("date_preset") || "",
+    nearby: params.get("nearby") || "",
+    radius: params.get("radius") || "",
     admin: params.get("admin") || "",
     genres: (params.get("genres") || "")
       .split(",")
@@ -2615,6 +2635,10 @@ function updateUrlFromFilters() {
   if (search) params.set("q", search);
   if (city) params.set("city", city);
   if (activeDatePreset) params.set("date_preset", activeDatePreset);
+  if (state.nearbyOnly) {
+    params.set("nearby", "1");
+    params.set("radius", String(state.radiusKm));
+  }
   if (dateRange.start && dateRange.end) {
     params.set("date_start", formatIsoDate(dateRange.start));
     params.set("date_end", formatIsoDate(dateRange.end));
@@ -2826,6 +2850,13 @@ function applyFiltersFromQuery() {
   } else {
     setDateRangeState({ start: null, end: null }, "");
   }
+  const requestedNearby = String(query.nearby || "").trim().toLowerCase();
+  const wantsNearby = requestedNearby === "1" || requestedNearby === "true";
+  setNearbyFilterState({
+    nearbyOnly: wantsNearby && hasUserLocation(),
+    radiusKm: query.radius,
+    showHint: wantsNearby && !hasUserLocation()
+  });
   state.activeGenres = new Set(normalizeRequestedGenres(query.genres));
   renderGenreFilter();
   syncHeroControlsFromSidebar();
@@ -2834,12 +2865,15 @@ function applyFiltersFromQuery() {
 
 function getActiveFilters() {
   const activeQuickCategory = quickCategoryById(state.activeQuickCategoryId);
+  const hasUserCoordinates = hasUserLocation();
   return {
     search: normalizeFilterText(dom.searchInput.value),
     city: dom.cityFilter.value,
     dateRange: cloneDateRange(state.dateRange),
     genres: new Set([...state.activeGenres].map((genre) => genre.toLowerCase())),
-    quickKeywords: activeQuickCategory.keywords.map((keyword) => keyword.toLowerCase())
+    quickKeywords: activeQuickCategory.keywords.map((keyword) => keyword.toLowerCase()),
+    nearbyOnly: state.nearbyOnly && hasUserCoordinates,
+    radiusKm: normalizeRadiusKm(state.radiusKm)
   };
 }
 
@@ -2890,6 +2924,55 @@ function updateLocationChipLabel() {
   dom.locationChipLabel.textContent = selectedCity || t("hero_location_label");
 }
 
+function hasUserLocation() {
+  return Number.isFinite(state.userLocation?.lat) && Number.isFinite(state.userLocation?.lng);
+}
+
+function normalizeRadiusKm(value) {
+  const radius = Number(value);
+  if (!Number.isFinite(radius)) return DEFAULT_NEARBY_RADIUS_KM;
+  if (!NEARBY_RADIUS_OPTIONS.includes(radius)) return DEFAULT_NEARBY_RADIUS_KM;
+  return radius;
+}
+
+function renderNearbyRadiusButtons() {
+  if (!dom.nearbyRadiusGroup) return;
+  dom.nearbyRadiusGroup.querySelectorAll("button[data-radius-km]").forEach((button) => {
+    const radiusKm = normalizeRadiusKm(button.dataset.radiusKm || "");
+    const isActive = radiusKm === state.radiusKm;
+    button.classList.toggle("is-active", isActive);
+    button.setAttribute("aria-pressed", String(isActive));
+  });
+}
+
+function renderNearbyFilterControls() {
+  const hasLocation = hasUserLocation();
+  if (dom.nearbyToggle) {
+    const isActive = state.nearbyOnly && hasLocation;
+    dom.nearbyToggle.classList.toggle("is-active", isActive);
+    dom.nearbyToggle.classList.toggle("is-pending-location", !hasLocation);
+    dom.nearbyToggle.setAttribute("aria-pressed", String(isActive));
+  }
+  const showRadiusControls = state.nearbyOnly && hasLocation;
+  if (dom.nearbyRadiusWrap) {
+    dom.nearbyRadiusWrap.hidden = !showRadiusControls;
+    dom.nearbyRadiusWrap.setAttribute("aria-hidden", String(!showRadiusControls));
+  }
+  if (dom.nearbyHint) {
+    const showHint = !hasLocation && state.nearbyHintVisible;
+    dom.nearbyHint.hidden = !showHint;
+    dom.nearbyHint.setAttribute("aria-hidden", String(!showHint));
+  }
+  renderNearbyRadiusButtons();
+}
+
+function setNearbyFilterState({ nearbyOnly = state.nearbyOnly, radiusKm = state.radiusKm, showHint = state.nearbyHintVisible } = {}) {
+  state.nearbyOnly = Boolean(nearbyOnly);
+  state.radiusKm = normalizeRadiusKm(radiusKm);
+  state.nearbyHintVisible = Boolean(showHint);
+  renderNearbyFilterControls();
+}
+
 function toRadians(value) {
   return (value * Math.PI) / 180;
 }
@@ -2908,14 +2991,14 @@ function getDistanceKm(lat1, lng1, lat2, lng2) {
 
 function formatDistanceLabel(distanceKm) {
   if (!Number.isFinite(distanceKm)) return "";
-  if (distanceKm < 1) return "📍 unter 1 km entfernt";
-  return `📍 ${distanceKm.toFixed(1)} km entfernt`;
+  if (distanceKm < 1) return `📍 ${t("distance_under_1km")}`;
+  return `📍 ${t("distance_km_away", { distance: distanceKm.toFixed(1) })}`;
 }
 
 function formatDistanceLabelShort(distanceKm) {
   if (!Number.isFinite(distanceKm)) return "";
-  if (distanceKm < 1) return "unter 1 km entfernt";
-  return `${distanceKm.toFixed(1)} km entfernt`;
+  if (distanceKm < 1) return t("distance_under_1km");
+  return t("distance_km_away", { distance: distanceKm.toFixed(1) });
 }
 
 function withDistanceForEvent(event) {
@@ -2935,6 +3018,15 @@ function withDistanceForEvent(event) {
 
 function applyDistanceData(events) {
   return events.map((event) => withDistanceForEvent(event));
+}
+
+async function ensureUserLocation() {
+  if (hasUserLocation()) return true;
+  const nextLocation = await requestUserLocation();
+  if (!nextLocation) return false;
+  state.userLocation = nextLocation;
+  state.allEvents = applyDistanceData(state.allEvents);
+  return true;
 }
 
 function requestUserLocation() {
@@ -2986,8 +3078,8 @@ function eventMatchesGenres(event, activeGenresLower) {
 
 function applyDiscoverySort(events) {
   const entries = [...events];
-  const hasUserLocation = Number.isFinite(state.userLocation?.lat) && Number.isFinite(state.userLocation?.lng);
-  if (hasUserLocation) {
+  const hasCoordinates = hasUserLocation();
+  if (state.nearbyOnly && hasCoordinates) {
     return entries.sort((a, b) => {
       const hasDistanceA = Number.isFinite(a?.distance_km);
       const hasDistanceB = Number.isFinite(b?.distance_km);
@@ -3040,6 +3132,10 @@ function applyFilters() {
       if (!hasQuickMatch) return false;
     }
     if (filters.search && !haystack.includes(filters.search)) return false;
+    if (filters.nearbyOnly) {
+      if (!Number.isFinite(event.distance_km)) return false;
+      if (event.distance_km > filters.radiusKm) return false;
+    }
     return true;
   });
   state.filteredEvents = applyDiscoverySort(filtered);
@@ -4099,6 +4195,7 @@ function resetFilters() {
   dom.searchInput.value = "";
   dom.cityFilter.value = "";
   setDateRangeState({ start: null, end: null }, "");
+  setNearbyFilterState({ nearbyOnly: false, radiusKm: DEFAULT_NEARBY_RADIUS_KM, showHint: false });
   syncHeroControlsFromSidebar();
   state.activeGenres.clear();
   renderGenreFilter();
@@ -4294,6 +4391,36 @@ function bindEvents() {
   }
   if (dom.dateRangeEnd) {
     dom.dateRangeEnd.addEventListener("change", handleCustomDateRangeInputChange);
+  }
+  if (dom.nearbyToggle) {
+    dom.nearbyToggle.addEventListener("click", async () => {
+      if (state.nearbyOnly) {
+        setNearbyFilterState({ nearbyOnly: false, showHint: false });
+        applyFilters();
+        return;
+      }
+      const locationReady = await ensureUserLocation();
+      if (!locationReady) {
+        setNearbyFilterState({ nearbyOnly: false, showHint: true });
+        applyFilters();
+        return;
+      }
+      setNearbyFilterState({ nearbyOnly: true, showHint: false });
+      applyFilters();
+    });
+  }
+  if (dom.nearbyRadiusGroup) {
+    dom.nearbyRadiusGroup.addEventListener("click", (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      const button = target?.closest("button[data-radius-km]");
+      if (!button) return;
+      setNearbyFilterState({
+        nearbyOnly: state.nearbyOnly,
+        radiusKm: button.dataset.radiusKm || state.radiusKm,
+        showHint: state.nearbyHintVisible
+      });
+      if (state.nearbyOnly) applyFilters();
+    });
   }
   if (dom.heroSearchInput) {
     dom.heroSearchInput.addEventListener("input", () => {
@@ -4730,6 +4857,7 @@ async function startApp() {
   initMap();
   setViewMode("list");
   bindEvents();
+  renderNearbyFilterControls();
   setupInstallBanner();
   state.userLocation = await requestUserLocation();
   await checkAdminSession();
