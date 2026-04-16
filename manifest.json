@@ -3,8 +3,8 @@
   "short_name": "Marcha",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#020617",
-  "theme_color": "#020617",
+  "background_color": "#0b0f1a",
+  "theme_color": "#0b0f1a",
   "orientation": "portrait",
   "icons": [
     {

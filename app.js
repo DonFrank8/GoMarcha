@@ -1072,6 +1072,7 @@ const markerEventsById = new Map();
 let activeMarkerId = null;
 let deferredInstallPromptEvent = null;
 let installBannerShowTimer = null;
+let serviceWorkerRegistrationPromise = null;
 const throttledSelectEventMapFocus = throttle((event, zoom) => {
   flyToEventWithMapSheetOffset(event, zoom);
 }, 180);
@@ -2147,6 +2148,30 @@ function isStandaloneMode() {
   return isIosStandalone || isDisplayModeStandalone;
 }
 
+function registerServiceWorker() {
+  if (!("serviceWorker" in navigator)) return Promise.resolve(null);
+  if (serviceWorkerRegistrationPromise) return serviceWorkerRegistrationPromise;
+
+  serviceWorkerRegistrationPromise = new Promise((resolve) => {
+    const registerNow = () => {
+      navigator.serviceWorker.register("/sw.js")
+        .then((registration) => resolve(registration))
+        .catch((error) => {
+          console.warn("Service worker registration failed:", error);
+          resolve(null);
+        });
+    };
+
+    if (document.readyState === "complete") {
+      registerNow();
+      return;
+    }
+    window.addEventListener("load", registerNow, { once: true });
+  });
+
+  return serviceWorkerRegistrationPromise;
+}
+
 function persistInstallBannerTimestamp(key, days) {
   try {
     const expiresAt = Date.now() + days * 24 * 60 * 60 * 1000;
@@ -2334,6 +2359,18 @@ function resolveWeekdayIndex(rawValue) {
   return Number.isInteger(WEEKDAY_NAME_TO_INDEX[normalizedName]) ? WEEKDAY_NAME_TO_INDEX[normalizedName] : null;
 }
 
+function formatEnglishOrdinal(dayOfMonth) {
+  const day = Number(dayOfMonth);
+  if (!Number.isInteger(day)) return "";
+  const mod100 = day % 100;
+  if (mod100 >= 11 && mod100 <= 13) return `${day}th`;
+  const mod10 = day % 10;
+  if (mod10 === 1) return `${day}st`;
+  if (mod10 === 2) return `${day}nd`;
+  if (mod10 === 3) return `${day}rd`;
+  return `${day}th`;
+}
+
 function getRecurringText(event, lang = state.lang) {
   const recurrenceType = normalizeRecurrenceType(event?.recurrence_type || RECURRENCE_TYPE_NONE);
   const isRecurring = Boolean(event?.is_recurring) || recurrenceType !== RECURRENCE_TYPE_NONE;
@@ -2363,9 +2400,15 @@ function getRecurringText(event, lang = state.lang) {
       : `${labels.weekly} ${weekdayText}`;
   } else if (recurrenceType === RECURRENCE_TYPE_MONTHLY) {
     const dayOfMonth = normalizeDayOfMonth(event?.recurrence_day_of_month);
-    recurringText = dayOfMonth
-      ? `${labels.monthly} ${dayOfMonth}.`
-      : fallbacks.monthly;
+    if (!dayOfMonth) {
+      recurringText = fallbacks.monthly;
+    } else if (activeLang === "en") {
+      recurringText = `${labels.monthly} ${formatEnglishOrdinal(dayOfMonth)}`;
+    } else if (activeLang === "es") {
+      recurringText = `${labels.monthly} día ${dayOfMonth}`;
+    } else {
+      recurringText = `${labels.monthly} ${dayOfMonth}.`;
+    }
   } else if (recurrenceType === RECURRENCE_TYPE_WEEKLY) {
     recurringText = recurrenceInterval > 1
       ? `${labels.weekly} ${recurrenceInterval}.`
@@ -3996,6 +4039,8 @@ function initMap() {
 function markerPopupHtml(event) {
   const locationLine = [event.location_name, event.address, event.city].filter(Boolean).join(", ");
   const navigationUrl = buildNavigationUrl(event);
+  const recurringText = getRecurringText(event, state.lang);
+  const recurringLine = recurringText ? `<span>📅 ${recurringText}</span><br>` : "";
   const navigationLink = navigationUrl
     ? `<a class="popup__route-link" href="${navigationUrl}" target="_blank" rel="noopener noreferrer">${t("details_navigate")}</a>`
     : "";
@@ -4004,6 +4049,7 @@ function markerPopupHtml(event) {
       <strong>${event.name}</strong><br>
       <span>${locationLine || "-"}</span><br>
       <span>${formatDateTime(event)}</span><br>
+      ${recurringLine}
       <span>${event.genre || "-"} - ${formatPrice(event.price_text)}</span>
       ${navigationLink}
     </div>
@@ -4919,6 +4965,7 @@ async function loadEvents() {
 
 async function startApp() {
   state.favoriteEventIds = loadFavoriteEventIds();
+  registerServiceWorker();
   const query = readQueryParams();
   const requestedLang = resolveLanguage(query.lang);
   state.lang = query.lang ? requestedLang : resolveLanguageFromBrowser(requestedLang);
