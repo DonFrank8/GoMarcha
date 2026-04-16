@@ -3076,34 +3076,43 @@ function eventMatchesGenres(event, activeGenresLower) {
   return eventGenresLower.some((genre) => activeGenresLower.has(genre));
 }
 
+function compareEventDateOrder(a, b) {
+  const timestampA = eventTimestamp(a);
+  const timestampB = eventTimestamp(b);
+  const hasDateA = Number.isFinite(timestampA);
+  const hasDateB = Number.isFinite(timestampB);
+  if (hasDateA && !hasDateB) return -1;
+  if (!hasDateA && hasDateB) return 1;
+  if (!hasDateA && !hasDateB) return 0;
+  if (timestampA !== timestampB) return timestampA - timestampB;
+  return 0;
+}
+
+function compareDistanceOrder(a, b) {
+  const hasDistanceA = Number.isFinite(a?.distance_km);
+  const hasDistanceB = Number.isFinite(b?.distance_km);
+  if (hasDistanceA && hasDistanceB && a.distance_km !== b.distance_km) return a.distance_km - b.distance_km;
+  if (hasDistanceA && !hasDistanceB) return -1;
+  if (!hasDistanceA && hasDistanceB) return 1;
+  return 0;
+}
+
 function applyDiscoverySort(events) {
   const entries = [...events];
   const hasCoordinates = hasUserLocation();
   if (state.nearbyOnly && hasCoordinates) {
     return entries.sort((a, b) => {
-      const hasDistanceA = Number.isFinite(a?.distance_km);
-      const hasDistanceB = Number.isFinite(b?.distance_km);
-      if (hasDistanceA && hasDistanceB && a.distance_km !== b.distance_km) return a.distance_km - b.distance_km;
-      if (hasDistanceA && !hasDistanceB) return -1;
-      if (!hasDistanceA && hasDistanceB) return 1;
-      return eventTimestamp(a) - eventTimestamp(b);
+      const distanceOrder = compareDistanceOrder(a, b);
+      if (distanceOrder !== 0) return distanceOrder;
+      return compareEventDateOrder(a, b);
     });
   }
-  if (state.discoverySort === "nearby" && map) {
-    const center = map.getCenter();
-    return entries.sort((a, b) => {
-      const hasGeoA = Number.isFinite(a?.lat) && Number.isFinite(a?.lng);
-      const hasGeoB = Number.isFinite(b?.lat) && Number.isFinite(b?.lng);
-      if (!hasGeoA && !hasGeoB) return eventTimestamp(a) - eventTimestamp(b);
-      if (!hasGeoA) return 1;
-      if (!hasGeoB) return -1;
-      const distanceA = center.distanceTo([a.lat, a.lng]);
-      const distanceB = center.distanceTo([b.lat, b.lng]);
-      if (distanceA !== distanceB) return distanceA - distanceB;
-      return eventTimestamp(a) - eventTimestamp(b);
-    });
-  }
-  return entries.sort((a, b) => eventTimestamp(a) - eventTimestamp(b));
+  return entries.sort((a, b) => {
+    const dateOrder = compareEventDateOrder(a, b);
+    if (dateOrder !== 0) return dateOrder;
+    if (hasCoordinates) return compareDistanceOrder(a, b);
+    return 0;
+  });
 }
 
 function updateMapSheetSortControls() {
