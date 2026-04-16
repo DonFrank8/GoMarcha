@@ -3870,6 +3870,7 @@ function bindMapBottomSheetDrag() {
 
 function setViewMode(nextMode, { scroll = false } = {}) {
   const resolvedMode = nextMode === "map" ? "map" : "list";
+  const shouldAutoScrollPage = Boolean(scroll) && mapSheetIsMobileViewport();
   const previousMode = state.viewMode;
   state.viewMode = resolvedMode;
   document.body.dataset.viewMode = resolvedMode;
@@ -3900,8 +3901,8 @@ function setViewMode(nextMode, { scroll = false } = {}) {
       computeMapBottomSheetSnapHeights();
       setMapBottomSheetState(state.mapSheet.state, { animate: false });
     }, 220);
-    if (scroll && dom.mapSection) dom.mapSection.scrollIntoView({ behavior: "smooth", block: "start" });
-  } else if (scroll && dom.listSection) {
+    if (shouldAutoScrollPage && dom.mapSection) dom.mapSection.scrollIntoView({ behavior: "smooth", block: "start" });
+  } else if (shouldAutoScrollPage && dom.listSection) {
     dom.listSection.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 }

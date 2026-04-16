@@ -2834,10 +2834,6 @@ body.body--modal-open {
   body[data-view-mode="map"] .sidebar {
     display: none;
   }
-
-  body[data-view-mode="list"] .map-column {
-    display: none;
-  }
 }
 
 @media (hover: none) and (pointer: coarse) {
