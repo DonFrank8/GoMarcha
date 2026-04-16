@@ -17,8 +17,10 @@ const FAVORITES_STORAGE_KEY = "vibeon_event_favorites";
 const SUBMITTER_PROFILE_STORAGE_KEY = "vibeon.submitterProfile.v1";
 const INSTALL_BANNER_DISMISS_STORAGE_KEY = "vibeon.installBanner.dismissedUntil";
 const INSTALL_BANNER_INSTALLED_STORAGE_KEY = "vibeon.installBanner.installedUntil";
+const MOBILE_INSTALL_CTA_DISMISS_STORAGE_KEY = "vibeon.installCta.dismissedUntil";
 const INSTALL_BANNER_DISMISS_DAYS = 5;
 const INSTALL_BANNER_INSTALLED_DAYS = 180;
+const MOBILE_INSTALL_CTA_DISMISS_DAYS = 21;
 const INSTALL_BANNER_SHOW_DELAY_MS = 2800;
 
 window.PARTYRADAR_CACHE_BUSTER = APP_BUILD_VERSION;
@@ -447,6 +449,13 @@ const I18N = {
     install_banner_text_android_manual: "Über das Browser-Menü „Zum Startbildschirm hinzufügen“ auswählen.",
     install_banner_cta: "Installieren",
     install_banner_dismiss: "Später",
+    install_mobile_title: "Marcha als App",
+    install_mobile_hint_android: "Direkt vom Homescreen öffnen – schnell und ohne Browserleiste.",
+    install_mobile_hint_ios: "Tippe auf Teilen und dann „Zum Home-Bildschirm“.",
+    install_mobile_android_helper: "Im Browser-Menü „Zum Startbildschirm hinzufügen“ auswählen.",
+    install_mobile_ios_helper: "Safari: Teilen → „Zum Home-Bildschirm“.",
+    install_mobile_cta: "Installieren",
+    install_mobile_dismiss: "Später",
     create_title: "Neues Event",
     create_toggle: "Event hinzufügen",
     create_name: "Name",
@@ -661,6 +670,13 @@ const I18N = {
     install_banner_text_android_manual: "Use your browser menu and choose Add to Home screen.",
     install_banner_cta: "Install",
     install_banner_dismiss: "Not now",
+    install_mobile_title: "Install Marcha app",
+    install_mobile_hint_android: "Open Marcha faster from your home screen in app mode.",
+    install_mobile_hint_ios: "Tap Share and then Add to Home Screen.",
+    install_mobile_android_helper: "Use your browser menu and choose Add to Home screen.",
+    install_mobile_ios_helper: "In Safari: tap Share, then Add to Home Screen.",
+    install_mobile_cta: "Install app",
+    install_mobile_dismiss: "Not now",
     create_title: "New event",
     create_toggle: "Add event",
     create_name: "Name",
@@ -875,6 +891,13 @@ const I18N = {
     install_banner_text_android_manual: "Usa el menú del navegador y selecciona Añadir a pantalla de inicio.",
     install_banner_cta: "Instalar",
     install_banner_dismiss: "Ahora no",
+    install_mobile_title: "Marcha como app",
+    install_mobile_hint_android: "Abre Marcha más rápido desde tu pantalla de inicio.",
+    install_mobile_hint_ios: "Pulsa Compartir y luego Añadir a pantalla de inicio.",
+    install_mobile_android_helper: "En el menú del navegador, elige Añadir a pantalla de inicio.",
+    install_mobile_ios_helper: "En Safari: pulsa Compartir y luego Añadir a pantalla de inicio.",
+    install_mobile_cta: "Instalar app",
+    install_mobile_dismiss: "Ahora no",
     create_title: "Nuevo evento",
     create_toggle: "Añadir evento",
     create_name: "Nombre",
@@ -1059,9 +1082,14 @@ const dom = {
   formSubmittedBy: document.getElementById("formSubmittedBy"),
   formContactEmail: document.getElementById("formContactEmail"),
   formDescription: document.getElementById("formDescription"),
+  mobileInstallEntry: document.getElementById("mobileInstallEntry"),
+  mobileInstallEntryHint: document.getElementById("mobileInstallEntryHint"),
+  mobileInstallEntryCta: document.getElementById("mobileInstallEntryCta"),
+  mobileInstallEntryDismiss: document.getElementById("mobileInstallEntryDismiss"),
+  mobileInstallEntryHelper: document.getElementById("mobileInstallEntryHelper"),
   installBanner: document.getElementById("installBanner"),
   installBannerText: document.getElementById("installBannerText"),
-  installBannerPrimary: document.getElementById("installBannerInstall"),
+  installBannerPrimary: document.getElementById("installBannerPrimary"),
   installBannerDismiss: document.getElementById("installBannerDismiss")
 };
 
@@ -1185,6 +1213,7 @@ function switchLanguage(nextLangCode) {
   state.lang = nextLang;
   applyStaticTranslations();
   updateInstallBannerContent();
+  updateMobileInstallEntryContent();
   if (dom.mapBottomSheet) {
     const titleElement = dom.mapBottomSheet.querySelector("[data-i18n='sheet_title']");
     if (titleElement) titleElement.textContent = t("sheet_title");
@@ -2226,6 +2255,7 @@ function updateInstallBannerContent() {
 
 function canShowInstallBanner() {
   if (!dom.installBanner) return false;
+  if (dom.mobileInstallEntry) return false;
   if (isStandaloneMode()) return false;
   if (!isIosDevice() && !isAndroidDevice()) return false;
   if (isInstallBannerSuppressed(INSTALL_BANNER_DISMISS_STORAGE_KEY)) return false;
@@ -2252,6 +2282,81 @@ function setupInstallBanner() {
   }, INSTALL_BANNER_SHOW_DELAY_MS);
 }
 
+function hideMobileInstallEntry() {
+  if (!dom.mobileInstallEntry) return;
+  dom.mobileInstallEntry.classList.remove("is-visible");
+  dom.mobileInstallEntry.hidden = true;
+  if (dom.mobileInstallEntryHelper) dom.mobileInstallEntryHelper.hidden = true;
+  if (dom.mobileInstallEntryCta) dom.mobileInstallEntryCta.setAttribute("aria-expanded", "false");
+}
+
+function showMobileInstallEntry() {
+  if (!dom.mobileInstallEntry) return;
+  dom.mobileInstallEntry.hidden = false;
+  window.requestAnimationFrame(() => dom.mobileInstallEntry?.classList.add("is-visible"));
+}
+
+function updateMobileInstallEntryContent() {
+  if (!dom.mobileInstallEntryHint || !dom.mobileInstallEntryCta || !dom.mobileInstallEntryHelper) return;
+  const isIos = isIosDevice();
+  const canPromptAndroid = isAndroidDevice() && Boolean(deferredInstallPromptEvent);
+  dom.mobileInstallEntryHint.textContent = isIos ? t("install_mobile_hint_ios") : t("install_mobile_hint_android");
+  dom.mobileInstallEntryCta.textContent = t("install_mobile_cta");
+  dom.mobileInstallEntryCta.dataset.installMode = isIos ? "ios" : "android";
+  dom.mobileInstallEntryCta.disabled = !isIos && !canPromptAndroid;
+  dom.mobileInstallEntryCta.setAttribute("aria-disabled", dom.mobileInstallEntryCta.disabled ? "true" : "false");
+  dom.mobileInstallEntryHelper.textContent = isIos ? t("install_mobile_ios_helper") : t("install_mobile_android_helper");
+  dom.mobileInstallEntryHelper.hidden = true;
+}
+
+function canShowMobileInstallEntry() {
+  if (!dom.mobileInstallEntry) return false;
+  if (window.matchMedia?.("(max-width: 780px)")?.matches !== true) return false;
+  if (isStandaloneMode()) return false;
+  if (!isIosDevice() && !isAndroidDevice()) return false;
+  if (isInstallBannerSuppressed(MOBILE_INSTALL_CTA_DISMISS_STORAGE_KEY)) return false;
+  if (isInstallBannerSuppressed(INSTALL_BANNER_INSTALLED_STORAGE_KEY)) return false;
+  return true;
+}
+
+function setupMobileInstallEntry() {
+  if (!dom.mobileInstallEntry) return;
+  if (canShowMobileInstallEntry()) hideInstallBanner();
+  if (!canShowMobileInstallEntry()) {
+    hideMobileInstallEntry();
+    return;
+  }
+  updateMobileInstallEntryContent();
+  showMobileInstallEntry();
+}
+
+async function handleMobileInstallEntryAction() {
+  if (isIosDevice()) {
+    if (dom.mobileInstallEntryHelper) {
+      const isOpen = !dom.mobileInstallEntryHelper.hidden;
+      dom.mobileInstallEntryHelper.hidden = isOpen;
+      dom.mobileInstallEntryCta?.setAttribute("aria-expanded", isOpen ? "false" : "true");
+    }
+    return;
+  }
+  if (!deferredInstallPromptEvent) return;
+  try {
+    await deferredInstallPromptEvent.prompt();
+    const choice = await deferredInstallPromptEvent.userChoice;
+    if (choice?.outcome === "accepted") {
+      persistInstallBannerTimestamp(INSTALL_BANNER_INSTALLED_STORAGE_KEY, INSTALL_BANNER_INSTALLED_DAYS);
+      hideInstallBanner();
+      hideMobileInstallEntry();
+    }
+  } catch (_error) {
+    // Keep CTA visible so users can retry.
+  } finally {
+    deferredInstallPromptEvent = null;
+    updateInstallBannerContent();
+    setupMobileInstallEntry();
+  }
+}
+
 async function handleInstallBannerPrimaryAction() {
   if (!deferredInstallPromptEvent) return;
   try {
@@ -2266,6 +2371,7 @@ async function handleInstallBannerPrimaryAction() {
   } finally {
     deferredInstallPromptEvent = null;
     updateInstallBannerContent();
+    setupMobileInstallEntry();
   }
 }
 
@@ -4485,12 +4591,15 @@ function bindEvents() {
     event.preventDefault();
     deferredInstallPromptEvent = event;
     updateInstallBannerContent();
+    updateMobileInstallEntryContent();
     setupInstallBanner();
+    setupMobileInstallEntry();
   });
   window.addEventListener("appinstalled", () => {
     deferredInstallPromptEvent = null;
     persistInstallBannerTimestamp(INSTALL_BANNER_INSTALLED_STORAGE_KEY, INSTALL_BANNER_INSTALLED_DAYS);
     hideInstallBanner();
+    hideMobileInstallEntry();
   });
   dom.searchInput.addEventListener("input", () => {
     syncHeroControlsFromSidebar();
@@ -4623,6 +4732,17 @@ function bindEvents() {
     dom.installBannerDismiss.addEventListener("click", () => {
       persistInstallBannerTimestamp(INSTALL_BANNER_DISMISS_STORAGE_KEY, INSTALL_BANNER_DISMISS_DAYS);
       hideInstallBanner();
+    });
+  }
+  if (dom.mobileInstallEntryCta) {
+    dom.mobileInstallEntryCta.addEventListener("click", () => {
+      handleMobileInstallEntryAction();
+    });
+  }
+  if (dom.mobileInstallEntryDismiss) {
+    dom.mobileInstallEntryDismiss.addEventListener("click", () => {
+      persistInstallBannerTimestamp(MOBILE_INSTALL_CTA_DISMISS_STORAGE_KEY, MOBILE_INSTALL_CTA_DISMISS_DAYS);
+      hideMobileInstallEntry();
     });
   }
   if (dom.bottomNavSubmit) {
@@ -4767,6 +4887,7 @@ function bindEvents() {
 
   window.addEventListener("resize", () => {
     updateMapBottomSheetLayout();
+    setupMobileInstallEntry();
     if (state.viewMode === "map") {
       window.setTimeout(() => map?.invalidateSize(), 140);
     }
@@ -4985,6 +5106,7 @@ async function startApp() {
   bindEvents();
   renderNearbyFilterControls();
   setupInstallBanner();
+  setupMobileInstallEntry();
   state.userLocation = await requestUserLocation();
   await checkAdminSession();
   await loadEvents();

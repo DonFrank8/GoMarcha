@@ -62,6 +62,32 @@
           </button>
           <button id="openSubmitModalHero" type="button" class="button-secondary" data-i18n="submit_cta">Event hinzufügen</button>
         </div>
+        <div id="mobileInstallEntry" class="mobile-install-entry" hidden aria-live="polite">
+          <div class="mobile-install-entry__text">
+            <strong data-i18n="install_mobile_title">Marcha installieren</strong>
+            <p id="mobileInstallEntryHint" data-i18n="install_mobile_hint_android">
+              Als App auf deinem Homescreen speichern.
+            </p>
+          </div>
+          <div class="mobile-install-entry__actions">
+            <button
+              id="mobileInstallEntryCta"
+              type="button"
+              class="button-secondary button-secondary--primary"
+              data-i18n="install_mobile_cta"
+              aria-controls="mobileInstallEntryHelper"
+              aria-expanded="false"
+            >
+              Installieren
+            </button>
+            <button id="mobileInstallEntryDismiss" type="button" class="button-link" data-i18n="install_mobile_dismiss">
+              Später
+            </button>
+          </div>
+          <p id="mobileInstallEntryHelper" class="mobile-install-entry__helper" hidden data-i18n="install_mobile_ios_helper">
+            Tippe auf Teilen und dann „Zum Home-Bildschirm“.
+          </p>
+        </div>
 
         <h1 data-i18n="hero_title">Erlebe die besten Events in deiner Nähe</h1>
         <p class="hero__subtitle" data-i18n="hero_subtitle">

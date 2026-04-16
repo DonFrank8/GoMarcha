@@ -183,6 +183,80 @@ body.body--modal-open {
   margin-bottom: 0.85rem;
 }
 
+.mobile-install-entry {
+  display: none;
+  width: 100%;
+  border: 1px solid rgba(146, 174, 255, 0.32);
+  border-radius: 14px;
+  background:
+    linear-gradient(160deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02)),
+    rgba(8, 11, 22, 0.84);
+  padding: 0.62rem 0.68rem;
+  margin-bottom: 0.72rem;
+}
+
+.mobile-install-entry__text strong {
+  display: block;
+  margin: 0;
+  font-size: 0.86rem;
+  color: #eef5ff;
+}
+
+.mobile-install-entry__text p {
+  margin: 0.24rem 0 0;
+  font-size: 0.76rem;
+  color: #c0d3fb;
+  line-height: 1.35;
+}
+
+.mobile-install-entry__actions {
+  margin-top: 0.46rem;
+  display: flex;
+  gap: 0.42rem;
+  flex-wrap: wrap;
+}
+
+.mobile-install-entry__actions .button-secondary {
+  min-height: 34px;
+  padding: 0.28rem 0.64rem;
+  font-size: 0.74rem;
+}
+
+.mobile-install-entry__actions .button-secondary:disabled {
+  opacity: 0.54;
+  cursor: default;
+  filter: none;
+  box-shadow: none;
+}
+
+.mobile-install-entry__helper {
+  margin: 0.42rem 0 0;
+  padding: 0.42rem 0.48rem;
+  border-radius: 10px;
+  border: 1px solid rgba(154, 182, 255, 0.24);
+  background: rgba(9, 13, 25, 0.56);
+  color: #d0e0ff;
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.mobile-install-entry__helper[hidden] {
+  display: none;
+}
+
+.mobile-install-entry .button-link {
+  min-height: 34px;
+  padding: 0.28rem 0.64rem;
+  border-radius: 999px;
+  border: 1px solid rgba(163, 187, 255, 0.32);
+  color: #cfe0ff;
+  background: rgba(11, 15, 29, 0.58);
+}
+
+.mobile-install-entry.is-visible {
+  display: block;
+}
+
 .location-chip {
   border: 1px solid rgba(176, 198, 255, 0.34);
   background: rgba(8, 11, 20, 0.7);
@@ -2711,6 +2785,10 @@ body.body--modal-open {
     padding: 0.2rem 0.58rem;
   }
 
+  .mobile-install-entry {
+    display: block;
+  }
+
   .hero h1 {
     font-size: clamp(1.82rem, 8vw, 2.45rem);
   }
@@ -2840,6 +2918,29 @@ body.body--modal-open {
 
   .hero__utility-row {
     gap: 0.4rem;
+  }
+
+  .mobile-install-entry {
+    padding: 0.56rem 0.58rem;
+    margin-bottom: 0.62rem;
+  }
+
+  .mobile-install-entry__text strong {
+    font-size: 0.8rem;
+  }
+
+  .mobile-install-entry__text p {
+    font-size: 0.72rem;
+  }
+
+  .mobile-install-entry__helper {
+    font-size: 0.69rem;
+  }
+
+  .mobile-install-entry__actions .button-secondary,
+  .mobile-install-entry .button-link {
+    min-height: 32px;
+    font-size: 0.72rem;
   }
 
   .location-chip {
