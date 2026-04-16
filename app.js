@@ -1239,8 +1239,7 @@ function switchLanguage(nextLangCode) {
   if (nextLang === state.lang) return;
   state.lang = nextLang;
   applyStaticTranslations();
-  updateInstallBannerContent();
-  updateMobileInstallEntryContent();
+  updateInstallUiVisibility();
   if (dom.mapBottomSheet) {
     const titleElement = dom.mapBottomSheet.querySelector("[data-i18n='sheet_title']");
     if (titleElement) titleElement.textContent = t("sheet_title");
@@ -2204,10 +2203,14 @@ function isAndroidDevice() {
   return /android/i.test(window.navigator.userAgent || "");
 }
 
-function isStandaloneMode() {
+function isRunningStandalone() {
   const isIosStandalone = window.navigator.standalone === true;
   const isDisplayModeStandalone = window.matchMedia?.("(display-mode: standalone)")?.matches === true;
   return isIosStandalone || isDisplayModeStandalone;
+}
+
+function isStandaloneMode() {
+  return isRunningStandalone();
 }
 
 function registerServiceWorker() {
@@ -2258,6 +2261,23 @@ function isInstallBannerSuppressed(key) {
   }
 }
 
+function isInstallSuppressed(dismissStorageKey) {
+  if (isRunningStandalone()) return true;
+  if (isInstallBannerSuppressed(INSTALL_BANNER_INSTALLED_STORAGE_KEY)) return true;
+  if (dismissStorageKey && isInstallBannerSuppressed(dismissStorageKey)) return true;
+  return false;
+}
+
+function isInstallSurfaceRelevant() {
+  return isIosDevice() || isAndroidDevice();
+}
+
+function syncInstalledStateFromStandalone() {
+  if (!isRunningStandalone()) return;
+  // Keep persisted installed state as backup for future sessions.
+  persistInstallBannerTimestamp(INSTALL_BANNER_INSTALLED_STORAGE_KEY, INSTALL_BANNER_INSTALLED_DAYS);
+}
+
 function hideInstallBanner() {
   if (!dom.installBanner) return;
   dom.installBanner.classList.remove("is-visible");
@@ -2288,31 +2308,14 @@ function updateInstallBannerContent() {
 
 function canShowInstallBanner() {
   if (!dom.installBanner) return false;
+  if (!isInstallSurfaceRelevant()) return false;
   if (dom.mobileInstallEntry) return false;
-  if (isStandaloneMode()) return false;
-  if (!isIosDevice() && !isAndroidDevice()) return false;
-  if (isInstallBannerSuppressed(INSTALL_BANNER_DISMISS_STORAGE_KEY)) return false;
-  if (isInstallBannerSuppressed(INSTALL_BANNER_INSTALLED_STORAGE_KEY)) return false;
+  if (isInstallSuppressed(INSTALL_BANNER_DISMISS_STORAGE_KEY)) return false;
   return true;
 }
 
 function setupInstallBanner() {
-  if (!dom.installBanner) return;
-
-  if (installBannerShowTimer) {
-    window.clearTimeout(installBannerShowTimer);
-    installBannerShowTimer = null;
-  }
-
-  if (!canShowInstallBanner()) {
-    hideInstallBanner();
-    return;
-  }
-
-  updateInstallBannerContent();
-  installBannerShowTimer = window.setTimeout(() => {
-    if (canShowInstallBanner()) showInstallBanner();
-  }, INSTALL_BANNER_SHOW_DELAY_MS);
+  updateInstallUiVisibility();
 }
 
 function hideMobileInstallEntry() {
@@ -2345,25 +2348,58 @@ function updateMobileInstallEntryContent() {
 function canShowMobileInstallEntry() {
   if (!dom.mobileInstallEntry) return false;
   if (window.matchMedia?.("(max-width: 780px)")?.matches !== true) return false;
-  if (isStandaloneMode()) return false;
-  if (!isIosDevice() && !isAndroidDevice()) return false;
-  if (isInstallBannerSuppressed(MOBILE_INSTALL_CTA_DISMISS_STORAGE_KEY)) return false;
-  if (isInstallBannerSuppressed(INSTALL_BANNER_INSTALLED_STORAGE_KEY)) return false;
+  if (!isInstallSurfaceRelevant()) return false;
+  if (isInstallSuppressed(MOBILE_INSTALL_CTA_DISMISS_STORAGE_KEY)) return false;
   return true;
 }
 
 function setupMobileInstallEntry() {
-  if (!dom.mobileInstallEntry) return;
-  if (canShowMobileInstallEntry()) hideInstallBanner();
-  if (!canShowMobileInstallEntry()) {
+  updateInstallUiVisibility();
+}
+
+function updateInstallUiVisibility() {
+  syncInstalledStateFromStandalone();
+
+  if (installBannerShowTimer) {
+    window.clearTimeout(installBannerShowTimer);
+    installBannerShowTimer = null;
+  }
+
+  if (isRunningStandalone()) {
+    hideInstallBanner();
     hideMobileInstallEntry();
     return;
   }
+
+  updateInstallBannerContent();
   updateMobileInstallEntryContent();
-  showMobileInstallEntry();
+
+  if (canShowMobileInstallEntry()) {
+    hideInstallBanner();
+    showMobileInstallEntry();
+    return;
+  }
+  hideMobileInstallEntry();
+
+  if (!canShowInstallBanner()) {
+    hideInstallBanner();
+    return;
+  }
+
+  installBannerShowTimer = window.setTimeout(() => {
+    if (isRunningStandalone()) {
+      hideInstallBanner();
+      return;
+    }
+    if (canShowInstallBanner()) showInstallBanner();
+  }, INSTALL_BANNER_SHOW_DELAY_MS);
 }
 
 async function handleMobileInstallEntryAction() {
+  if (isRunningStandalone()) {
+    updateInstallUiVisibility();
+    return;
+  }
   if (isIosDevice()) {
     if (dom.mobileInstallEntryHelper) {
       const isOpen = !dom.mobileInstallEntryHelper.hidden;
@@ -2385,12 +2421,15 @@ async function handleMobileInstallEntryAction() {
     // Keep CTA visible so users can retry.
   } finally {
     deferredInstallPromptEvent = null;
-    updateInstallBannerContent();
-    setupMobileInstallEntry();
+    updateInstallUiVisibility();
   }
 }
 
 async function handleInstallBannerPrimaryAction() {
+  if (isRunningStandalone()) {
+    updateInstallUiVisibility();
+    return;
+  }
   if (!deferredInstallPromptEvent) return;
   try {
     await deferredInstallPromptEvent.prompt();
@@ -2403,8 +2442,7 @@ async function handleInstallBannerPrimaryAction() {
     // Keep banner visible so users can retry.
   } finally {
     deferredInstallPromptEvent = null;
-    updateInstallBannerContent();
-    setupMobileInstallEntry();
+    updateInstallUiVisibility();
   }
 }
 
@@ -4616,6 +4654,7 @@ async function updateModerationStatus(eventId, nextStatus, verificationNotes) {
 function bindEvents() {
   attachTapFeedback();
   attachRecurrenceFieldListeners();
+  updateInstallUiVisibility();
   dom.filtersForm.addEventListener("submit", (event) => event.preventDefault());
   if (dom.heroSearchForm) {
     dom.heroSearchForm.addEventListener("submit", (event) => event.preventDefault());
@@ -4623,16 +4662,16 @@ function bindEvents() {
   window.addEventListener("beforeinstallprompt", (event) => {
     event.preventDefault();
     deferredInstallPromptEvent = event;
-    updateInstallBannerContent();
-    updateMobileInstallEntryContent();
-    setupInstallBanner();
-    setupMobileInstallEntry();
+    updateInstallUiVisibility();
   });
   window.addEventListener("appinstalled", () => {
     deferredInstallPromptEvent = null;
     persistInstallBannerTimestamp(INSTALL_BANNER_INSTALLED_STORAGE_KEY, INSTALL_BANNER_INSTALLED_DAYS);
-    hideInstallBanner();
-    hideMobileInstallEntry();
+    updateInstallUiVisibility();
+  });
+  const standaloneDisplayQuery = window.matchMedia?.("(display-mode: standalone)");
+  standaloneDisplayQuery?.addEventListener?.("change", () => {
+    updateInstallUiVisibility();
   });
   dom.searchInput.addEventListener("input", () => {
     syncHeroControlsFromSidebar();
@@ -4931,7 +4970,7 @@ function bindEvents() {
 
   window.addEventListener("resize", () => {
     updateMapBottomSheetLayout();
-    setupMobileInstallEntry();
+    updateInstallUiVisibility();
     if (state.viewMode === "map") {
       window.setTimeout(() => map?.invalidateSize(), 140);
     }
