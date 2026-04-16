@@ -1072,6 +1072,7 @@ const markerEventsById = new Map();
 let activeMarkerId = null;
 let deferredInstallPromptEvent = null;
 let installBannerShowTimer = null;
+let serviceWorkerRegistrationPromise = null;
 const throttledSelectEventMapFocus = throttle((event, zoom) => {
   flyToEventWithMapSheetOffset(event, zoom);
 }, 180);
@@ -2145,6 +2146,33 @@ function isStandaloneMode() {
   const isIosStandalone = window.navigator.standalone === true;
   const isDisplayModeStandalone = window.matchMedia?.("(display-mode: standalone)")?.matches === true;
   return isIosStandalone || isDisplayModeStandalone;
+}
+
+function registerServiceWorker() {
+  if (!("serviceWorker" in navigator)) return Promise.resolve(null);
+  if (serviceWorkerRegistrationPromise) return serviceWorkerRegistrationPromise;
+
+  serviceWorkerRegistrationPromise = new Promise((resolve) => {
+    const registerNow = () => {
+      navigator.serviceWorker.register("/service-worker.js")
+        .then((registration) => {
+          console.log("[Marcha PWA] Service worker registered:", registration.scope);
+          resolve(registration);
+        })
+        .catch((error) => {
+          console.warn("[Marcha PWA] Service worker registration failed:", error);
+          resolve(null);
+        });
+    };
+
+    if (document.readyState === "complete") {
+      registerNow();
+      return;
+    }
+    window.addEventListener("load", registerNow, { once: true });
+  });
+
+  return serviceWorkerRegistrationPromise;
 }
 
 function persistInstallBannerTimestamp(key, days) {
@@ -4940,6 +4968,7 @@ async function loadEvents() {
 
 async function startApp() {
   state.favoriteEventIds = loadFavoriteEventIds();
+  registerServiceWorker();
   const query = readQueryParams();
   const requestedLang = resolveLanguage(query.lang);
   state.lang = query.lang ? requestedLang : resolveLanguageFromBrowser(requestedLang);
