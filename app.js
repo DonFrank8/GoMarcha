@@ -13,6 +13,7 @@ const EVENT_IMAGES_BUCKET = "event-images";
 const MAX_EVENT_IMAGE_BYTES = 5 * 1024 * 1024;
 const ALLOWED_EVENT_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const DEFAULT_NAVIGATION_PROVIDER = "google";
+const BETA_FEEDBACK_EMAIL = "beta@marcha.app";
 const FAVORITES_STORAGE_KEY = "vibeon_event_favorites";
 const SUBMITTER_PROFILE_STORAGE_KEY = "vibeon.submitterProfile.v1";
 const INSTALL_BANNER_DISMISS_STORAGE_KEY = "vibeon.installBanner.dismissedUntil";
@@ -254,6 +255,11 @@ const I18N = {
   de: {
     hero_title: "Erlebe die besten Events in deiner Nähe",
     hero_subtitle: "Live Musik, DJs und besondere Locations – alles an einem Ort.",
+    hero_beta_label: "Early Access",
+    hero_value_proposition: "Finde heute Live-Musik, DJs und besondere Spots in deiner Nähe.",
+    hero_first_open_text: "Marcha zeigt dir kuratierte Events auf Karte und in Liste. Als App bist du mit einem Tap wieder drin.",
+    hero_discover_cta: "Jetzt entdecken",
+    hero_feedback_cta: "Beta-Feedback senden",
     hero_location_label: "In deiner Nähe",
     hero_chip_fallback: "Live-Momente entdecken",
     hero_chip_vibe: "Live Music • Beach • Lifestyle",
@@ -336,6 +342,9 @@ const I18N = {
     debug_note_error: "Live-Daten derzeit nicht erreichbar",
     button_all: "Alle",
     submit_cta: "Event hinzufügen",
+    feedback_cta: "Feedback senden",
+    feedback_email_subject: "Marcha Beta Feedback",
+    feedback_email_body: "Hi Marcha Team,%0A%0Amein Feedback zur Beta:%0A",
     admin_quick_access: "Admin",
     form_title: "Event hinzufügen",
     form_hint: "Dein Event wird eingereicht und vor Veröffentlichung kuratiert.",
@@ -475,6 +484,11 @@ const I18N = {
   en: {
     hero_title: "Discover the best events near you",
     hero_subtitle: "Live music, DJs and unique venues – all in one place.",
+    hero_beta_label: "Early Access",
+    hero_value_proposition: "Find live music, DJs and unique spots happening near you today.",
+    hero_first_open_text: "Marcha helps you discover curated events on map and list. Install it for instant one-tap access.",
+    hero_discover_cta: "Start discovering",
+    hero_feedback_cta: "Send beta feedback",
     hero_location_label: "Near you",
     hero_chip_fallback: "Discover live moments",
     hero_chip_vibe: "Live Music • Beach • Lifestyle",
@@ -557,6 +571,9 @@ const I18N = {
     debug_note_error: "Live data currently unavailable",
     button_all: "All",
     submit_cta: "Add your event",
+    feedback_cta: "Send feedback",
+    feedback_email_subject: "Marcha Beta Feedback",
+    feedback_email_body: "Hi Marcha Team,%0A%0Amy beta feedback:%0A",
     admin_quick_access: "Admin",
     form_title: "Add your event",
     form_hint: "Your event will be reviewed and curated before publication.",
@@ -696,6 +713,11 @@ const I18N = {
   es: {
     hero_title: "Encuentra la mejor marcha cerca de ti",
     hero_subtitle: "Música en vivo, DJs y lugares únicos – todo en un solo lugar.",
+    hero_beta_label: "Acceso anticipado",
+    hero_value_proposition: "Encuentra hoy música en vivo, DJs y lugares únicos cerca de ti.",
+    hero_first_open_text: "Marcha te muestra eventos seleccionados en mapa y lista. Instálala para volver con un solo toque.",
+    hero_discover_cta: "Descubrir ahora",
+    hero_feedback_cta: "Enviar feedback beta",
     hero_location_label: "Cerca de ti",
     hero_chip_fallback: "Descubre momentos en vivo",
     hero_chip_vibe: "Live Music • Beach • Lifestyle",
@@ -778,6 +800,9 @@ const I18N = {
     debug_note_error: "Datos en vivo no disponibles temporalmente",
     button_all: "Todos",
     submit_cta: "Añade tu evento",
+    feedback_cta: "Enviar feedback",
+    feedback_email_subject: "Feedback Beta Marcha",
+    feedback_email_body: "Hola equipo Marcha,%0A%0Ami feedback de la beta:%0A",
     admin_quick_access: "Admin",
     form_title: "Añade tu evento",
     form_hint: "Tu evento será revisado y curado antes de publicarse.",
@@ -1018,6 +1043,8 @@ const dom = {
   heroSearchInput: document.getElementById("heroSearchInput"),
   heroCityFilter: document.getElementById("heroCityFilter"),
   heroDateFilter: document.getElementById("heroDateFilter"),
+  heroDiscoverCta: document.getElementById("heroDiscoverCta"),
+  heroFeedbackCta: document.getElementById("heroFeedbackCta"),
   submitModal: document.getElementById("submitModal"),
   openSubmitModal: document.getElementById("openSubmitModal"),
   closeSubmitModal: document.getElementById("closeSubmitModal"),
@@ -1240,6 +1267,12 @@ function switchLanguage(nextLangCode) {
       : t("map_search_area");
   }
   updateUrlFromFilters();
+}
+
+function openBetaFeedback() {
+  const subject = encodeURIComponent(t("feedback_email_subject"));
+  const body = encodeURIComponent(t("feedback_email_body"));
+  window.location.href = `mailto:${BETA_FEEDBACK_EMAIL}?subject=${subject}&body=${body}`;
 }
 
 function getLocale() {
@@ -4721,6 +4754,17 @@ function bindEvents() {
     dom.openSubmitModalHero.addEventListener("click", () => {
       setFormFeedback("");
       openSubmitModal();
+    });
+  }
+  if (dom.heroDiscoverCta) {
+    dom.heroDiscoverCta.addEventListener("click", () => {
+      setViewMode("list", { scroll: true });
+      dom.heroSearchInput?.focus();
+    });
+  }
+  if (dom.heroFeedbackCta) {
+    dom.heroFeedbackCta.addEventListener("click", () => {
+      openBetaFeedback();
     });
   }
   if (dom.installBannerPrimary) {
