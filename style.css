@@ -55,12 +55,21 @@ body {
 
 html {
   scroll-behavior: smooth;
+  height: 100%;
+  overflow-x: hidden;
 }
 
 body {
   color: var(--text);
   font-family: "Inter", "Segoe UI", Roboto, Arial, sans-serif;
   line-height: 1.45;
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow-x: hidden;
+  overscroll-behavior: none;
+  padding-top: max(0px, env(safe-area-inset-top));
+  padding-left: max(0px, env(safe-area-inset-left));
+  padding-right: max(0px, env(safe-area-inset-right));
   background:
     radial-gradient(circle at 12% 0%, rgba(236, 72, 153, 0.12), rgba(236, 72, 153, 0) 34%),
     radial-gradient(circle at 82% 0%, rgba(124, 58, 237, 0.18), rgba(124, 58, 237, 0) 36%),
