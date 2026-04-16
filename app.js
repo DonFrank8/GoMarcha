@@ -164,6 +164,44 @@ const RECURRENCE_MAX_OCCURRENCES_PER_EVENT = 64;
 const RECURRENCE_TYPE_NONE = "none";
 const RECURRENCE_TYPE_WEEKLY = "weekly";
 const RECURRENCE_TYPE_MONTHLY = "monthly";
+const WEEKDAYS = Object.freeze({
+  de: ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"],
+  en: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+  es: ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"]
+});
+const RECURRING_LABELS = Object.freeze({
+  de: { weekly: "Jeden", monthly: "Jeden" },
+  en: { weekly: "Every", monthly: "Every" },
+  es: { weekly: "Cada", monthly: "Cada" }
+});
+const RECURRING_FALLBACK_LABELS = Object.freeze({
+  de: { weekly: "Jede Woche", monthly: "Jeden Monat", until: "bis", generic: "Wiederkehrendes Event" },
+  en: { weekly: "Every week", monthly: "Every month", until: "until", generic: "Recurring event" },
+  es: { weekly: "Cada semana", monthly: "Cada mes", until: "hasta", generic: "Evento recurrente" }
+});
+const WEEKDAY_NAME_TO_INDEX = Object.freeze({
+  sunday: 0,
+  sonntag: 0,
+  domingo: 0,
+  monday: 1,
+  montag: 1,
+  lunes: 1,
+  tuesday: 2,
+  dienstag: 2,
+  martes: 2,
+  wednesday: 3,
+  mittwoch: 3,
+  miercoles: 3,
+  thursday: 4,
+  donnerstag: 4,
+  jueves: 4,
+  friday: 5,
+  freitag: 5,
+  viernes: 5,
+  saturday: 6,
+  samstag: 6,
+  sabado: 6
+});
 const SHEET_SNAP_VISUAL_MS = 220;
 const VIEW_TRANSITION_MS = 360;
 const TAP_FEEDBACK_MS = 180;
@@ -2273,6 +2311,76 @@ function formatEventPlace(event) {
   return parts.length ? parts.join(", ") : "-";
 }
 
+function resolveRecurringLanguage(lang) {
+  const requested = String(lang || "").trim().toLowerCase();
+  if (WEEKDAYS[requested] && RECURRING_LABELS[requested]) return requested;
+  if (WEEKDAYS[state.lang] && RECURRING_LABELS[state.lang]) return state.lang;
+  return "de";
+}
+
+function normalizeWeekdayName(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "");
+}
+
+function resolveWeekdayIndex(rawValue) {
+  const fromNumber = normalizeWeekday(rawValue);
+  if (fromNumber !== null) return fromNumber;
+  const normalizedName = normalizeWeekdayName(rawValue);
+  if (!normalizedName) return null;
+  return Number.isInteger(WEEKDAY_NAME_TO_INDEX[normalizedName]) ? WEEKDAY_NAME_TO_INDEX[normalizedName] : null;
+}
+
+function getRecurringText(event, lang = state.lang) {
+  const recurrenceType = normalizeRecurrenceType(event?.recurrence_type || RECURRENCE_TYPE_NONE);
+  const isRecurring = Boolean(event?.is_recurring) || recurrenceType !== RECURRENCE_TYPE_NONE;
+  if (!isRecurring) return "";
+
+  const activeLang = resolveRecurringLanguage(lang);
+  const recurrenceInterval = Math.max(1, Number.parseInt(String(event?.recurrence_interval || "1"), 10) || 1);
+  const labels = RECURRING_LABELS[activeLang];
+  const fallbacks = RECURRING_FALLBACK_LABELS[activeLang];
+  const weekdays = WEEKDAYS[activeLang];
+  const recurrenceDays = Array.isArray(event?.recurrence_days)
+    ? event.recurrence_days
+    : String(event?.recurrence_days || "")
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean);
+  const weekdayFromList = recurrenceDays
+    .map((value) => resolveWeekdayIndex(value))
+    .find((value) => value !== null);
+  const weekdayIndex = weekdayFromList ?? resolveWeekdayIndex(event?.recurrence_weekday);
+  const weekdayText = weekdayIndex === null ? "" : weekdays[weekdayIndex] || "";
+
+  let recurringText = "";
+  if (recurrenceType === RECURRENCE_TYPE_WEEKLY && weekdayText) {
+    recurringText = recurrenceInterval > 1
+      ? `${labels.weekly} ${recurrenceInterval}. ${weekdayText}`
+      : `${labels.weekly} ${weekdayText}`;
+  } else if (recurrenceType === RECURRENCE_TYPE_MONTHLY) {
+    const dayOfMonth = normalizeDayOfMonth(event?.recurrence_day_of_month);
+    recurringText = dayOfMonth
+      ? `${labels.monthly} ${dayOfMonth}.`
+      : fallbacks.monthly;
+  } else if (recurrenceType === RECURRENCE_TYPE_WEEKLY) {
+    recurringText = recurrenceInterval > 1
+      ? `${labels.weekly} ${recurrenceInterval}.`
+      : fallbacks.weekly;
+  } else {
+    recurringText = fallbacks.generic;
+  }
+
+  const recurrenceEndDate = parseIsoDate(event?.recurrence_end_date || "");
+  if (recurrenceEndDate) {
+    recurringText += ` • ${fallbacks.until} ${formatDate(formatIsoDate(recurrenceEndDate), false)}`;
+  }
+  return recurringText;
+}
+
 function buildNavigationAddressQuery(event) {
   const strictAddressQuery = [event.address, event.city, event.country]
     .map((value) => String(value || "").trim())
@@ -3738,8 +3846,12 @@ function createEventCard(event, index = 0) {
   card.style.setProperty("--card-index", String(index));
   const primaryGenre = splitGenres(event.genre)[0] || event.genre || "-";
   const favoriteActive = isFavoriteEvent(event.id);
+  const recurrenceLineText = getRecurringText(event, state.lang);
   const distanceLine = Number.isFinite(event.distance_km)
     ? `<p class="event-card__line event-card__line--distance">${formatDistanceLabel(event.distance_km)}</p>`
+    : "";
+  const recurrenceLine = recurrenceLineText
+    ? `<p class="event-card__line event-card__line--recurrence">📅 ${recurrenceLineText}</p>`
     : "";
   card.innerHTML = `
     <div class="event-card__media">
@@ -3764,6 +3876,7 @@ function createEventCard(event, index = 0) {
         <h4 class="event-card__title">${event.name}</h4>
         <div class="event-card_artist">${event.artist_name ? `Mit ${event.artist_name}` : ""}</div>
       </div>
+      ${recurrenceLine}
       ${distanceLine}
       <p class="event-card__line event-card__line--datetime">🗓 ${formatDateTime(event)}</p>
       <p class="event-card__line event-card__line--location">📍 ${formatEventPlace(event)}</p>
@@ -3929,53 +4042,7 @@ function renderMapMarkers() {
 }
 
 function formatRecurringDetail(event) {
-  const recurrenceType = normalizeRecurrenceType(event.recurrence_type || RECURRENCE_TYPE_NONE);
-  const isRecurring = Boolean(event.is_recurring) || recurrenceType !== RECURRENCE_TYPE_NONE;
-  if (!isRecurring) return "";
-
-  const recurrenceInterval = Math.max(1, Number.parseInt(String(event.recurrence_interval || "1"), 10) || 1);
-  const weekdayLabelByNumber = ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"];
-  const weekdayLabelByName = {
-    monday: "Montag",
-    tuesday: "Dienstag",
-    wednesday: "Mittwoch",
-    thursday: "Donnerstag",
-    friday: "Freitag",
-    saturday: "Samstag",
-    sunday: "Sonntag"
-  };
-  const recurrenceDays = Array.isArray(event.recurrence_days)
-    ? event.recurrence_days
-    : String(event.recurrence_days || "")
-        .split(",")
-        .map((value) => value.trim())
-        .filter(Boolean);
-  const primaryDayFromList = recurrenceDays
-    .map((value) => weekdayLabelByName[String(value).toLowerCase()] || "")
-    .find(Boolean);
-  const fallbackWeekday = (() => {
-    const numeric = normalizeWeekday(event.recurrence_weekday);
-    return numeric === null ? "" : weekdayLabelByNumber[numeric];
-  })();
-  const primaryDay = primaryDayFromList || fallbackWeekday;
-
-  let recurringText = "";
-  if (primaryDay) {
-    recurringText = recurrenceInterval > 1 ? `Jeden ${recurrenceInterval}. ${primaryDay}` : `Jeden ${primaryDay}`;
-  } else if (recurrenceType === RECURRENCE_TYPE_MONTHLY) {
-    recurringText = recurrenceInterval > 1 ? `Jeden ${recurrenceInterval}. Monat` : "Jeden Monat";
-  } else if (recurrenceType === RECURRENCE_TYPE_WEEKLY) {
-    recurringText = recurrenceInterval > 1 ? `Jede ${recurrenceInterval}. Woche` : "Jede Woche";
-  } else {
-    recurringText = "Wiederkehrendes Event";
-  }
-
-  const recurrenceEndDate = parseIsoDate(event.recurrence_end_date || "");
-  if (recurrenceEndDate) {
-    recurringText += ` • bis ${formatDate(formatIsoDate(recurrenceEndDate), false)}`;
-  }
-
-  return recurringText;
+  return getRecurringText(event, state.lang);
 }
 
 function renderEventDetails(event) {
