@@ -183,6 +183,59 @@ body.body--modal-open {
   margin-bottom: 0.85rem;
 }
 
+.hero-beta-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0.16rem 0.58rem;
+  border-radius: 999px;
+  border: 1px solid rgba(251, 191, 36, 0.44);
+  background: rgba(251, 191, 36, 0.14);
+  color: #ffe8ab;
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.hero-first-open {
+  margin: 0.72rem auto 0;
+  max-width: 760px;
+  text-align: center;
+}
+
+.hero-first-open__text {
+  margin: 0;
+  color: #d8e4ff;
+  font-size: 0.86rem;
+  line-height: 1.4;
+}
+
+.hero-first-open__actions {
+  margin-top: 0.44rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.42rem;
+  flex-wrap: wrap;
+}
+
+.hero-first-open__actions .button-secondary {
+  min-height: 34px;
+  padding: 0.28rem 0.62rem;
+  font-size: 0.74rem;
+}
+
+.hero-feedback-link {
+  min-height: 34px;
+  border-radius: 999px;
+  border: 1px solid rgba(166, 190, 255, 0.34);
+  text-decoration: none;
+  padding: 0.26rem 0.62rem;
+  color: #d7e6ff;
+  background: rgba(9, 12, 24, 0.56);
+}
+
 .mobile-install-entry {
   display: none;
   width: 100%;
@@ -2779,6 +2832,32 @@ body.body--modal-open {
     margin-bottom: 0.72rem;
   }
 
+  .hero-beta-pill {
+    min-height: 24px;
+    padding: 0.14rem 0.5rem;
+    font-size: 0.64rem;
+  }
+
+  .hero-first-open {
+    margin-top: 0.58rem;
+  }
+
+  .hero-first-open__text {
+    font-size: 0.78rem;
+  }
+
+  .hero-first-open__actions {
+    gap: 0.34rem;
+    margin-top: 0.38rem;
+  }
+
+  .hero-first-open__actions .button-secondary,
+  .hero-feedback-link {
+    min-height: 32px;
+    font-size: 0.7rem;
+    padding: 0.22rem 0.54rem;
+  }
+
   .hero__utility-row .button-secondary {
     min-height: 36px;
     font-size: 0.76rem;
@@ -2918,6 +2997,28 @@ body.body--modal-open {
 
   .hero__utility-row {
     gap: 0.4rem;
+  }
+
+  .hero-beta-pill {
+    min-height: 24px;
+    font-size: 0.62rem;
+    letter-spacing: 0.07em;
+  }
+
+  .hero-first-open {
+    margin-top: 0.5rem;
+  }
+
+  .hero-first-open__text {
+    font-size: 0.72rem;
+    line-height: 1.35;
+  }
+
+  .hero-first-open__actions .button-secondary,
+  .hero-feedback-link {
+    min-height: 32px;
+    font-size: 0.7rem;
+    padding: 0.24rem 0.52rem;
   }
 
   .mobile-install-entry {
