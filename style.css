@@ -490,6 +490,7 @@ body.body--modal-open {
 }
 
 .brand-logo--full {
+  display: block;
   width: auto;
   height: 50px;
   max-width: min(280px, 48vw);
@@ -497,6 +498,7 @@ body.body--modal-open {
 }
 
 .brand-logo--icon {
+  display: none;
   width: auto;
   height: 40px;
   min-width: 40px;
@@ -506,6 +508,16 @@ body.body--modal-open {
     0 0 0 1px rgba(175, 196, 255, 0.28),
     0 8px 16px rgba(2, 6, 23, 0.32);
   background: rgba(7, 11, 21, 0.18);
+}
+
+.brand-wordmark {
+  display: none;
+  margin: 0;
+  color: #f8fafc;
+  font-size: 1.35rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1;
 }
 
 .hero__eyebrow {
@@ -2015,9 +2027,6 @@ body.body--modal-open {
   transform: scale(0.95);
 }
 
-/* Future marker themes:
-   .marker-pin--live-music, .marker-pin--dj, .marker-pin--beach, .marker-pin--lifestyle */
-
 .marker-pin--active {
   transform: scale(1.14);
   border-color: #fff;
@@ -2828,15 +2837,20 @@ body.body--modal-open {
   }
 
   .brand-logo--full {
-    width: auto;
-    height: 38px;
-    max-width: min(205px, 56vw);
+    display: none;
   }
 
   .brand-logo--icon {
+    display: block;
+    width: auto;
     height: 32px;
     min-width: 32px;
     min-height: 32px;
+  }
+
+  .brand-wordmark {
+    display: block;
+    font-size: 1.28rem;
   }
 
   .hero__utility-row {
@@ -3067,17 +3081,18 @@ body.body--modal-open {
     gap: 0.4rem;
   }
 
-  .brand-logo--full {
-    width: auto;
-    height: 34px;
-    max-width: min(164px, 66vw);
-  }
-
   .brand-logo--icon {
+    display: block;
+    width: auto;
     height: 28px;
     min-width: 28px;
     min-height: 28px;
     border-radius: 10px;
+  }
+
+  .brand-wordmark {
+    display: block;
+    font-size: 1.18rem;
   }
 
   .hero__top-actions {

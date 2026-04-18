@@ -1,6 +1,7 @@
-const CACHE_VERSION = "marcha-beta-v4";
+const CACHE_VERSION = "marcha-beta-v3";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
+
 const SHELL_PATHS = new Set([
   "/",
   "/index.html",
@@ -8,6 +9,7 @@ const SHELL_PATHS = new Set([
   "/style.css",
   "/manifest.json"
 ]);
+
 const PRE_CACHE_ASSETS = [
   "/",
   "/index.html",
@@ -48,6 +50,7 @@ async function networkFirstForShell(request) {
 async function staleWhileRevalidateRuntime(request) {
   const cache = await caches.open(RUNTIME_CACHE);
   const cachedResponse = await cache.match(request);
+
   const networkFetch = fetch(request)
     .then(async (networkResponse) => {
       if (canCacheResponse(networkResponse)) {
@@ -61,8 +64,10 @@ async function staleWhileRevalidateRuntime(request) {
     networkFetch.catch(() => null);
     return cachedResponse;
   }
+
   const freshResponse = await networkFetch;
   if (freshResponse) return freshResponse;
+
   return new Response("Offline", { status: 503, statusText: "Offline" });
 }
 
