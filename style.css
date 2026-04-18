@@ -518,6 +518,7 @@ body.body--modal-open {
   font-weight: 650;
   letter-spacing: 0.01em;
   line-height: 1;
+  font-family: "Poppins", "Inter", "Segoe UI", Roboto, Arial, sans-serif;
 }
 
 .hero__eyebrow {
@@ -538,6 +539,7 @@ body.body--modal-open {
   text-align: center;
   text-wrap: balance;
   text-shadow: 0 0 22px rgba(236, 72, 153, 0.16);
+  font-family: "Poppins", "Inter", "Segoe UI", Roboto, Arial, sans-serif;
 }
 
 .hero__subtitle {
@@ -612,6 +614,8 @@ body.body--modal-open {
 .featured__head h2 {
   margin: 0;
   font-size: 1rem;
+  font-family: "Poppins", "Inter", "Segoe UI", Roboto, Arial, sans-serif;
+  font-weight: 600;
 }
 
 .featured__count {
@@ -716,6 +720,8 @@ body.body--modal-open {
 .featured-card__content h3 {
   margin: 0;
   font-size: 1.05rem;
+  font-family: "Poppins", "Inter", "Segoe UI", Roboto, Arial, sans-serif;
+  font-weight: 600;
 }
 
 .featured-card__content p {
@@ -985,6 +991,8 @@ body.body--modal-open {
 .panel h2,
 .panel h3 {
   margin: 0 0 0.45rem;
+  font-family: "Poppins", "Inter", "Segoe UI", Roboto, Arial, sans-serif;
+  font-weight: 600;
 }
 
 .panel__intro {
