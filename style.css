@@ -513,12 +513,13 @@ body.body--modal-open {
 .brand-wordmark {
   display: none;
   margin: 0;
-  color: #eef4ff;
-  font-size: 1.18rem;
-  font-weight: 650;
-  letter-spacing: 0.01em;
+  color: #f8fafc;
+  font-size: 1.12rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
   line-height: 1;
-  font-family: "Poppins", "Inter", "Segoe UI", Roboto, Arial, sans-serif;
+  font-family: "Poppins", sans-serif;
+  text-transform: uppercase;
 }
 
 .hero__eyebrow {
@@ -533,7 +534,7 @@ body.body--modal-open {
 .hero h1 {
   margin: 0;
   max-width: 980px;
-  font-size: clamp(2.2rem, 5vw, 4.15rem);
+  font-size: clamp(2.4rem, 5vw, 4.2rem);
   line-height: 1.05;
   letter-spacing: 0.02em;
   font-weight: 700;
@@ -541,21 +542,20 @@ body.body--modal-open {
   text-align: center;
   text-wrap: balance;
   text-shadow:
-    0 0 14px rgba(236, 72, 153, 0.2),
-    0 0 32px rgba(124, 58, 237, 0.14);
+    0 0 18px rgba(236, 72, 153, 0.18),
+    0 0 40px rgba(124, 58, 237, 0.12);
   font-family: "Poppins", sans-serif;
 }
 
 .hero__subtitle {
   margin: 1rem auto 0;
   max-width: 760px;
-  color: #d2ddf9;
+  color: #cbd5f5;
   text-align: center;
-  font-size: clamp(1rem, 2vw, 1.18rem);
+  font-size: clamp(1rem, 2vw, 1.15rem);
   font-family: "Inter", sans-serif;
   font-weight: 500;
-  line-height: 1.55;
-  letter-spacing: 0.01em;
+  line-height: 1.5;
 }
 
 .hero__chips {
@@ -624,7 +624,7 @@ body.body--modal-open {
   font-size: 1rem;
   font-family: "Poppins", sans-serif;
   font-weight: 600;
-  letter-spacing: 0.015em;
+  letter-spacing: 0.02em;
   color: #f6f9ff;
 }
 
@@ -1004,7 +1004,7 @@ body.body--modal-open {
   margin: 0 0 0.45rem;
   font-family: "Poppins", sans-serif;
   font-weight: 600;
-  letter-spacing: 0.015em;
+  letter-spacing: 0.02em;
   color: #f4f8ff;
 }
 
