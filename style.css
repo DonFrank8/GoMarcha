@@ -59,7 +59,7 @@ html {
 
 body {
   color: var(--text);
-  font-family: "Inter", "Segoe UI", Roboto, Arial, sans-serif;
+  font-family: "Inter", sans-serif;
   line-height: 1.45;
   background:
     radial-gradient(circle at 12% 0%, rgba(236, 72, 153, 0.12), rgba(236, 72, 153, 0) 34%),
@@ -534,20 +534,28 @@ body.body--modal-open {
   margin: 0;
   max-width: 980px;
   font-size: clamp(2.2rem, 5vw, 4.15rem);
-  line-height: 1.02;
-  letter-spacing: 0.01em;
+  line-height: 1.05;
+  letter-spacing: 0.02em;
+  font-weight: 700;
+  color: #ffffff;
   text-align: center;
   text-wrap: balance;
-  text-shadow: 0 0 22px rgba(236, 72, 153, 0.16);
-  font-family: "Poppins", "Inter", "Segoe UI", Roboto, Arial, sans-serif;
+  text-shadow:
+    0 0 14px rgba(236, 72, 153, 0.2),
+    0 0 32px rgba(124, 58, 237, 0.14);
+  font-family: "Poppins", sans-serif;
 }
 
 .hero__subtitle {
   margin: 1rem auto 0;
   max-width: 760px;
-  color: #c3cfef;
+  color: #d2ddf9;
   text-align: center;
   font-size: clamp(1rem, 2vw, 1.18rem);
+  font-family: "Inter", sans-serif;
+  font-weight: 500;
+  line-height: 1.55;
+  letter-spacing: 0.01em;
 }
 
 .hero__chips {
@@ -614,8 +622,10 @@ body.body--modal-open {
 .featured__head h2 {
   margin: 0;
   font-size: 1rem;
-  font-family: "Poppins", "Inter", "Segoe UI", Roboto, Arial, sans-serif;
+  font-family: "Poppins", sans-serif;
   font-weight: 600;
+  letter-spacing: 0.015em;
+  color: #f6f9ff;
 }
 
 .featured__count {
@@ -720,8 +730,9 @@ body.body--modal-open {
 .featured-card__content h3 {
   margin: 0;
   font-size: 1.05rem;
-  font-family: "Poppins", "Inter", "Segoe UI", Roboto, Arial, sans-serif;
+  font-family: "Poppins", sans-serif;
   font-weight: 600;
+  letter-spacing: 0.01em;
 }
 
 .featured-card__content p {
@@ -991,8 +1002,10 @@ body.body--modal-open {
 .panel h2,
 .panel h3 {
   margin: 0 0 0.45rem;
-  font-family: "Poppins", "Inter", "Segoe UI", Roboto, Arial, sans-serif;
+  font-family: "Poppins", sans-serif;
   font-weight: 600;
+  letter-spacing: 0.015em;
+  color: #f4f8ff;
 }
 
 .panel__intro {
@@ -1610,6 +1623,8 @@ body.body--modal-open {
   font-size: 1rem;
   line-height: 1.2;
   letter-spacing: 0.004em;
+  font-family: "Poppins", sans-serif;
+  font-weight: 600;
 }
 
 .event-details__artist {
