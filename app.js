@@ -2312,6 +2312,7 @@ function getInstallDebugSnapshot() {
     installedSuppressed,
     bannerDismissed,
     mobileDismissed,
+    legacyBannerEnabled: ENABLE_LEGACY_INSTALL_BANNER,
     hasDeferredPrompt,
     relevantSurface,
     mobileViewport,
@@ -2347,6 +2348,8 @@ function hideInstallBanner() {
 }
 
 function showInstallBanner() {
+  if (!ENABLE_LEGACY_INSTALL_BANNER) return;
+  if (isRunningStandalone()) return;
   if (!dom.installBanner) return;
   dom.installBanner.hidden = false;
   window.requestAnimationFrame(() => dom.installBanner?.classList.add("is-visible"));
@@ -2487,8 +2490,7 @@ async function handleMobileInstallEntryAction() {
     const choice = await deferredInstallPromptEvent.userChoice;
     if (choice?.outcome === "accepted") {
       persistInstallBannerTimestamp(INSTALL_BANNER_INSTALLED_STORAGE_KEY, INSTALL_BANNER_INSTALLED_DAYS);
-      hideInstallBanner();
-      hideMobileInstallEntry();
+      updateInstallUiVisibility();
     }
   } catch (_error) {
     // Keep CTA visible so users can retry.
@@ -2509,7 +2511,7 @@ async function handleInstallBannerPrimaryAction() {
     const choice = await deferredInstallPromptEvent.userChoice;
     if (choice?.outcome === "accepted") {
       persistInstallBannerTimestamp(INSTALL_BANNER_INSTALLED_STORAGE_KEY, INSTALL_BANNER_INSTALLED_DAYS);
-      hideInstallBanner();
+      updateInstallUiVisibility();
     }
   } catch (_error) {
     // Keep banner visible so users can retry.
