@@ -13,10 +13,10 @@ const PRE_CACHE_ASSETS = [
   "/index.html",
   "/style.css",
   "/manifest.json",
-  "/public/assets/favicon.png",
-  "/public/assets/icon.png",
-  "/public/assets/app-icon.png",
-  "/public/assets/logo.png"
+  "/assets/favicon.png",
+  "/assets/icon.png",
+  "/assets/app-icon.png",
+  "/assets/logo.png"
 ];
 
 function canCacheResponse(response) {

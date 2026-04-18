@@ -466,36 +466,46 @@ body.body--modal-open {
 .hero__brand {
   display: inline-flex;
   align-items: center;
-  gap: 0.65rem;
+  gap: 0.72rem;
   min-width: 0;
-  padding: 0;
+  padding: 0.12rem 0.14rem;
   background: transparent;
   border: 0;
   box-shadow: none;
+  position: relative;
+  z-index: 4;
 }
 
 .brand-logo {
   display: block;
   max-width: 100%;
+  width: auto;
   height: auto;
   object-fit: contain;
   image-rendering: -webkit-optimize-contrast;
   image-rendering: crisp-edges;
+  opacity: 1;
+  visibility: visible;
+  flex-shrink: 0;
 }
 
 .brand-logo--full {
   width: auto;
-  height: 42px;
-  max-width: min(236px, 46vw);
+  height: 50px;
+  max-width: min(280px, 48vw);
+  filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.08));
 }
 
 .brand-logo--icon {
   width: auto;
-  height: 34px;
-  min-width: 34px;
-  min-height: 34px;
-  border-radius: 10px;
-  box-shadow: 0 0 0 1px rgba(175, 196, 255, 0.22);
+  height: 40px;
+  min-width: 40px;
+  min-height: 40px;
+  border-radius: 12px;
+  box-shadow:
+    0 0 0 1px rgba(175, 196, 255, 0.28),
+    0 8px 16px rgba(2, 6, 23, 0.32);
+  background: rgba(7, 11, 21, 0.18);
 }
 
 .hero__eyebrow {
@@ -2813,19 +2823,20 @@ body.body--modal-open {
   }
 
   .hero__brand {
-    gap: 0.5rem;
+    gap: 0.56rem;
+    padding: 0.1rem 0.1rem;
   }
 
   .brand-logo--full {
     width: auto;
-    height: 36px;
-    max-width: min(180px, 52vw);
+    height: 38px;
+    max-width: min(205px, 56vw);
   }
 
   .brand-logo--icon {
-    height: 30px;
-    min-width: 30px;
-    min-height: 30px;
+    height: 32px;
+    min-width: 32px;
+    min-height: 32px;
   }
 
   .hero__utility-row {
@@ -3052,20 +3063,21 @@ body.body--modal-open {
 
   .hero__brand {
     justify-content: center;
-    padding: 0;
+    padding: 0.08rem 0.08rem;
     gap: 0.4rem;
   }
 
   .brand-logo--full {
     width: auto;
-    height: 32px;
-    max-width: min(148px, 60vw);
+    height: 34px;
+    max-width: min(164px, 66vw);
   }
 
   .brand-logo--icon {
-    height: 27px;
-    min-width: 27px;
-    min-height: 27px;
+    height: 28px;
+    min-width: 28px;
+    min-height: 28px;
+    border-radius: 10px;
   }
 
   .hero__top-actions {
