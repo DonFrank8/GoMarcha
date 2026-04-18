@@ -466,31 +466,52 @@ body.body--modal-open {
 .hero__brand {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.72rem;
   min-width: 0;
-  padding: 0;
+  padding: 0.12rem 0.14rem;
   background: transparent;
   border: 0;
   box-shadow: none;
+  position: relative;
+  z-index: 4;
 }
 
 .brand-logo {
   display: block;
   max-width: 100%;
+  width: auto;
   height: auto;
   object-fit: contain;
   image-rendering: -webkit-optimize-contrast;
   image-rendering: crisp-edges;
+  opacity: 1;
+  visibility: visible;
+  flex-shrink: 0;
+}
+
+.brand-logo--full {
+  display: block;
+  width: auto;
+  height: 50px;
+  max-width: min(280px, 48vw);
+  filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.08));
 }
 
 .brand-logo--icon {
+  display: none;
   width: auto;
-  height: 48px;
-  min-width: 48px;
-  min-height: 48px;
+  height: 40px;
+  min-width: 40px;
+  min-height: 40px;
+  border-radius: 12px;
+  box-shadow:
+    0 0 0 1px rgba(175, 196, 255, 0.28),
+    0 8px 16px rgba(2, 6, 23, 0.32);
+  background: rgba(7, 11, 21, 0.18);
 }
 
 .brand-wordmark {
+  display: none;
   margin: 0;
   color: #f8fafc;
   font-size: 1.35rem;
@@ -2006,9 +2027,6 @@ body.body--modal-open {
   transform: scale(0.95);
 }
 
-/* Future marker themes:
-   .marker-pin--live-music, .marker-pin--dj, .marker-pin--beach, .marker-pin--lifestyle */
-
 .marker-pin--active {
   transform: scale(1.14);
   border-color: #fff;
@@ -2814,17 +2832,24 @@ body.body--modal-open {
   }
 
   .hero__brand {
-    gap: 0.4rem;
+    gap: 0.56rem;
+    padding: 0.1rem 0.1rem;
+  }
+
+  .brand-logo--full {
+    display: none;
   }
 
   .brand-logo--icon {
+    display: block;
     width: auto;
-    height: 46px;
-    min-width: 46px;
-    min-height: 46px;
+    height: 32px;
+    min-width: 32px;
+    min-height: 32px;
   }
 
   .brand-wordmark {
+    display: block;
     font-size: 1.28rem;
   }
 
@@ -3052,18 +3077,21 @@ body.body--modal-open {
 
   .hero__brand {
     justify-content: center;
-    padding: 0;
-    gap: 0.34rem;
+    padding: 0.08rem 0.08rem;
+    gap: 0.4rem;
   }
 
   .brand-logo--icon {
+    display: block;
     width: auto;
-    height: 44px;
-    min-width: 44px;
-    min-height: 44px;
+    height: 28px;
+    min-width: 28px;
+    min-height: 28px;
+    border-radius: 10px;
   }
 
   .brand-wordmark {
+    display: block;
     font-size: 1.18rem;
   }
 
