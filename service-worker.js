@@ -1,4 +1,4 @@
-const CACHE_VERSION = "marcha-beta-v4";
+const CACHE_VERSION = "marcha-beta-v5";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 
@@ -18,7 +18,8 @@ const PRE_CACHE_ASSETS = [
   "./assets/favicon.png",
   "./assets/icon.png",
   "./assets/app-icon.png",
-  "./assets/logo.png"
+  "./assets/logo.png",
+  "./assets/logo-schrift.png"
 ];
 
 function canCacheResponse(response) {
