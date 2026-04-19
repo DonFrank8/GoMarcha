@@ -477,7 +477,7 @@ body.body--modal-open {
   align-items: center;
   gap: 0;
   min-width: 0;
-  padding: 0.1rem 0.12rem;
+  padding: 0;
   background: transparent;
   border: 0;
   box-shadow: none;
@@ -485,20 +485,10 @@ body.body--modal-open {
   z-index: 4;
 }
 
-.brand-logo {
-  display: none !important;
-  max-width: 100%;
-  width: auto;
-  height: auto;
-  object-fit: contain;
-  image-rendering: -webkit-optimize-contrast;
-  image-rendering: crisp-edges;
-  opacity: 1;
-  visibility: visible;
-  flex-shrink: 0;
-}
-
-.brand-logo--full {
+.brand-logo,
+.brand-wordmark,
+.brand-logo--full,
+.brand-logo--icon {
   display: none !important;
 }
 
@@ -508,24 +498,6 @@ body.body--modal-open {
   height: 44px;
   max-width: 260px;
   object-fit: contain;
-  filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.1));
-}
-
-.brand-logo--icon {
-  display: none;
-  width: auto;
-  height: 40px;
-  min-width: 40px;
-  min-height: 40px;
-  border-radius: 12px;
-  box-shadow:
-    0 0 0 1px rgba(175, 196, 255, 0.28),
-    0 8px 16px rgba(2, 6, 23, 0.32);
-  background: rgba(7, 11, 21, 0.18);
-}
-
-.brand-wordmark {
-  display: none !important;
 }
 
 .hero__eyebrow {
@@ -2864,26 +2836,9 @@ body.body--modal-open {
     border-radius: 16px;
   }
 
-  .hero__brand {
-    gap: 0;
-    padding: 0.1rem 0.1rem;
-  }
-
-  .brand-logo--full {
-    display: none !important;
-  }
-
   .brand-logo--header {
     height: 36px;
-    max-width: min(220px, 72vw);
-  }
-
-  .brand-logo--icon {
-    display: none !important;
-  }
-
-  .brand-wordmark {
-    display: none !important;
+    max-width: 220px;
   }
 
   .hero__utility-row {
@@ -3108,27 +3063,9 @@ body.body--modal-open {
     font-size: 0.74rem;
   }
 
-  .hero__brand {
-    justify-content: center;
-    padding: 0.08rem 0.08rem;
-    gap: 0;
-  }
-
-  .brand-logo--full {
-    display: none !important;
-  }
-
   .brand-logo--header {
     height: 30px;
-    max-width: min(184px, 74vw);
-  }
-
-  .brand-logo--icon {
-    display: none !important;
-  }
-
-  .brand-wordmark {
-    display: none !important;
+    max-width: 180px;
   }
 
   .hero__top-actions {
