@@ -495,9 +495,13 @@ body.body--modal-open {
 .brand-logo--header {
   display: block !important;
   width: auto;
-  height: 44px;
-  max-width: 260px;
+  height: 52px;
+  max-width: 300px;
   object-fit: contain;
+  filter:
+    drop-shadow(0 1px 0 rgba(255, 255, 255, 0.2))
+    drop-shadow(0 0 14px rgba(236, 72, 153, 0.16));
+  opacity: 0.98;
 }
 
 .hero__eyebrow {
@@ -2837,8 +2841,8 @@ body.body--modal-open {
   }
 
   .brand-logo--header {
-    height: 36px;
-    max-width: 220px;
+    height: 42px;
+    max-width: 250px;
   }
 
   .hero__utility-row {
@@ -3064,8 +3068,8 @@ body.body--modal-open {
   }
 
   .brand-logo--header {
-    height: 30px;
-    max-width: 180px;
+    height: 36px;
+    max-width: 220px;
   }
 
   .hero__top-actions {
