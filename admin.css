@@ -76,7 +76,7 @@ body {
   align-items: center;
   gap: 0;
   min-width: 0;
-  padding: 0;
+  padding: 0.06rem 0;
   border: 0;
   background: transparent;
   position: relative;
@@ -99,6 +99,9 @@ body {
   box-shadow: none;
   opacity: 1;
   visibility: visible;
+  filter:
+    drop-shadow(0 1px 0 rgba(255, 255, 255, 0.12))
+    drop-shadow(0 0 12px rgba(124, 58, 237, 0.14));
 }
 
 .admin-header__eyebrow {
@@ -111,7 +114,7 @@ body {
 }
 
 .admin-header h1 {
-  margin: 0.18rem 0 0;
+  margin: 0.28rem 0 0;
   font-size: clamp(1.2rem, 2.8vw, 1.85rem);
   font-family: "Poppins", Inter, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   font-weight: 700;
@@ -123,7 +126,7 @@ body {
 }
 
 .admin-header__subtitle {
-  margin: 0.35rem 0 0;
+  margin: 0.46rem 0 0;
   color: #c9d8f7;
   font-size: 0.89rem;
   font-family: Inter, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -514,13 +517,13 @@ body {
   .admin-header__inner {
     flex-direction: column;
     align-items: stretch;
-    gap: 0.74rem;
+    gap: 0.78rem;
     padding: 0.74rem 0.8rem;
   }
 
   .admin-header__brand {
     align-self: flex-start;
-    padding: 0;
+    padding: 0.04rem 0;
     gap: 0;
   }
 
@@ -597,19 +600,19 @@ body {
   }
 
   .admin-header__inner {
-    gap: 0.72rem;
+    gap: 0.74rem;
     padding: 0.7rem 0.74rem;
     border-radius: 16px;
   }
 
   .admin-header__brand {
-    padding: 0;
+    padding: 0.04rem 0;
   }
 
   .admin-brand__logo--header {
     width: auto;
-    height: 36px;
-    min-width: 36px;
-    min-height: 36px;
+    height: 38px;
+    min-width: 38px;
+    min-height: 38px;
   }
 }
