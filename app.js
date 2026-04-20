@@ -2206,10 +2206,14 @@ function isAndroidDevice() {
   return /android/i.test(window.navigator.userAgent || "");
 }
 
-function isRunningStandalone() {
-  const isIosStandalone = window.navigator.standalone === true;
+function isAppInstalled() {
   const isDisplayModeStandalone = window.matchMedia?.("(display-mode: standalone)")?.matches === true;
-  return isIosStandalone || isDisplayModeStandalone;
+  const isIosStandalone = window.navigator.standalone === true;
+  return isDisplayModeStandalone || isIosStandalone;
+}
+
+function isRunningStandalone() {
+  return isAppInstalled();
 }
 
 function isStandaloneMode() {
@@ -2386,6 +2390,8 @@ function setupInstallBanner() {
 
 function hideMobileInstallEntry() {
   if (!dom.mobileInstallEntry) return;
+  // Force-hide to avoid any responsive CSS overrides leaking visibility.
+  dom.mobileInstallEntry.style.display = "none";
   dom.mobileInstallEntry.classList.remove("is-visible");
   dom.mobileInstallEntry.hidden = true;
   if (dom.mobileInstallEntryHelper) dom.mobileInstallEntryHelper.hidden = true;
@@ -2394,8 +2400,17 @@ function hideMobileInstallEntry() {
 
 function showMobileInstallEntry() {
   if (!dom.mobileInstallEntry) return;
+  dom.mobileInstallEntry.style.removeProperty("display");
   dom.mobileInstallEntry.hidden = false;
   window.requestAnimationFrame(() => dom.mobileInstallEntry?.classList.add("is-visible"));
+}
+
+function suppressInstallUiOnAppLoad() {
+  if (!isAppInstalled()) return;
+  syncInstalledStateFromStandalone();
+  hideInstallBanner();
+  hideMobileInstallEntry();
+  logInstallUiState("load:installed-hide-install-ui");
 }
 
 function updateMobileInstallEntryContent() {
@@ -4751,6 +4766,10 @@ function bindEvents() {
     logInstallUiState("event:display-mode-change");
     updateInstallUiVisibility();
   });
+  window.addEventListener("pageshow", () => {
+    logInstallUiState("event:pageshow");
+    updateInstallUiVisibility();
+  });
   dom.searchInput.addEventListener("input", () => {
     syncHeroControlsFromSidebar();
     syncMapSheetControlsFromSidebar();
@@ -5250,6 +5269,7 @@ async function loadEvents() {
 
 async function startApp() {
   state.favoriteEventIds = loadFavoriteEventIds();
+  suppressInstallUiOnAppLoad();
   registerServiceWorker();
   const query = readQueryParams();
   const requestedLang = resolveLanguage(query.lang);
