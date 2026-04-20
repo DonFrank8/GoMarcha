@@ -19,6 +19,7 @@ const SUBMITTER_PROFILE_STORAGE_KEY = "vibeon.submitterProfile.v1";
 const INSTALL_BANNER_DISMISS_STORAGE_KEY = "vibeon.installBanner.dismissedUntil";
 const INSTALL_BANNER_INSTALLED_STORAGE_KEY = "vibeon.installBanner.installedUntil";
 const MOBILE_INSTALL_CTA_DISMISS_STORAGE_KEY = "vibeon.installCta.dismissedUntil";
+const USER_LOCATION_STORAGE_KEY = "vibeon.userLocation.v1";
 const INSTALL_BANNER_DISMISS_DAYS = 5;
 const INSTALL_BANNER_INSTALLED_DAYS = 180;
 const MOBILE_INSTALL_CTA_DISMISS_DAYS = 21;
@@ -977,6 +978,7 @@ const state = {
   nearbyOnly: false,
   radiusKm: DEFAULT_NEARBY_RADIUS_KM,
   nearbyHintVisible: false,
+  locationPermissionState: "unknown",
   discoverySort: "soonest",
   activeQuickCategoryId: "all",
   viewMode: "list",
@@ -1131,6 +1133,7 @@ let deferredInstallPromptEvent = null;
 let installBannerShowTimer = null;
 let serviceWorkerRegistrationPromise = null;
 let serviceWorkerHasRefreshed = false;
+let locationRequestInFlightPromise = null;
 const throttledSelectEventMapFocus = throttle((event, zoom) => {
   flyToEventWithMapSheetOffset(event, zoom);
 }, 180);
@@ -3349,6 +3352,60 @@ function hasUserLocation() {
   return Number.isFinite(state.userLocation?.lat) && Number.isFinite(state.userLocation?.lng);
 }
 
+function loadStoredUserLocation() {
+  try {
+    const raw = window.localStorage.getItem(USER_LOCATION_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    const lat = Number(parsed?.lat);
+    const lng = Number(parsed?.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    return { lat, lng };
+  } catch (_error) {
+    return null;
+  }
+}
+
+function persistUserLocation(location) {
+  if (!Number.isFinite(location?.lat) || !Number.isFinite(location?.lng)) return;
+  try {
+    window.localStorage.setItem(
+      USER_LOCATION_STORAGE_KEY,
+      JSON.stringify({
+        lat: Number(location.lat),
+        lng: Number(location.lng),
+        timestamp: Date.now()
+      })
+    );
+  } catch (_error) {
+    // Ignore storage errors to keep UX non-blocking.
+  }
+}
+
+function setUserLocation(nextLocation) {
+  if (!Number.isFinite(nextLocation?.lat) || !Number.isFinite(nextLocation?.lng)) return;
+  state.userLocation = {
+    lat: Number(nextLocation.lat),
+    lng: Number(nextLocation.lng)
+  };
+  persistUserLocation(state.userLocation);
+}
+
+function readGeolocationPermissionState() {
+  if (!navigator?.permissions?.query) return Promise.resolve("unsupported");
+  return navigator.permissions
+    .query({ name: "geolocation" })
+    .then((status) => status?.state || "unsupported")
+    .catch(() => "unsupported");
+}
+
+function syncLocationPermissionFromNavigator() {
+  return readGeolocationPermissionState().then((permissionState) => {
+    state.locationPermissionState = permissionState;
+    return permissionState;
+  });
+}
+
 function normalizeRadiusKm(value) {
   const radius = Number(value);
   if (!Number.isFinite(radius)) return DEFAULT_NEARBY_RADIUS_KM;
@@ -3445,35 +3502,62 @@ async function ensureUserLocation() {
   if (hasUserLocation()) return true;
   const nextLocation = await requestUserLocation();
   if (!nextLocation) return false;
-  state.userLocation = nextLocation;
+  setUserLocation(nextLocation);
   state.allEvents = applyDistanceData(state.allEvents);
   return true;
 }
 
 function requestUserLocation() {
-  return new Promise((resolve) => {
-    if (!navigator?.geolocation?.getCurrentPosition) {
-      resolve(null);
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const lat = Number(position?.coords?.latitude);
-        const lng = Number(position?.coords?.longitude);
-        if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-          resolve(null);
-          return;
-        }
-        resolve({ lat, lng });
-      },
-      () => resolve(null),
-      {
-        enableHighAccuracy: false,
-        timeout: 8000,
-        maximumAge: 300000
+  if (locationRequestInFlightPromise) return locationRequestInFlightPromise;
+  locationRequestInFlightPromise = syncLocationPermissionFromNavigator()
+    .then((permissionState) => {
+      if (permissionState === "denied") return null;
+      if (permissionState === "granted") {
+        // Reuse persisted coordinates instead of triggering a new lookup.
+        return loadStoredUserLocation();
       }
-    );
-  });
+      if (permissionState !== "prompt" && permissionState !== "unsupported") {
+        return null;
+      }
+      if (!navigator?.geolocation?.getCurrentPosition) return null;
+      return new Promise((resolve) => {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            const lat = Number(position?.coords?.latitude);
+            const lng = Number(position?.coords?.longitude);
+            if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+              resolve(null);
+              return;
+            }
+            resolve({ lat, lng });
+          },
+          () => resolve(null),
+          {
+            enableHighAccuracy: false,
+            timeout: 8000,
+            maximumAge: 300000
+          }
+        );
+      });
+    })
+    .then((location) => {
+      if (location) setUserLocation(location);
+      return location;
+    })
+    .finally(() => {
+      locationRequestInFlightPromise = null;
+    });
+  return locationRequestInFlightPromise;
+}
+
+async function primeUserLocationOnAppLoad() {
+  const storedLocation = loadStoredUserLocation();
+  if (storedLocation) {
+    state.userLocation = storedLocation;
+  }
+
+  // Keep permission state in sync, but avoid requesting geolocation on startup.
+  await syncLocationPermissionFromNavigator();
 }
 
 function enrichDistanceSlots() {
@@ -5288,7 +5372,7 @@ async function startApp() {
   renderNearbyFilterControls();
   setupInstallBanner();
   setupMobileInstallEntry();
-  state.userLocation = await requestUserLocation();
+  await primeUserLocationOnAppLoad();
   await checkAdminSession();
   await loadEvents();
   updateFilterOptions();
