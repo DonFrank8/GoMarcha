@@ -13,6 +13,9 @@ const EVENT_IMAGES_BUCKET = "event-images";
 const MAX_EVENT_IMAGE_BYTES = 5 * 1024 * 1024;
 const ALLOWED_EVENT_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const DEFAULT_NAVIGATION_PROVIDER = "google";
+const GOOGLE_PLACES_API_KEY = (window.PARTYRADAR_GOOGLE_PLACES_KEY || "").toString().trim();
+const GOOGLE_PLACES_AUTOCOMPLETE_DEBOUNCE_MS = 380;
+const GOOGLE_PLACES_AUTOCOMPLETE_MIN_CHARS = 3;
 const BETA_FEEDBACK_EMAIL = "beta@marcha.app";
 const FAVORITES_STORAGE_KEY = "vibeon_event_favorites";
 const SUBMITTER_PROFILE_STORAGE_KEY = "vibeon.submitterProfile.v1";
@@ -23,6 +26,7 @@ const USER_LOCATION_STORAGE_KEY = "vibeon.userLocation.v1";
 const INSTALL_BANNER_DISMISS_DAYS = 5;
 const INSTALL_BANNER_INSTALLED_DAYS = 180;
 const MOBILE_INSTALL_CTA_DISMISS_DAYS = 21;
+const USER_LOCATION_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const INSTALL_BANNER_SHOW_DELAY_MS = 2800;
 const ENABLE_LEGACY_INSTALL_BANNER = false;
 const INSTALL_UI_DEBUG = true;
@@ -1089,6 +1093,7 @@ const dom = {
   formSubmitButton: document.getElementById("formSubmitButton"),
   formName: document.getElementById("formName"),
   formLocationName: document.getElementById("formLocationName"),
+  formLocationSuggestionList: document.getElementById("formLocationSuggestions"),
   formAddress: document.getElementById("formAddress"),
   formPostalCode: document.getElementById("formPostalCode"),
   formCity: document.getElementById("formCity"),
@@ -1135,6 +1140,14 @@ let installBannerShowTimer = null;
 let serviceWorkerRegistrationPromise = null;
 let serviceWorkerHasRefreshed = false;
 let locationRequestInFlightPromise = null;
+const locationAutocompleteState = {
+  enabled: false,
+  sessionToken: "",
+  selectedPlace: null,
+  selectedPredictionId: "",
+  searchCounter: 0,
+  activeRequestCounter: 0
+};
 const throttledSelectEventMapFocus = throttle((event, zoom) => {
   flyToEventWithMapSheetOffset(event, zoom);
 }, 180);
@@ -1580,9 +1593,296 @@ function readFormPayload() {
     contact_email: dom.formContactEmail.value.trim(),
     description: dom.formDescription.value.trim(),
     image_url: null,
-    lat: null,
-    lng: null
+    place_id: locationAutocompleteState.selectedPlace?.place_id || null,
+    formatted_address: locationAutocompleteState.selectedPlace?.formatted_address || null,
+    lat: locationAutocompleteState.selectedPlace?.lat || null,
+    lng: locationAutocompleteState.selectedPlace?.lng || null
   };
+}
+
+function ensureLocationSearchToken() {
+  if (locationAutocompleteState.sessionToken) return locationAutocompleteState.sessionToken;
+  locationAutocompleteState.sessionToken =
+    (window.crypto && typeof window.crypto.randomUUID === "function")
+      ? window.crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+  return locationAutocompleteState.sessionToken;
+}
+
+function resetLocationSearchToken() {
+  locationAutocompleteState.sessionToken = "";
+  locationAutocompleteState.selectedPredictionId = "";
+}
+
+function clearLocationSuggestionList() {
+  if (!dom.formLocationSuggestionList) return;
+  dom.formLocationSuggestionList.innerHTML = "";
+  dom.formLocationSuggestionList.hidden = true;
+  if (dom.formLocationName) {
+    dom.formLocationName.setAttribute("aria-expanded", "false");
+  }
+}
+
+function hideLocationSuggestionList() {
+  clearLocationSuggestionList();
+}
+
+function resetLocationSelection() {
+  locationAutocompleteState.selectedPlace = null;
+  locationAutocompleteState.selectedPredictionId = "";
+}
+
+function buildLocationInputSearchText() {
+  const locationName = String(dom.formLocationName?.value || "").trim();
+  const address = String(dom.formAddress?.value || "").trim();
+  const city = String(dom.formCity?.value || "").trim();
+  const country = String(dom.formCountry?.value || "").trim();
+  return [locationName, address, city, country].filter(Boolean).join(" ").trim();
+}
+
+function getTextFromSuggestionText(textValue) {
+  if (!textValue) return "";
+  if (typeof textValue === "string") return textValue.trim();
+  if (typeof textValue?.text === "string") return textValue.text.trim();
+  return "";
+}
+
+function buildLocationSuggestions(predictions) {
+  return (Array.isArray(predictions) ? predictions : [])
+    .map((prediction) => {
+      const suggestionText = getTextFromSuggestionText(prediction.text || prediction.structuredFormat?.mainText) ||
+        String(prediction.description || "").trim();
+      const secondaryText = getTextFromSuggestionText(prediction.structuredFormat?.secondaryText);
+      const placeId = String(prediction.placeId || "").trim();
+      if (!suggestionText || !placeId) return null;
+      return {
+        placeId,
+        suggestionText,
+        secondaryText
+      };
+    })
+    .filter(Boolean);
+}
+
+function renderLocationSuggestions(items) {
+  if (!dom.formLocationSuggestionList) return;
+  dom.formLocationSuggestionList.innerHTML = "";
+  if (!items.length) {
+    dom.formLocationSuggestionList.hidden = true;
+    if (dom.formLocationName) {
+      dom.formLocationName.setAttribute("aria-expanded", "false");
+    }
+    return;
+  }
+  const fragment = document.createDocumentFragment();
+  items.forEach((item) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "location-autocomplete__item";
+    button.dataset.placeId = item.placeId;
+    button.setAttribute("role", "option");
+    const name = document.createElement("span");
+    name.className = "location-autocomplete__name";
+    name.textContent = item.suggestionText;
+    button.append(name);
+    if (item.secondaryText) {
+      const address = document.createElement("span");
+      address.className = "location-autocomplete__address";
+      address.textContent = item.secondaryText;
+      button.append(address);
+    }
+    fragment.append(button);
+  });
+  dom.formLocationSuggestionList.append(fragment);
+  dom.formLocationSuggestionList.hidden = false;
+  if (dom.formLocationName) {
+    dom.formLocationName.setAttribute("aria-expanded", "true");
+  }
+}
+
+async function fetchGooglePlacesAutocompletePredictions(searchInput) {
+  if (!GOOGLE_PLACES_API_KEY) return [];
+  const endpoint = "https://places.googleapis.com/v1/places:autocomplete";
+  const sessionToken = ensureLocationSearchToken();
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Key": GOOGLE_PLACES_API_KEY
+    },
+    body: JSON.stringify({
+      input: searchInput,
+      languageCode: "de",
+      regionCode: "ES",
+      sessionToken
+    })
+  });
+  if (!response.ok) {
+    throw new Error(`Places autocomplete HTTP ${response.status}`);
+  }
+  const data = await response.json();
+  return buildLocationSuggestions(data?.suggestions?.map((entry) => entry.placePrediction || entry) || []);
+}
+
+function extractAddressPart(addressComponents, type) {
+  const match = (Array.isArray(addressComponents) ? addressComponents : []).find((part) =>
+    Array.isArray(part?.types) && part.types.includes(type)
+  );
+  return String(match?.longText || match?.shortText || "").trim();
+}
+
+function resolveCityFromAddressComponents(addressComponents) {
+  return (
+    extractAddressPart(addressComponents, "locality")
+    || extractAddressPart(addressComponents, "postal_town")
+    || extractAddressPart(addressComponents, "administrative_area_level_2")
+    || extractAddressPart(addressComponents, "administrative_area_level_1")
+  );
+}
+
+async function fetchGooglePlaceDetails(placeId) {
+  if (!GOOGLE_PLACES_API_KEY) throw new Error("Google Places API key missing");
+  const endpoint = `https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}`;
+  const sessionToken = ensureLocationSearchToken();
+  const response = await fetch(endpoint, {
+    headers: {
+      "X-Goog-Api-Key": GOOGLE_PLACES_API_KEY,
+      "X-Goog-FieldMask":
+        "id,displayName,formattedAddress,addressComponents,location",
+      "X-Goog-Session-Token": sessionToken
+    }
+  });
+  if (!response.ok) {
+    throw new Error(`Place details HTTP ${response.status}`);
+  }
+  const place = await response.json();
+  const lat = Number(place?.location?.latitude);
+  const lng = Number(place?.location?.longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    throw new Error("Place details missing coordinates");
+  }
+  const addressComponents = place?.addressComponents || [];
+  return {
+    place_id: String(place?.id || placeId).trim(),
+    location_name: String(place?.displayName?.text || "").trim(),
+    formatted_address: String(place?.formattedAddress || "").trim(),
+    city: resolveCityFromAddressComponents(addressComponents),
+    postal_code: extractAddressPart(addressComponents, "postal_code"),
+    country: extractAddressPart(addressComponents, "country"),
+    lat,
+    lng
+  };
+}
+
+function applySelectedPlaceToForm(placeData) {
+  if (dom.formLocationName && placeData.location_name) {
+    dom.formLocationName.value = placeData.location_name;
+  }
+  if (dom.formAddress && placeData.formatted_address) {
+    dom.formAddress.value = placeData.formatted_address;
+  }
+  if (dom.formCity && placeData.city) {
+    dom.formCity.value = placeData.city;
+  }
+  if (dom.formPostalCode && placeData.postal_code) {
+    dom.formPostalCode.value = placeData.postal_code;
+  }
+  if (dom.formCountry && placeData.country) {
+    dom.formCountry.value = placeData.country;
+  }
+  locationAutocompleteState.selectedPlace = placeData;
+}
+
+async function handleLocationSuggestionSelection(placeId) {
+  if (!placeId) return;
+  try {
+    const placeData = await fetchGooglePlaceDetails(placeId);
+    applySelectedPlaceToForm(placeData);
+    hideLocationSuggestionList();
+    resetLocationSearchToken();
+  } catch (error) {
+    console.warn("[Marcha Debug] Place details fetch failed:", error);
+    setFormFeedback(t("form_error_geocoding_failed"), "error");
+  }
+}
+
+const runLocationAutocompleteSearch = debounce(async () => {
+  if (!locationAutocompleteState.enabled) return;
+  const searchText = buildLocationInputSearchText();
+  if (searchText.length < GOOGLE_PLACES_AUTOCOMPLETE_MIN_CHARS) {
+    hideLocationSuggestionList();
+    return;
+  }
+
+  const requestId = ++locationAutocompleteState.searchCounter;
+  locationAutocompleteState.activeRequestCounter = requestId;
+  try {
+    const suggestions = await fetchGooglePlacesAutocompletePredictions(searchText);
+    if (requestId !== locationAutocompleteState.activeRequestCounter) return;
+    renderLocationSuggestions(suggestions);
+  } catch (error) {
+    if (requestId !== locationAutocompleteState.activeRequestCounter) return;
+    console.warn("[Marcha Debug] Place autocomplete failed:", error);
+    hideLocationSuggestionList();
+  }
+}, GOOGLE_PLACES_AUTOCOMPLETE_DEBOUNCE_MS);
+
+function setupEventLocationAutocomplete() {
+  if (
+    !dom.formLocationName
+    || !dom.formLocationSuggestionList
+    || !GOOGLE_PLACES_API_KEY
+  ) {
+    locationAutocompleteState.enabled = false;
+    hideLocationSuggestionList();
+    return;
+  }
+  locationAutocompleteState.enabled = true;
+  dom.formLocationName.setAttribute("aria-expanded", "false");
+  const locationInputs = [dom.formLocationName, dom.formAddress, dom.formCity, dom.formCountry].filter(Boolean);
+  locationInputs.forEach((input) => {
+    input.addEventListener("input", () => {
+      resetLocationSelection();
+      runLocationAutocompleteSearch();
+    });
+    input.addEventListener("focus", () => {
+      if (!dom.formLocationSuggestionList.hidden) return;
+      runLocationAutocompleteSearch();
+    });
+  });
+  [dom.formAddress, dom.formCity, dom.formPostalCode, dom.formCountry]
+    .filter(Boolean)
+    .forEach((input) => {
+      input.addEventListener("input", () => {
+        resetLocationSelection();
+      });
+    });
+  dom.formLocationName.addEventListener("blur", () => {
+    window.setTimeout(() => {
+      const activeElement = document.activeElement;
+      if (!(activeElement instanceof Element) || !activeElement.closest(".location-suggestions")) {
+        hideLocationSuggestionList();
+      }
+    }, 100);
+  });
+
+  dom.formLocationSuggestionList.addEventListener("click", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    const option = target?.closest(".location-autocomplete__item");
+    if (!option) return;
+    const placeId = String(option.dataset.placeId || "").trim();
+    if (!placeId) return;
+    handleLocationSuggestionSelection(placeId);
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!dom.formLocationSuggestionList || dom.formLocationSuggestionList.hidden) return;
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target) return;
+    const insideAutocomplete = target.closest(".location-autocomplete-field");
+    if (insideAutocomplete) return;
+    hideLocationSuggestionList();
+  });
 }
 
 function validateFormPayload(payload) {
@@ -1660,6 +1960,9 @@ async function hasRecurrenceColumns(client) {
 function clearEventForm() {
   if (!dom.eventForm) return;
   dom.eventForm.reset();
+  resetLocationSelection();
+  resetLocationSearchToken();
+  hideLocationSuggestionList();
   if (dom.formMainImage) dom.formMainImage.value = "";
   if (dom.formRecurrenceType) {
     dom.formRecurrenceType.value = RECURRENCE_TYPE_NONE;
@@ -1717,7 +2020,7 @@ function persistSubmitterProfile(payload) {
 
 function buildInsertPayload(payload) {
   // Address is collected now; geocoding can later resolve this into coordinates.
-  const geocoding_query = buildGeocodingQuery(payload);
+  const geocoding_query = payload.formatted_address || buildGeocodingQuery(payload);
   const recurrenceType = normalizeRecurrenceType(payload.recurrence_type);
   const isRecurring = recurrenceType !== RECURRENCE_TYPE_NONE;
   const currentYear = new Date().getFullYear();
@@ -1759,8 +2062,10 @@ function buildInsertPayload(payload) {
     status: "pending",
     verification_notes: null,
     geocoding_query: geocoding_query || null,
-    lat: payload.lat,
-    lng: payload.lng
+    lat: payload.lat || null,
+    lng: payload.lng || null,
+    place_id: payload.place_id || null,
+    formatted_address: payload.formatted_address || null
   };
 }
 
@@ -2057,6 +2362,15 @@ async function geocodeWithRetry(provider, query) {
 
 async function resolveCoordinatesForPayload(payload) {
   if (!ENABLE_AUTO_GEOCODING) return payload;
+  const knownLat = Number(payload?.lat);
+  const knownLng = Number(payload?.lng);
+  if (Number.isFinite(knownLat) && Number.isFinite(knownLng)) {
+    return {
+      ...payload,
+      lat: knownLat,
+      lng: knownLng
+    };
+  }
   const queries = buildGeocodingQueries(payload);
   if (!queries.length) {
     throw new Error("Missing geocoding address fields");
@@ -2127,6 +2441,8 @@ async function insertEventWithSchemaFallback(client, payload) {
   const fallbackPayload = { ...payload };
   const removedColumns = new Set();
   const schemaFallbackPriority = [
+    "formatted_address",
+    "place_id",
     "address",
     "postal_code",
     "geocoding_query",
@@ -3381,6 +3697,11 @@ function loadStoredUserLocation() {
     const parsed = JSON.parse(raw);
     const lat = Number(parsed?.lat);
     const lng = Number(parsed?.lng);
+    const timestamp = Number(parsed?.timestamp || 0);
+    if (timestamp > 0 && Date.now() - timestamp > USER_LOCATION_CACHE_TTL_MS) {
+      window.localStorage.removeItem(USER_LOCATION_STORAGE_KEY);
+      return null;
+    }
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
     return { lat, lng };
   } catch (_error) {
@@ -5418,6 +5739,7 @@ async function startApp() {
   initMap();
   setViewMode("list");
   bindEvents();
+  setupEventLocationAutocomplete();
   renderNearbyFilterControls();
   setupInstallBanner();
   setupMobileInstallEntry();

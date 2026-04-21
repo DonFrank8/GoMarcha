@@ -2683,6 +2683,61 @@ body.is-standalone-app .hero-first-open__actions {
   color: var(--text-muted);
 }
 
+.location-autocomplete-field {
+  position: relative;
+}
+
+.location-suggestions {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 0.32rem);
+  z-index: 40;
+  max-height: 220px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0.28rem;
+  list-style: none;
+  border-radius: 12px;
+  border: 1px solid rgba(155, 183, 255, 0.34);
+  background: rgba(8, 12, 24, 0.98);
+  box-shadow: 0 18px 34px rgba(2, 6, 18, 0.48);
+}
+
+.location-suggestions[hidden] {
+  display: none !important;
+}
+
+.location-autocomplete__item {
+  width: 100%;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #dbe8ff;
+  text-align: left;
+  padding: 0.46rem 0.52rem;
+  cursor: pointer;
+  display: grid;
+  gap: 0.14rem;
+}
+
+.location-autocomplete__item:hover,
+.location-autocomplete__item:focus-visible {
+  background: rgba(124, 58, 237, 0.2);
+  outline: none;
+}
+
+.location-autocomplete__name {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #f1f7ff;
+}
+
+.location-autocomplete__address {
+  font-size: 0.74rem;
+  color: #b7c9ec;
+}
+
 .add-event-message {
   margin: 0;
   padding: 0.62rem 0.72rem;

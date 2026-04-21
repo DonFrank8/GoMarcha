@@ -389,9 +389,25 @@
               <span data-i18n="form_label_name">Event Name</span>
               <input name="name" id="formName" type="text" required>
             </label>
-            <label class="field">
+            <label class="field field--full location-autocomplete-field">
               <span data-i18n="form_label_location_name">Location</span>
-              <input name="location_name" id="formLocationName" type="text" required>
+              <input
+                name="location_name"
+                id="formLocationName"
+                type="text"
+                autocomplete="off"
+                aria-autocomplete="list"
+                aria-expanded="false"
+                aria-controls="formLocationSuggestions"
+                required
+              >
+              <div
+                id="formLocationSuggestions"
+                class="location-suggestions"
+                role="listbox"
+                hidden
+                aria-label="Location suggestions"
+              ></div>
             </label>
             <label class="field">
               <span data-i18n="form_label_address">Adresse</span>
