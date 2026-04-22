@@ -23,6 +23,7 @@
   <script>
     (function () {
       var cacheBuster = String(Date.now());
+      window.VITE_GOOGLE_MAPS_API_KEY = "AIzaSyBpHWhtoziLp4d0fJhpessNyDyt-ZZRwdI";
       window.PARTYRADAR_BUILD = "live";
       window.PARTYRADAR_CACHE_BUSTER = cacheBuster;
       window.PARTYRADAR_GOOGLE_PLACES_KEY =
@@ -412,6 +413,7 @@
                 hidden
                 aria-label="Location suggestions"
               ></div>
+              <small id="formLocationAutocompleteStatus" class="location-autocomplete__status" hidden></small>
             </label>
             <label class="field">
               <span data-i18n="form_label_address">Adresse</span>
@@ -569,6 +571,7 @@
   <script>
     window.PARTYRADAR_VERSION = "v2.2.0";
     window.PARTYRADAR_CACHE_BUSTER = Date.now();
+    window.VITE_GOOGLE_MAPS_API_KEY = window.VITE_GOOGLE_MAPS_API_KEY || "AIzaSyBpHWhtoziLp4d0fJhpessNyDyt-ZZRwdI";
     window.PARTYRADAR_GOOGLE_PLACES_KEY =
       window.PARTYRADAR_GOOGLE_PLACES_KEY
       || window.VITE_GOOGLE_MAPS_API_KEY
