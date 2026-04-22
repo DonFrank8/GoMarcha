@@ -2692,7 +2692,7 @@ body.is-standalone-app .hero-first-open__actions {
   left: 0;
   right: 0;
   top: calc(100% + 0.32rem);
-  z-index: 40;
+  z-index: 2200;
   max-height: 220px;
   overflow-y: auto;
   margin: 0;
