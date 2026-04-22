@@ -1903,6 +1903,37 @@ function resolveFallbackCityFromFormattedAddress(formattedAddress) {
   return parsed.city || "";
 }
 
+function isLikelyCityToken(token) {
+  const value = String(token || "").trim();
+  if (!value) return false;
+  if (/\d/.test(value)) return false;
+  return true;
+}
+
+function resolveCityFromSecondaryText(secondaryText) {
+  const parts = String(secondaryText || "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (!parts.length) return "";
+  const cityCandidate = parts.find((part) => isLikelyCityToken(part));
+  if (cityCandidate) return cityCandidate;
+  return parts.length >= 2 ? parts[parts.length - 2] : parts[0];
+}
+
+function resolveCountryFromSecondaryText(secondaryText) {
+  const parts = String(secondaryText || "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (!parts.length) return "";
+  const candidate = parts[parts.length - 1] || "";
+  if (isLikelyCityToken(candidate) && parts.length >= 2) {
+    return "";
+  }
+  return candidate;
+}
+
 async function fetchGooglePlaceDetails(placeId) {
   const apiKey = getGooglePlacesApiKey();
   if (!apiKey) throw new Error("Google Places API key missing");
@@ -2023,6 +2054,25 @@ const runLocationAutocompleteSearch = debounce(async () => {
   }
 }, GOOGLE_PLACES_AUTOCOMPLETE_DEBOUNCE_MS);
 
+function extractSecondaryTextFromSuggestionButton(option) {
+  if (!(option instanceof Element)) return "";
+  const secondaryNode = option.querySelector(".location-autocomplete__address");
+  return String(secondaryNode?.textContent || "").trim();
+}
+
+function applyFallbackLocationFieldsFromSuggestion(option) {
+  const secondaryText = extractSecondaryTextFromSuggestionButton(option);
+  if (!secondaryText) return;
+  if (dom.formCity && !String(dom.formCity.value || "").trim()) {
+    const city = resolveCityFromSecondaryText(secondaryText);
+    if (city) dom.formCity.value = city;
+  }
+  if (dom.formCountry && !String(dom.formCountry.value || "").trim()) {
+    const country = resolveCountryFromSecondaryText(secondaryText);
+    if (country) dom.formCountry.value = country;
+  }
+}
+
 function setupEventLocationAutocomplete() {
   if (
     !dom.formLocationName
@@ -2085,6 +2135,7 @@ function setupEventLocationAutocomplete() {
     if (!option) return;
     const placeId = String(option.dataset.placeId || "").trim();
     if (!placeId) return;
+    applyFallbackLocationFieldsFromSuggestion(option);
     selectLocationAutocompleteOption(placeId, event);
   });
   dom.formLocationSuggestionList.addEventListener("pointerdown", () => {
@@ -2104,6 +2155,8 @@ function setupEventLocationAutocomplete() {
     const target = event.target instanceof Element ? event.target : null;
     if (!target) return;
     const insideAutocomplete = target.closest(".location-autocomplete-field");
+    const insideSuggestion = target.closest(".location-suggestions");
+    if (insideSuggestion) return;
     if (insideAutocomplete) return;
     hideLocationSuggestionList();
   });
