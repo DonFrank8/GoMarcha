@@ -2710,6 +2710,7 @@ body.is-standalone-app .hero-first-open__actions {
 
 .location-autocomplete__item {
   width: 100%;
+  appearance: none;
   border: 0;
   border-radius: 10px;
   background: transparent;
