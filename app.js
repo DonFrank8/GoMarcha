@@ -1147,6 +1147,7 @@ const locationAutocompleteState = {
   selectedPredictionId: "",
   lastSearchText: "",
   isPointerDownOnSuggestions: false,
+  suppressNextInputSearch: false,
   searchCounter: 0,
   activeRequestCounter: 0
 };
@@ -2001,6 +2002,7 @@ async function handleLocationSuggestionSelection(placeId) {
     console.log("[Marcha Debug] Selecting placeId:", placeId);
     const placeData = await fetchGooglePlaceDetails(placeId);
     console.log("[Marcha Debug] Place details payload:", placeData);
+    locationAutocompleteState.suppressNextInputSearch = true;
     applySelectedPlaceToForm(placeData);
     hideLocationSuggestionList();
     resetLocationSearchToken();
@@ -2092,6 +2094,10 @@ function setupEventLocationAutocomplete() {
   const locationInputs = [dom.formLocationName, dom.formAddress, dom.formCity, dom.formCountry].filter(Boolean);
   locationInputs.forEach((input) => {
     input.addEventListener("input", () => {
+      if (locationAutocompleteState.suppressNextInputSearch) {
+        locationAutocompleteState.suppressNextInputSearch = false;
+        return;
+      }
       resetLocationSelection();
       runLocationAutocompleteSearch();
     });
@@ -2145,6 +2151,9 @@ function setupEventLocationAutocomplete() {
     window.setTimeout(() => {
       locationAutocompleteState.isPointerDownOnSuggestions = false;
     }, 0);
+  });
+  dom.formLocationSuggestionList.addEventListener("mouseup", () => {
+    locationAutocompleteState.isPointerDownOnSuggestions = false;
   });
   dom.formLocationSuggestionList.addEventListener("pointercancel", () => {
     locationAutocompleteState.isPointerDownOnSuggestions = false;
