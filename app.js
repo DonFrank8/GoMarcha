@@ -2004,6 +2004,15 @@ function setupEventLocationAutocomplete() {
     event.preventDefault();
     handleLocationSuggestionSelection(placeId);
   });
+  dom.formLocationSuggestionList.addEventListener("mousedown", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    const option = target?.closest(".location-autocomplete__item");
+    if (!option) return;
+    const placeId = String(option.dataset.placeId || "").trim();
+    if (!placeId) return;
+    event.preventDefault();
+    handleLocationSuggestionSelection(placeId);
+  });
   dom.formLocationSuggestionList.addEventListener("pointerdown", () => {
     locationAutocompleteState.isPointerDownOnSuggestions = true;
   });
