@@ -13,15 +13,6 @@ const EVENT_IMAGES_BUCKET = "event-images";
 const MAX_EVENT_IMAGE_BYTES = 5 * 1024 * 1024;
 const ALLOWED_EVENT_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const DEFAULT_NAVIGATION_PROVIDER = "google";
-const GOOGLE_PLACES_API_KEY = (
-  window.VITE_GOOGLE_MAPS_API_KEY
-  || window.__ENV__?.VITE_GOOGLE_MAPS_API_KEY
-  || window.PARTYRADAR_GOOGLE_PLACES_KEY
-  || window.PARTYRADAR_GOOGLE_MAPS_KEY
-  || document.querySelector('meta[name="vite-google-maps-api-key"]')?.getAttribute("content")
-  || document.querySelector('meta[name="partyradar-google-places-key"]')?.getAttribute("content")
-  || ""
-).toString().trim();
 const GOOGLE_PLACES_AUTOCOMPLETE_DEBOUNCE_MS = 380;
 const GOOGLE_PLACES_AUTOCOMPLETE_MIN_CHARS = 3;
 const BETA_FEEDBACK_EMAIL = "beta@marcha.app";
@@ -1102,6 +1093,7 @@ const dom = {
   formName: document.getElementById("formName"),
   formLocationName: document.getElementById("formLocationName"),
   formLocationSuggestionList: document.getElementById("formLocationSuggestions"),
+  formLocationAutocompleteStatus: document.getElementById("formLocationAutocompleteStatus"),
   formAddress: document.getElementById("formAddress"),
   formPostalCode: document.getElementById("formPostalCode"),
   formCity: document.getElementById("formCity"),
@@ -1636,6 +1628,12 @@ function clearLocationSuggestionList() {
   if (!dom.formLocationSuggestionList) return;
   dom.formLocationSuggestionList.innerHTML = "";
   dom.formLocationSuggestionList.hidden = true;
+  dom.formLocationSuggestionList.dataset.state = "hidden";
+  if (dom.formLocationAutocompleteStatus) {
+    dom.formLocationAutocompleteStatus.hidden = true;
+    dom.formLocationAutocompleteStatus.textContent = "";
+    dom.formLocationAutocompleteStatus.classList.remove("is-error");
+  }
   if (dom.formLocationName) {
     dom.formLocationName.setAttribute("aria-expanded", "false");
   }
@@ -1648,6 +1646,18 @@ function hideLocationSuggestionList() {
 function resetLocationSelection() {
   locationAutocompleteState.selectedPlace = null;
   locationAutocompleteState.selectedPredictionId = "";
+}
+
+function getGooglePlacesApiKey() {
+  return (
+    window.VITE_GOOGLE_MAPS_API_KEY
+    || window.__ENV__?.VITE_GOOGLE_MAPS_API_KEY
+    || window.PARTYRADAR_GOOGLE_PLACES_KEY
+    || window.PARTYRADAR_GOOGLE_MAPS_KEY
+    || document.querySelector('meta[name="vite-google-maps-api-key"]')?.getAttribute("content")
+    || document.querySelector('meta[name="partyradar-google-places-key"]')?.getAttribute("content")
+    || ""
+  ).toString().trim();
 }
 
 function buildLocationInputSearchText() {
@@ -1693,6 +1703,7 @@ function renderLocationSuggestions(items) {
   dom.formLocationSuggestionList.innerHTML = "";
   if (!items.length) {
     dom.formLocationSuggestionList.hidden = true;
+    dom.formLocationSuggestionList.dataset.state = "hidden";
     if (dom.formLocationName) {
       dom.formLocationName.setAttribute("aria-expanded", "false");
     }
@@ -1719,20 +1730,48 @@ function renderLocationSuggestions(items) {
   });
   dom.formLocationSuggestionList.append(fragment);
   dom.formLocationSuggestionList.hidden = false;
+  dom.formLocationSuggestionList.dataset.state = "open";
+  if (dom.formLocationName) {
+    dom.formLocationName.setAttribute("aria-expanded", "true");
+  }
+}
+
+function renderLocationAutocompleteStatus(message, tone = "info") {
+  if (!dom.formLocationSuggestionList && !dom.formLocationAutocompleteStatus) return;
+  const text = String(message || "").trim();
+  if (!text) {
+    clearLocationSuggestionList();
+    return;
+  }
+  if (dom.formLocationSuggestionList) {
+    dom.formLocationSuggestionList.innerHTML = "";
+    const status = document.createElement("div");
+    status.className = `location-autocomplete__status${tone === "error" ? " is-error" : ""}`;
+    status.textContent = text;
+    dom.formLocationSuggestionList.append(status);
+    dom.formLocationSuggestionList.hidden = false;
+    dom.formLocationSuggestionList.dataset.state = "status";
+  }
+  if (dom.formLocationAutocompleteStatus) {
+    dom.formLocationAutocompleteStatus.textContent = text;
+    dom.formLocationAutocompleteStatus.hidden = false;
+    dom.formLocationAutocompleteStatus.classList.toggle("is-error", tone === "error");
+  }
   if (dom.formLocationName) {
     dom.formLocationName.setAttribute("aria-expanded", "true");
   }
 }
 
 async function fetchGooglePlacesAutocompletePredictions(searchInput) {
-  if (!GOOGLE_PLACES_API_KEY) return [];
+  const apiKey = getGooglePlacesApiKey();
+  if (!apiKey) return [];
   const endpoint = "https://places.googleapis.com/v1/places:autocomplete";
   const sessionToken = ensureLocationSearchToken();
   const response = await fetch(endpoint, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-Goog-Api-Key": GOOGLE_PLACES_API_KEY,
+      "X-Goog-Api-Key": apiKey,
       "X-Goog-FieldMask":
         "suggestions.placePrediction.placeId,suggestions.placePrediction.place,suggestions.placePrediction.text,suggestions.placePrediction.structuredFormat"
     },
@@ -1753,13 +1792,19 @@ async function fetchGooglePlacesAutocompletePredictions(searchInput) {
 function handleAutocompleteFailure(error) {
   const message = String(error?.message || "");
   if (message.includes("HTTP 403")) {
+    renderLocationAutocompleteStatus(
+      "Google Places is blocked for this domain. Please verify API key website restrictions.",
+      "error"
+    );
     setFormFeedback("Google Places is blocked for this domain. Please verify API key website restrictions.", "error");
     return;
   }
   if (message.includes("HTTP 429")) {
+    renderLocationAutocompleteStatus("Google Places rate limit reached. Please try again shortly.", "error");
     setFormFeedback("Google Places rate limit reached. Please try again shortly.", "error");
     return;
   }
+  renderLocationAutocompleteStatus("Location suggestions are currently unavailable. Please try again.", "error");
 }
 
 function extractAddressPart(addressComponents, type) {
@@ -1801,14 +1846,15 @@ function resolveStreetFromAddressComponents(addressComponents) {
 }
 
 async function fetchGooglePlaceDetails(placeId) {
-  if (!GOOGLE_PLACES_API_KEY) throw new Error("Google Places API key missing");
+  const apiKey = getGooglePlacesApiKey();
+  if (!apiKey) throw new Error("Google Places API key missing");
   const normalizedPlaceId = normalizeGooglePlaceId(placeId);
   if (!normalizedPlaceId) throw new Error("Google place id missing");
   const endpoint = `https://places.googleapis.com/v1/places/${encodeURIComponent(normalizedPlaceId)}`;
   const sessionToken = ensureLocationSearchToken();
   const response = await fetch(endpoint, {
     headers: {
-      "X-Goog-Api-Key": GOOGLE_PLACES_API_KEY,
+      "X-Goog-Api-Key": apiKey,
       "X-Goog-FieldMask":
         "id,displayName,formattedAddress,addressComponents,location",
       "X-Goog-Session-Token": sessionToken
@@ -1889,23 +1935,28 @@ const runLocationAutocompleteSearch = debounce(async () => {
     const suggestions = await fetchGooglePlacesAutocompletePredictions(searchText);
     if (requestId !== locationAutocompleteState.activeRequestCounter) return;
     locationAutocompleteState.lastSearchText = searchText;
+    if (!suggestions.length) {
+      renderLocationAutocompleteStatus("No matching places found. Try a more specific query.");
+      return;
+    }
     renderLocationSuggestions(suggestions);
   } catch (error) {
     if (requestId !== locationAutocompleteState.activeRequestCounter) return;
     console.warn("[Marcha Debug] Place autocomplete failed:", error);
     handleAutocompleteFailure(error);
-    hideLocationSuggestionList();
   }
 }, GOOGLE_PLACES_AUTOCOMPLETE_DEBOUNCE_MS);
 
 function setupEventLocationAutocomplete() {
+  const apiKey = getGooglePlacesApiKey();
   if (
     !dom.formLocationName
     || !dom.formLocationSuggestionList
-    || !GOOGLE_PLACES_API_KEY
+    || !apiKey
   ) {
-    if (!GOOGLE_PLACES_API_KEY) {
+    if (!apiKey) {
       console.warn("[Marcha Debug] Google Places autocomplete disabled: missing API key (VITE_GOOGLE_MAPS_API_KEY).");
+      renderLocationAutocompleteStatus("Google Places key is missing. Suggestions are unavailable.", "error");
       setFormFeedback("Google Places key is missing. Suggestions are currently unavailable.", "error");
     }
     locationAutocompleteState.enabled = false;

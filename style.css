@@ -2708,6 +2708,16 @@ body.is-standalone-app .hero-first-open__actions {
   display: none !important;
 }
 
+.location-autocomplete__status {
+  margin-top: 0.32rem;
+  font-size: 0.74rem;
+  color: #b7c9ec;
+}
+
+.location-autocomplete__status.is-error {
+  color: #ff9bb7;
+}
+
 .location-autocomplete__item {
   width: 100%;
   appearance: none;
