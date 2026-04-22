@@ -2687,6 +2687,10 @@ body.is-standalone-app .hero-first-open__actions {
   position: relative;
 }
 
+.location-autocomplete-field > input {
+  pointer-events: auto;
+}
+
 .location-suggestions {
   position: absolute;
   left: 0;
