@@ -4103,6 +4103,19 @@ function getActiveFilters() {
   };
 }
 
+function hasActiveDiscoveryFilters(filters) {
+  if (!filters) return false;
+  const hasDateRange = Boolean(filters.dateRange?.start && filters.dateRange?.end);
+  return Boolean(
+    filters.search
+    || filters.city
+    || hasDateRange
+    || filters.nearbyOnly
+    || (filters.genres instanceof Set && filters.genres.size > 0)
+    || (Array.isArray(filters.quickKeywords) && filters.quickKeywords.length > 0)
+  );
+}
+
 function syncHeroFilterOptions() {
   if (!dom.heroCityFilter || !dom.heroDateFilter || !dom.cityFilter || !dom.dateFilter) return;
 
@@ -4489,7 +4502,17 @@ function applyFilters() {
   if (!state.filteredEvents.length && state.viewMode === "map") {
     renderMapSheetEmptyState();
   }
-  setStatus(t("result_count", { count: state.filteredEvents.length }), sourceTone());
+  const totalCount = state.allEvents.length;
+  if (totalCount === 0) {
+    setStatus(t("status_no_data"), "warning");
+  } else if (hasActiveDiscoveryFilters(filters) && state.filteredEvents.length < totalCount) {
+    setStatus(
+      t("status_filtered", { shown: state.filteredEvents.length, total: totalCount }),
+      state.filteredEvents.length ? sourceTone() : "warning"
+    );
+  } else {
+    setStatus(t("result_count", { count: state.filteredEvents.length }), sourceTone());
+  }
   updateLocationChipLabel();
   enrichDistanceSlots();
   updateUrlFromFilters();

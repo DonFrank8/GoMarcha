@@ -358,10 +358,22 @@ async function updateEventWithFallback(eventId, updates) {
   const payload = { ...updates };
   const maxAttempts = Object.keys(payload).length + 1;
   let lastError = null;
+  let lastData = null;
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const { error } = await client.from("events").update(payload).eq("id", eventId);
-    if (!error) return;
+    const { data, error } = await client
+      .from("events")
+      .update(payload)
+      .eq("id", eventId)
+      .select("id,status")
+      .limit(1);
+    lastData = data;
+    if (!error) {
+      if (!Array.isArray(data) || !data.length) {
+        throw new Error("No row updated. Check admin role and RLS policies.");
+      }
+      return data[0];
+    }
     lastError = error;
     if (!removeMissingColumnFromPayload(payload, error)) break;
   }
@@ -433,11 +445,12 @@ async function handleCardAction(clickEvent) {
       await updateEventWithFallback(eventData.id, { verification_notes: notes });
       setGlobalFeedback("Notes saved.", "success");
     } else {
-      await updateEventWithFallback(eventData.id, {
+      const updatedRow = await updateEventWithFallback(eventData.id, {
         status: button.dataset.action,
         verification_notes: notes
       });
-      setGlobalFeedback(`Status updated to ${button.dataset.action}.`, "success");
+      const persistedStatus = String(updatedRow?.status || button.dataset.action);
+      setGlobalFeedback(`Status updated to ${persistedStatus}.`, "success");
     }
 
     const featuredChanged = state.featureColumns.featured && featuredInput
