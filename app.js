@@ -593,7 +593,7 @@ const I18N = {
       "Permission denied by database security (RLS). Please run/update supabase-rls.sql to allow pending event submissions.",
     form_error_geocoding_failed: "Address could not be geocoded. Please check your input.",
     form_error_places_details_cors:
-      "Google Places detail request was blocked by browser/CORS. Please verify domain/referrer restrictions or use a Places proxy.",
+      "Google Places detail request was blocked by browser/CORS. Please verify domain/referrer restrictions.",
     form_error_image_required: "Please select a main image.",
     form_error_image_type: "Please upload a valid image (JPG, PNG, or WebP).",
     form_error_image_size: "The image is too large. Maximum is 5 MB.",
@@ -824,7 +824,7 @@ const I18N = {
       "Permiso denegado por la seguridad de base de datos (RLS). Ejecuta/actualiza supabase-rls.sql para permitir envíos en estado pending.",
     form_error_geocoding_failed: "No se pudo geocodificar la dirección. Revisa los datos.",
     form_error_places_details_cors:
-      "La consulta de detalles de Google Places fue bloqueada por el navegador/CORS. Verifica restricciones de dominio/referer o usa un proxy de Places.",
+      "La consulta de detalles de Google Places fue bloqueada por el navegador/CORS. Verifica restricciones de dominio/referer.",
     form_error_image_required: "Selecciona una imagen principal.",
     form_error_image_type: "Sube una imagen válida (JPG, PNG o WebP).",
     form_error_image_size: "La imagen es demasiado grande. Máximo 5 MB.",
@@ -1977,14 +1977,14 @@ async function fetchGooglePlaceDetails(placeId) {
   if (!apiKey) throw new Error("Google Places API key missing");
   const normalizedPlaceId = normalizeGooglePlaceId(placeId);
   if (!normalizedPlaceId) throw new Error("Google place id missing");
-  const endpoint = `https://places.googleapis.com/v1/places/${encodeURIComponent(normalizedPlaceId)}`;
-  const sessionToken = ensureLocationSearchToken();
-  const response = await fetch(endpoint, {
+  const endpoint = new URL(`https://places.googleapis.com/v1/places/${encodeURIComponent(normalizedPlaceId)}`);
+  endpoint.searchParams.set("key", apiKey);
+  // Use query params for details call to minimize cross-browser
+  // preflight/header variability in strict CORS environments.
+  endpoint.searchParams.set("fields", "id,displayName,formattedAddress,addressComponents,location");
+  const response = await fetch(endpoint.toString(), {
     headers: {
-      "X-Goog-Api-Key": apiKey,
-      "X-Goog-FieldMask":
-        "id,displayName,formattedAddress,addressComponents,location",
-      "X-Goog-Session-Token": sessionToken
+      Accept: "application/json"
     }
   });
   if (!response.ok) {
