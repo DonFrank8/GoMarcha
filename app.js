@@ -1896,7 +1896,7 @@ function parsePostalCodeAndCityFromFormattedAddress(formattedAddress) {
   if (!cityPart) {
     return { postal_code: "", city: parts[parts.length - 2] || "" };
   }
-  const postalMatch = cityPart.match(/\b\d{4,6}\b/);
+  const postalMatch = cityPart.match(/\b(?:\d{4,6}|[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b/i);
   const postal_code = postalMatch ? postalMatch[0] : "";
   const city = cityPart
     .replace(postal_code, "")
@@ -1919,32 +1919,10 @@ function resolveFallbackCityFromFormattedAddress(formattedAddress) {
   return parsed.city || "";
 }
 
-function isLikelyCityToken(token) {
-  const value = String(token || "").trim();
-  if (!value) return false;
-  if (/\d/.test(value)) return false;
-  if (/[A-Za-zÀ-ÿ]{2,}\s+[A-Za-zÀ-ÿ]{2,}/.test(value)) return false;
-  return true;
-}
-
-function resolveCityFromSecondaryText(secondaryText) {
-  const parts = String(secondaryText || "")
-    .split(",")
-    .map((part) => part.trim())
-    .filter(Boolean);
-  if (!parts.length) return "";
-  const cityCandidate = parts.find((part) => isLikelyCityToken(part) && part.length <= 48);
-  if (cityCandidate) return cityCandidate.replace(/\b(?:site|acceso|playa)\b/gi, "").trim();
-  return parts.length >= 2 ? parts[parts.length - 2] : parts[0];
-}
-
-function resolveCountryFromSecondaryText(secondaryText) {
-  const parts = String(secondaryText || "")
-    .split(",")
-    .map((part) => part.trim())
-    .filter(Boolean);
-  if (!parts.length) return "";
-  const countryAliases = {
+function normalizeCountryName(countryValue) {
+  const raw = String(countryValue || "").trim();
+  if (!raw) return "";
+  const aliases = {
     espana: "Spain",
     "españa": "Spain",
     spain: "Spain",
@@ -1960,19 +1938,136 @@ function resolveCountryFromSecondaryText(secondaryText) {
     "united kingdom": "United Kingdom",
     usa: "United States",
     "united states": "United States",
-    "ee. uu.": "United States"
+    "ee. uu.": "United States",
+    osterreich: "Austria",
+    österreich: "Austria",
+    austria: "Austria",
+    suisse: "Switzerland",
+    schweiz: "Switzerland",
+    switzerland: "Switzerland",
+    nederland: "Netherlands",
+    netherlands: "Netherlands",
+    holland: "Netherlands"
   };
-  const normalizedCountry = (value) => String(value || "").trim().toLowerCase();
+  const normalized = raw.toLowerCase();
+  return aliases[normalized] || raw;
+}
+
+function isLikelyCityToken(token) {
+  const value = String(token || "").trim();
+  if (!value) return false;
+  if (/\d{4,}/.test(value)) return false;
+  if (/^\d/.test(value)) return false;
+  if (/\b(?:calle|carrera|avenida|av\.?|road|street|st\.?|accesso|acceso|playa|beach|restaurant|restaurante|club|hotel)\b/i.test(value)) {
+    return false;
+  }
+  return true;
+}
+
+function resolveCityFromSecondaryText(secondaryText) {
+  const parts = String(secondaryText || "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (!parts.length) return "";
   for (let index = parts.length - 1; index >= 0; index -= 1) {
-    const candidatePart = parts[index];
-    const mapped = countryAliases[normalizedCountry(candidatePart)];
-    if (mapped) return mapped;
+    const candidate = parts[index];
+    if (!candidate) continue;
+    if (normalizeCountryName(candidate) !== candidate) continue;
+    const withoutPostal = candidate.replace(/\b\d{4,6}\b/g, "").replace(/\s{2,}/g, " ").trim();
+    if (isLikelyCityToken(withoutPostal)) return withoutPostal;
+  }
+  const fallback = parts.length >= 2 ? parts[parts.length - 2] : parts[0];
+  return String(fallback || "").replace(/\b\d{4,6}\b/g, "").trim();
+}
+
+function resolveCountryFromSecondaryText(secondaryText) {
+  const parts = String(secondaryText || "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (!parts.length) return "";
+  for (let index = parts.length - 1; index >= 0; index -= 1) {
+    const mapped = normalizeCountryName(parts[index]);
+    if (mapped !== parts[index]) return mapped;
   }
   const candidate = parts[parts.length - 1] || "";
-  if (isLikelyCityToken(candidate) && parts.length >= 2) {
+  if (!candidate || isLikelyCityToken(candidate)) {
     return "";
   }
-  return candidate;
+  return normalizeCountryName(candidate);
+}
+
+async function fetchAddressDetailsWithNominatim(queryText) {
+  const query = String(queryText || "").trim();
+  if (!query) return null;
+  const endpoint = new URL("https://nominatim.openstreetmap.org/search");
+  endpoint.searchParams.set("format", "jsonv2");
+  endpoint.searchParams.set("limit", "1");
+  endpoint.searchParams.set("addressdetails", "1");
+  endpoint.searchParams.set("q", query);
+  const response = await fetch(endpoint.toString(), {
+    headers: {
+      Accept: "application/json",
+      "Accept-Language": "de,en,es"
+    }
+  });
+  if (!response.ok) return null;
+  const data = await response.json();
+  const first = Array.isArray(data) ? data[0] : null;
+  if (!first || typeof first !== "object") return null;
+  const address = first.address || {};
+  const postalCode = String(address.postcode || "").trim();
+  const country = normalizeCountryName(String(address.country || "").trim());
+  const city = String(
+    address.city
+    || address.town
+    || address.village
+    || address.municipality
+    || address.county
+    || ""
+  ).trim();
+  const street = String(
+    address.road
+    || address.pedestrian
+    || address.footway
+    || address.cycleway
+    || address.path
+    || ""
+  ).trim();
+  return {
+    postal_code: postalCode,
+    country,
+    city,
+    street
+  };
+}
+
+async function enrichPlaceDataWithFallbackAddressDetails(placeData) {
+  if (!placeData || typeof placeData !== "object") return placeData;
+  const missingPostal = !String(placeData.postal_code || "").trim();
+  const missingCountry = !String(placeData.country || "").trim();
+  const missingCity = !String(placeData.city || "").trim();
+  if (!missingPostal && !missingCountry && !missingCity) return placeData;
+  const query = [
+    placeData.formatted_address,
+    placeData.location_name,
+    placeData.street
+  ].filter(Boolean).join(", ");
+  if (!query) return placeData;
+  try {
+    const fallbackDetails = await fetchAddressDetailsWithNominatim(query);
+    if (!fallbackDetails) return placeData;
+    return {
+      ...placeData,
+      postal_code: placeData.postal_code || fallbackDetails.postal_code || "",
+      country: placeData.country || fallbackDetails.country || "",
+      city: placeData.city || fallbackDetails.city || "",
+      street: placeData.street || fallbackDetails.street || ""
+    };
+  } catch (_error) {
+    return placeData;
+  }
 }
 
 function buildFallbackPlaceDataFromSuggestion(placeId) {
@@ -2075,8 +2170,9 @@ async function handleLocationSuggestionSelection(placeId) {
   if (!placeId) return;
   try {
     const placeData = await fetchGooglePlaceDetails(placeId);
+    const enrichedPlaceData = await enrichPlaceDataWithFallbackAddressDetails(placeData);
     locationAutocompleteState.suppressNextInputSearch = true;
-    applySelectedPlaceToForm(placeData);
+    applySelectedPlaceToForm(enrichedPlaceData);
     hideLocationSuggestionList();
     resetLocationSearchToken();
     setFormFeedback("", "info");
@@ -2087,12 +2183,13 @@ async function handleLocationSuggestionSelection(placeId) {
     const detailMessage = String(error?.message || "");
     const fallbackPlaceData = buildFallbackPlaceDataFromSuggestion(placeId);
     if (fallbackPlaceData) {
+      const enrichedFallbackData = await enrichPlaceDataWithFallbackAddressDetails(fallbackPlaceData);
       locationAutocompleteState.suppressNextInputSearch = true;
-      applySelectedPlaceToForm(fallbackPlaceData);
+      applySelectedPlaceToForm(enrichedFallbackData);
       hideLocationSuggestionList();
       resetLocationSearchToken();
       renderLocationAutocompleteStatus(
-        "Location selected (basic details). You can complete missing fields manually.",
+        "Location selected. Missing details were auto-completed when available.",
         "info"
       );
       return;
