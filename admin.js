@@ -257,6 +257,29 @@ function renderEventCard(event) {
   const card = document.createElement("article");
   card.className = "event-card";
   card.dataset.eventId = String(event.id);
+  const previewGenre = escapeHtml(String(event.genre || "Event").split(",")[0].trim() || "Event");
+  const previewTitle = escapeHtml(event.name || "Untitled Event");
+  const previewMeta = escapeHtml([event.location_name, event.city].filter(Boolean).join(" · ") || "-");
+  const previewMarkup = event.image_url
+    ? `
+      <figure class="event-card__preview">
+        <img class="event-card__image" src="${escapeHtml(event.image_url)}" alt="${previewTitle}" loading="lazy">
+        <figcaption class="event-card__preview-overlay">
+          <span class="event-card__preview-badge">${previewGenre}</span>
+          <strong>${previewTitle}</strong>
+          <span>${previewMeta}</span>
+        </figcaption>
+      </figure>
+    `
+    : `
+      <div class="event-card__preview event-card__preview--empty" aria-hidden="true">
+        <div class="event-card__preview-overlay">
+          <span class="event-card__preview-badge">${previewGenre}</span>
+          <strong>${previewTitle}</strong>
+          <span>${previewMeta}</span>
+        </div>
+      </div>
+    `;
   card.innerHTML = `
     <header class="event-card__head">
       <div>
@@ -281,11 +304,7 @@ function renderEventCard(event) {
   }</li>
     </ul>
 
-    ${
-      event.image_url
-        ? `<img class="event-card__image" src="${escapeHtml(event.image_url)}" alt="${escapeHtml(event.name)}" loading="lazy">`
-        : ""
-    }
+    ${previewMarkup}
     <p class="event-description">${escapeHtml(event.description || "Keine Beschreibung")}</p>
 
     <label class="field">
