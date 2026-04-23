@@ -361,6 +361,8 @@ const I18N = {
     form_error_rls_submit:
       "Zugriff durch Datenbank-Sicherheitsregel (RLS) blockiert. Bitte supabase-rls.sql ausführen/aktualisieren, damit pending Einreichungen erlaubt sind.",
     form_error_geocoding_failed: "Adresse konnte nicht geokodiert werden. Bitte Eingabe prüfen.",
+    form_error_places_details_cors:
+      "Google Places Detailabfrage wurde durch Browser/CORS blockiert. Bitte Domain-/Referrer-Regeln oder einen Places-Proxy prüfen.",
     form_error_image_required: "Bitte ein Hauptbild auswählen.",
     form_error_image_type: "Bitte ein gültiges Bild (JPG, PNG oder WebP) auswählen.",
     form_error_image_size: "Das Bild ist zu groß. Maximal 5 MB erlaubt.",
@@ -590,6 +592,8 @@ const I18N = {
     form_error_rls_submit:
       "Permission denied by database security (RLS). Please run/update supabase-rls.sql to allow pending event submissions.",
     form_error_geocoding_failed: "Address could not be geocoded. Please check your input.",
+    form_error_places_details_cors:
+      "Google Places detail request was blocked by browser/CORS. Please verify domain/referrer restrictions or use a Places proxy.",
     form_error_image_required: "Please select a main image.",
     form_error_image_type: "Please upload a valid image (JPG, PNG, or WebP).",
     form_error_image_size: "The image is too large. Maximum is 5 MB.",
@@ -819,6 +823,8 @@ const I18N = {
     form_error_rls_submit:
       "Permiso denegado por la seguridad de base de datos (RLS). Ejecuta/actualiza supabase-rls.sql para permitir envíos en estado pending.",
     form_error_geocoding_failed: "No se pudo geocodificar la dirección. Revisa los datos.",
+    form_error_places_details_cors:
+      "La consulta de detalles de Google Places fue bloqueada por el navegador/CORS. Verifica restricciones de dominio/referer o usa un proxy de Places.",
     form_error_image_required: "Selecciona una imagen principal.",
     form_error_image_type: "Sube una imagen válida (JPG, PNG o WebP).",
     form_error_image_size: "La imagen es demasiado grande. Máximo 5 MB.",
@@ -1148,6 +1154,7 @@ const locationAutocompleteState = {
   lastSearchText: "",
   isPointerDownOnSuggestions: false,
   suppressNextInputSearch: false,
+  suggestionsByPlaceId: new Map(),
   searchCounter: 0,
   activeRequestCounter: 0
 };
@@ -1628,6 +1635,7 @@ function resetLocationSearchToken() {
 
 function clearLocationSuggestionList() {
   if (!dom.formLocationSuggestionList) return;
+  locationAutocompleteState.suggestionsByPlaceId.clear();
   dom.formLocationSuggestionList.innerHTML = "";
   dom.formLocationSuggestionList.hidden = true;
   dom.formLocationSuggestionList.dataset.state = "hidden";
@@ -1714,6 +1722,7 @@ async function selectLocationAutocompleteOption(placeId, pointerEvent = null) {
 
 function renderLocationSuggestions(items) {
   if (!dom.formLocationSuggestionList) return;
+  locationAutocompleteState.suggestionsByPlaceId.clear();
   dom.formLocationSuggestionList.innerHTML = "";
   if (!items.length) {
     dom.formLocationSuggestionList.hidden = true;
@@ -1725,6 +1734,11 @@ function renderLocationSuggestions(items) {
   }
   const fragment = document.createDocumentFragment();
   items.forEach((item) => {
+    locationAutocompleteState.suggestionsByPlaceId.set(item.placeId, {
+      placeId: item.placeId,
+      suggestionText: String(item.suggestionText || "").trim(),
+      secondaryText: String(item.secondaryText || "").trim()
+    });
     const button = document.createElement("button");
     button.type = "button";
     button.className = "location-autocomplete__item";
@@ -1935,6 +1949,28 @@ function resolveCountryFromSecondaryText(secondaryText) {
   return candidate;
 }
 
+function buildFallbackPlaceDataFromSuggestion(placeId) {
+  const suggestion = locationAutocompleteState.suggestionsByPlaceId.get(placeId);
+  if (!suggestion) return null;
+  const primary = String(suggestion.suggestionText || "").trim();
+  const secondary = String(suggestion.secondaryText || "").trim();
+  const formattedAddress = [primary, secondary].filter(Boolean).join(", ");
+  const parsed = parsePostalCodeAndCityFromFormattedAddress(secondary || formattedAddress);
+  return {
+    place_id: String(placeId || "").trim(),
+    location_name: primary,
+    formatted_address: formattedAddress,
+    street: primary,
+    city: resolveCityFromSecondaryText(secondary) || parsed.city || "",
+    postal_code: parsed.postal_code || "",
+    province: "",
+    region: "",
+    country: resolveCountryFromSecondaryText(secondary) || "",
+    lat: null,
+    lng: null
+  };
+}
+
 async function fetchGooglePlaceDetails(placeId) {
   const apiKey = getGooglePlacesApiKey();
   if (!apiKey) throw new Error("Google Places API key missing");
@@ -2010,12 +2046,24 @@ async function handleLocationSuggestionSelection(placeId) {
   } catch (error) {
     console.warn("[Marcha Debug] Place details fetch failed:", error);
     const detailMessage = String(error?.message || "");
-    if (detailMessage.includes("HTTP 403")) {
+    const fallbackPlaceData = buildFallbackPlaceDataFromSuggestion(placeId);
+    if (fallbackPlaceData) {
+      locationAutocompleteState.suppressNextInputSearch = true;
+      applySelectedPlaceToForm(fallbackPlaceData);
+      hideLocationSuggestionList();
+      resetLocationSearchToken();
+      renderLocationAutocompleteStatus(
+        "Location selected (basic details). You can complete missing fields manually.",
+        "info"
+      );
+      return;
+    }
+    if (detailMessage.includes("HTTP 403") || detailMessage.toLowerCase().includes("failed to fetch")) {
       renderLocationAutocompleteStatus(
         "Google Place details blocked for this domain. Please verify website restrictions.",
         "error"
       );
-      setFormFeedback("Google Place details blocked for this domain.", "error");
+      setFormFeedback(t("form_error_places_details_cors"), "error");
     } else {
       setFormFeedback(t("form_error_geocoding_failed"), "error");
     }
