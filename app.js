@@ -28,7 +28,7 @@ const MOBILE_INSTALL_CTA_DISMISS_DAYS = 21;
 const USER_LOCATION_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const INSTALL_BANNER_SHOW_DELAY_MS = 2800;
 const ENABLE_LEGACY_INSTALL_BANNER = false;
-const INSTALL_UI_DEBUG = true;
+const INSTALL_UI_DEBUG = false;
 
 window.PARTYRADAR_CACHE_BUSTER = APP_BUILD_VERSION;
 
@@ -1154,6 +1154,7 @@ const locationAutocompleteState = {
   lastSearchText: "",
   isPointerDownOnSuggestions: false,
   suppressNextInputSearch: false,
+  detailsFetchUnavailable: false,
   suggestionsByPlaceId: new Map(),
   searchCounter: 0,
   activeRequestCounter: 0
@@ -2035,16 +2036,16 @@ function applySelectedPlaceToForm(placeData) {
 async function handleLocationSuggestionSelection(placeId) {
   if (!placeId) return;
   try {
-    console.log("[Marcha Debug] Selecting placeId:", placeId);
     const placeData = await fetchGooglePlaceDetails(placeId);
-    console.log("[Marcha Debug] Place details payload:", placeData);
     locationAutocompleteState.suppressNextInputSearch = true;
     applySelectedPlaceToForm(placeData);
     hideLocationSuggestionList();
     resetLocationSearchToken();
     setFormFeedback("", "info");
   } catch (error) {
-    console.warn("[Marcha Debug] Place details fetch failed:", error);
+    if (INSTALL_UI_DEBUG) {
+      console.warn("[Marcha Debug] Place details fetch failed:", error);
+    }
     const detailMessage = String(error?.message || "");
     const fallbackPlaceData = buildFallbackPlaceDataFromSuggestion(placeId);
     if (fallbackPlaceData) {
