@@ -13,7 +13,7 @@ const EVENT_IMAGES_BUCKET = "event-images";
 const MAX_EVENT_IMAGE_BYTES = 5 * 1024 * 1024;
 const ALLOWED_EVENT_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const DEFAULT_NAVIGATION_PROVIDER = "google";
-const GOOGLE_PLACES_AUTOCOMPLETE_DEBOUNCE_MS = 380;
+const GOOGLE_PLACES_AUTOCOMPLETE_DEBOUNCE_MS = 220;
 const GOOGLE_PLACES_AUTOCOMPLETE_MIN_CHARS = 3;
 const BETA_FEEDBACK_EMAIL = "beta@marcha.app";
 const FAVORITES_STORAGE_KEY = "vibeon_event_favorites";
@@ -361,6 +361,8 @@ const I18N = {
     form_error_rls_submit:
       "Zugriff durch Datenbank-Sicherheitsregel (RLS) blockiert. Bitte supabase-rls.sql ausführen/aktualisieren, damit pending Einreichungen erlaubt sind.",
     form_error_geocoding_failed: "Adresse konnte nicht geokodiert werden. Bitte Eingabe prüfen.",
+    form_error_places_details_cors:
+      "Google Places Detailabfrage wurde durch Browser/CORS blockiert. Bitte Domain-/Referrer-Regeln oder einen Places-Proxy prüfen.",
     form_error_image_required: "Bitte ein Hauptbild auswählen.",
     form_error_image_type: "Bitte ein gültiges Bild (JPG, PNG oder WebP) auswählen.",
     form_error_image_size: "Das Bild ist zu groß. Maximal 5 MB erlaubt.",
@@ -590,6 +592,8 @@ const I18N = {
     form_error_rls_submit:
       "Permission denied by database security (RLS). Please run/update supabase-rls.sql to allow pending event submissions.",
     form_error_geocoding_failed: "Address could not be geocoded. Please check your input.",
+    form_error_places_details_cors:
+      "Google Places detail request was blocked by browser/CORS. Please verify domain/referrer restrictions or use a Places proxy.",
     form_error_image_required: "Please select a main image.",
     form_error_image_type: "Please upload a valid image (JPG, PNG, or WebP).",
     form_error_image_size: "The image is too large. Maximum is 5 MB.",
@@ -819,6 +823,8 @@ const I18N = {
     form_error_rls_submit:
       "Permiso denegado por la seguridad de base de datos (RLS). Ejecuta/actualiza supabase-rls.sql para permitir envíos en estado pending.",
     form_error_geocoding_failed: "No se pudo geocodificar la dirección. Revisa los datos.",
+    form_error_places_details_cors:
+      "La consulta de detalles de Google Places fue bloqueada por el navegador/CORS. Verifica restricciones de dominio/referer o usa un proxy de Places.",
     form_error_image_required: "Selecciona una imagen principal.",
     form_error_image_type: "Sube una imagen válida (JPG, PNG o WebP).",
     form_error_image_size: "La imagen es demasiado grande. Máximo 5 MB.",
@@ -1146,6 +1152,9 @@ const locationAutocompleteState = {
   selectedPlace: null,
   selectedPredictionId: "",
   lastSearchText: "",
+  isPointerDownOnSuggestions: false,
+  suppressNextInputSearch: false,
+  suggestionsByPlaceId: new Map(),
   searchCounter: 0,
   activeRequestCounter: 0
 };
@@ -1626,6 +1635,7 @@ function resetLocationSearchToken() {
 
 function clearLocationSuggestionList() {
   if (!dom.formLocationSuggestionList) return;
+  locationAutocompleteState.suggestionsByPlaceId.clear();
   dom.formLocationSuggestionList.innerHTML = "";
   dom.formLocationSuggestionList.hidden = true;
   dom.formLocationSuggestionList.dataset.state = "hidden";
@@ -1640,6 +1650,7 @@ function clearLocationSuggestionList() {
 }
 
 function hideLocationSuggestionList() {
+  if (locationAutocompleteState.isPointerDownOnSuggestions) return;
   clearLocationSuggestionList();
 }
 
@@ -1698,8 +1709,20 @@ function buildLocationSuggestions(predictions) {
     .filter(Boolean);
 }
 
+async function selectLocationAutocompleteOption(placeId, pointerEvent = null) {
+  if (!placeId) return;
+  if (pointerEvent) {
+    pointerEvent.preventDefault();
+    pointerEvent.stopPropagation();
+  }
+  locationAutocompleteState.isPointerDownOnSuggestions = true;
+  renderLocationAutocompleteStatus("Loading location details...");
+  await handleLocationSuggestionSelection(placeId);
+}
+
 function renderLocationSuggestions(items) {
   if (!dom.formLocationSuggestionList) return;
+  locationAutocompleteState.suggestionsByPlaceId.clear();
   dom.formLocationSuggestionList.innerHTML = "";
   if (!items.length) {
     dom.formLocationSuggestionList.hidden = true;
@@ -1711,6 +1734,11 @@ function renderLocationSuggestions(items) {
   }
   const fragment = document.createDocumentFragment();
   items.forEach((item) => {
+    locationAutocompleteState.suggestionsByPlaceId.set(item.placeId, {
+      placeId: item.placeId,
+      suggestionText: String(item.suggestionText || "").trim(),
+      secondaryText: String(item.secondaryText || "").trim()
+    });
     const button = document.createElement("button");
     button.type = "button";
     button.className = "location-autocomplete__item";
@@ -1726,6 +1754,13 @@ function renderLocationSuggestions(items) {
       address.textContent = item.secondaryText;
       button.append(address);
     }
+    button.style.pointerEvents = "auto";
+    button.addEventListener("pointerdown", (event) => {
+      selectLocationAutocompleteOption(item.placeId, event);
+    });
+    button.addEventListener("click", (event) => {
+      selectLocationAutocompleteOption(item.placeId, event);
+    });
     fragment.append(button);
   });
   dom.formLocationSuggestionList.append(fragment);
@@ -1845,6 +1880,97 @@ function resolveStreetFromAddressComponents(addressComponents) {
   return venueStreet;
 }
 
+function splitFormattedAddressParts(formattedAddress) {
+  return String(formattedAddress || "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function parsePostalCodeAndCityFromFormattedAddress(formattedAddress) {
+  const parts = splitFormattedAddressParts(formattedAddress);
+  if (!parts.length) return { postal_code: "", city: "" };
+  const candidates = [...parts].reverse();
+  const cityPart = candidates.find((part) => /\d/.test(part));
+  if (!cityPart) {
+    return { postal_code: "", city: parts[parts.length - 2] || "" };
+  }
+  const postalMatch = cityPart.match(/\b\d{4,6}\b/);
+  const postal_code = postalMatch ? postalMatch[0] : "";
+  const city = cityPart
+    .replace(postal_code, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  return {
+    postal_code,
+    city: city || parts[parts.length - 2] || ""
+  };
+}
+
+function resolveFallbackCountryFromFormattedAddress(formattedAddress) {
+  const parts = splitFormattedAddressParts(formattedAddress);
+  if (!parts.length) return "";
+  return parts[parts.length - 1] || "";
+}
+
+function resolveFallbackCityFromFormattedAddress(formattedAddress) {
+  const parsed = parsePostalCodeAndCityFromFormattedAddress(formattedAddress);
+  return parsed.city || "";
+}
+
+function isLikelyCityToken(token) {
+  const value = String(token || "").trim();
+  if (!value) return false;
+  if (/\d/.test(value)) return false;
+  return true;
+}
+
+function resolveCityFromSecondaryText(secondaryText) {
+  const parts = String(secondaryText || "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (!parts.length) return "";
+  const cityCandidate = parts.find((part) => isLikelyCityToken(part));
+  if (cityCandidate) return cityCandidate;
+  return parts.length >= 2 ? parts[parts.length - 2] : parts[0];
+}
+
+function resolveCountryFromSecondaryText(secondaryText) {
+  const parts = String(secondaryText || "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (!parts.length) return "";
+  const candidate = parts[parts.length - 1] || "";
+  if (isLikelyCityToken(candidate) && parts.length >= 2) {
+    return "";
+  }
+  return candidate;
+}
+
+function buildFallbackPlaceDataFromSuggestion(placeId) {
+  const suggestion = locationAutocompleteState.suggestionsByPlaceId.get(placeId);
+  if (!suggestion) return null;
+  const primary = String(suggestion.suggestionText || "").trim();
+  const secondary = String(suggestion.secondaryText || "").trim();
+  const formattedAddress = [primary, secondary].filter(Boolean).join(", ");
+  const parsed = parsePostalCodeAndCityFromFormattedAddress(secondary || formattedAddress);
+  return {
+    place_id: String(placeId || "").trim(),
+    location_name: primary,
+    formatted_address: formattedAddress,
+    street: primary,
+    city: resolveCityFromSecondaryText(secondary) || parsed.city || "",
+    postal_code: parsed.postal_code || "",
+    province: "",
+    region: "",
+    country: resolveCountryFromSecondaryText(secondary) || "",
+    lat: null,
+    lng: null
+  };
+}
+
 async function fetchGooglePlaceDetails(placeId) {
   const apiKey = getGooglePlacesApiKey();
   if (!apiKey) throw new Error("Google Places API key missing");
@@ -1868,16 +1994,20 @@ async function fetchGooglePlaceDetails(placeId) {
   const lng = Number(place?.location?.longitude);
   const addressComponents = place?.addressComponents || [];
   const street = resolveStreetFromAddressComponents(addressComponents);
+  const formattedAddress = String(place?.formattedAddress || "").trim();
+  const fallbackPostalCity = parsePostalCodeAndCityFromFormattedAddress(formattedAddress);
+  const cityFromComponents = resolveCityFromAddressComponents(addressComponents);
+  const countryFromComponents = extractAddressPart(addressComponents, "country");
   return {
     place_id: normalizeGooglePlaceId(place?.id || normalizedPlaceId),
     location_name: String(place?.displayName?.text || "").trim(),
-    formatted_address: String(place?.formattedAddress || "").trim(),
+    formatted_address: formattedAddress,
     street,
-    city: resolveCityFromAddressComponents(addressComponents),
-    postal_code: extractAddressPart(addressComponents, "postal_code"),
+    city: cityFromComponents || resolveFallbackCityFromFormattedAddress(formattedAddress),
+    postal_code: extractAddressPart(addressComponents, "postal_code") || fallbackPostalCity.postal_code,
     province: resolveProvinceFromAddressComponents(addressComponents),
     region: resolveRegionFromAddressComponents(addressComponents),
-    country: extractAddressPart(addressComponents, "country"),
+    country: countryFromComponents || resolveFallbackCountryFromFormattedAddress(formattedAddress),
     lat: Number.isFinite(lat) ? lat : null,
     lng: Number.isFinite(lng) ? lng : null
   };
@@ -1905,13 +2035,40 @@ function applySelectedPlaceToForm(placeData) {
 async function handleLocationSuggestionSelection(placeId) {
   if (!placeId) return;
   try {
+    console.log("[Marcha Debug] Selecting placeId:", placeId);
     const placeData = await fetchGooglePlaceDetails(placeId);
+    console.log("[Marcha Debug] Place details payload:", placeData);
+    locationAutocompleteState.suppressNextInputSearch = true;
     applySelectedPlaceToForm(placeData);
     hideLocationSuggestionList();
     resetLocationSearchToken();
+    setFormFeedback("", "info");
   } catch (error) {
     console.warn("[Marcha Debug] Place details fetch failed:", error);
-    setFormFeedback(t("form_error_geocoding_failed"), "error");
+    const detailMessage = String(error?.message || "");
+    const fallbackPlaceData = buildFallbackPlaceDataFromSuggestion(placeId);
+    if (fallbackPlaceData) {
+      locationAutocompleteState.suppressNextInputSearch = true;
+      applySelectedPlaceToForm(fallbackPlaceData);
+      hideLocationSuggestionList();
+      resetLocationSearchToken();
+      renderLocationAutocompleteStatus(
+        "Location selected (basic details). You can complete missing fields manually.",
+        "info"
+      );
+      return;
+    }
+    if (detailMessage.includes("HTTP 403") || detailMessage.toLowerCase().includes("failed to fetch")) {
+      renderLocationAutocompleteStatus(
+        "Google Place details blocked for this domain. Please verify website restrictions.",
+        "error"
+      );
+      setFormFeedback(t("form_error_places_details_cors"), "error");
+    } else {
+      setFormFeedback(t("form_error_geocoding_failed"), "error");
+    }
+  } finally {
+    locationAutocompleteState.isPointerDownOnSuggestions = false;
   }
 }
 
@@ -1947,27 +2104,48 @@ const runLocationAutocompleteSearch = debounce(async () => {
   }
 }, GOOGLE_PLACES_AUTOCOMPLETE_DEBOUNCE_MS);
 
+function extractSecondaryTextFromSuggestionButton(option) {
+  if (!(option instanceof Element)) return "";
+  const secondaryNode = option.querySelector(".location-autocomplete__address");
+  return String(secondaryNode?.textContent || "").trim();
+}
+
+function applyFallbackLocationFieldsFromSuggestion(option) {
+  const secondaryText = extractSecondaryTextFromSuggestionButton(option);
+  if (!secondaryText) return;
+  if (dom.formCity && !String(dom.formCity.value || "").trim()) {
+    const city = resolveCityFromSecondaryText(secondaryText);
+    if (city) dom.formCity.value = city;
+  }
+  if (dom.formCountry && !String(dom.formCountry.value || "").trim()) {
+    const country = resolveCountryFromSecondaryText(secondaryText);
+    if (country) dom.formCountry.value = country;
+  }
+}
+
 function setupEventLocationAutocomplete() {
-  const apiKey = getGooglePlacesApiKey();
   if (
     !dom.formLocationName
     || !dom.formLocationSuggestionList
-    || !apiKey
   ) {
-    if (!apiKey) {
-      console.warn("[Marcha Debug] Google Places autocomplete disabled: missing API key (VITE_GOOGLE_MAPS_API_KEY).");
-      renderLocationAutocompleteStatus("Google Places key is missing. Suggestions are unavailable.", "error");
-      setFormFeedback("Google Places key is missing. Suggestions are currently unavailable.", "error");
-    }
     locationAutocompleteState.enabled = false;
     hideLocationSuggestionList();
     return;
+  }
+  const apiKey = getGooglePlacesApiKey();
+  if (!apiKey) {
+    console.warn("[Marcha Debug] Google Places key not present at setup; waiting for runtime key.");
+    renderLocationAutocompleteStatus("Waiting for Google Places key...", "info");
   }
   locationAutocompleteState.enabled = true;
   dom.formLocationName.setAttribute("aria-expanded", "false");
   const locationInputs = [dom.formLocationName, dom.formAddress, dom.formCity, dom.formCountry].filter(Boolean);
   locationInputs.forEach((input) => {
     input.addEventListener("input", () => {
+      if (locationAutocompleteState.suppressNextInputSearch) {
+        locationAutocompleteState.suppressNextInputSearch = false;
+        return;
+      }
       resetLocationSelection();
       runLocationAutocompleteSearch();
     });
@@ -1985,11 +2163,24 @@ function setupEventLocationAutocomplete() {
     });
   dom.formLocationName.addEventListener("blur", () => {
     window.setTimeout(() => {
+      if (locationAutocompleteState.isPointerDownOnSuggestions) return;
       const activeElement = document.activeElement;
       if (!(activeElement instanceof Element) || !activeElement.closest(".location-suggestions")) {
         hideLocationSuggestionList();
       }
     }, 100);
+  });
+  dom.formLocationName.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== "Tab") return;
+    if (!dom.formLocationSuggestionList || dom.formLocationSuggestionList.hidden) return;
+    const firstOption = dom.formLocationSuggestionList.querySelector(".location-autocomplete__item");
+    if (!(firstOption instanceof HTMLButtonElement)) return;
+    const placeId = String(firstOption.dataset.placeId || "").trim();
+    if (!placeId) return;
+    event.preventDefault();
+    selectLocationAutocompleteOption(placeId).then(() => {
+      dom.formAddress?.focus();
+    });
   });
 
   dom.formLocationSuggestionList.addEventListener("click", (event) => {
@@ -1998,7 +2189,22 @@ function setupEventLocationAutocomplete() {
     if (!option) return;
     const placeId = String(option.dataset.placeId || "").trim();
     if (!placeId) return;
-    handleLocationSuggestionSelection(placeId);
+    applyFallbackLocationFieldsFromSuggestion(option);
+    selectLocationAutocompleteOption(placeId, event);
+  });
+  dom.formLocationSuggestionList.addEventListener("pointerdown", () => {
+    locationAutocompleteState.isPointerDownOnSuggestions = true;
+  });
+  dom.formLocationSuggestionList.addEventListener("pointerup", () => {
+    window.setTimeout(() => {
+      locationAutocompleteState.isPointerDownOnSuggestions = false;
+    }, 0);
+  });
+  dom.formLocationSuggestionList.addEventListener("mouseup", () => {
+    locationAutocompleteState.isPointerDownOnSuggestions = false;
+  });
+  dom.formLocationSuggestionList.addEventListener("pointercancel", () => {
+    locationAutocompleteState.isPointerDownOnSuggestions = false;
   });
 
   document.addEventListener("click", (event) => {
@@ -2006,6 +2212,8 @@ function setupEventLocationAutocomplete() {
     const target = event.target instanceof Element ? event.target : null;
     if (!target) return;
     const insideAutocomplete = target.closest(".location-autocomplete-field");
+    const insideSuggestion = target.closest(".location-suggestions");
+    if (insideSuggestion) return;
     if (insideAutocomplete) return;
     hideLocationSuggestionList();
   });
