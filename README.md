@@ -1,4 +1,4 @@
-# PartyRadar
+# GoMarcha
 
 Platform for discovering local bands, live music events, DJs and venues.
 
@@ -42,8 +42,8 @@ Optional runtime config (set in `index.html` before loading `app.js`):
 
 ```html
 <script>
-  window.PARTYRADAR_GEOCODING_PROVIDER = "mapbox"; // "nominatim" | "mapbox"
-  window.PARTYRADAR_MAPBOX_TOKEN = "YOUR_MAPBOX_PUBLIC_TOKEN";
+  window.PARTYRADAR_GEOCODING_PROVIDER = "mapbox"; // Legacy alias kept for compatibility
+  window.PARTYRADAR_MAPBOX_TOKEN = "YOUR_MAPBOX_PUBLIC_TOKEN"; // Legacy alias kept for compatibility
 </script>
 ```
 
@@ -113,7 +113,7 @@ If you see `new row violates row-level security policy for table "events"`:
 
 - make sure the **insert policy** exists exactly as in `supabase-rls.sql`
 - then re-run the SQL script to refresh policies
-- in PartyRadar, event submit inserts as `status = 'pending'` and does not require reading back the inserted row
+- in GoMarcha, event submit inserts as `status = 'pending'` and does not require reading back the inserted row
 - if your DB has stricter ownership rules, also run the script section that explicitly allows `anon/authenticated` inserts with `status = 'pending'`
 
 ### Optional: Edge Function moderation endpoint
@@ -124,3 +124,14 @@ For even stronger isolation, add an Edge Function that performs moderation serve
 - update only `status` and `verification_notes`
 
 You can then route moderation updates through that endpoint instead of direct table updates from the browser.
+
+## Legacy runtime aliases
+
+GoMarcha currently keeps a few `PARTYRADAR_*` runtime variables as compatibility aliases so existing deployments do not break:
+
+- `window.PARTYRADAR_CACHE_BUSTER`
+- `window.PARTYRADAR_GEOCODING_PROVIDER`
+- `window.PARTYRADAR_MAPBOX_TOKEN`
+- `window.PARTYRADAR_GOOGLE_PLACES_KEY`
+
+These aliases remain supported while the public branding and docs use GoMarcha naming.

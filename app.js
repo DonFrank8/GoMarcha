@@ -32,8 +32,8 @@ const INSTALL_UI_DEBUG = false;
 
 window.PARTYRADAR_CACHE_BUSTER = APP_BUILD_VERSION;
 
-const DEFAULT_CENTER = [51.1657, 10.4515];
-const DEFAULT_ZOOM = 6;
+const DEFAULT_CENTER = [36.5101, -4.8824];
+const DEFAULT_ZOOM = 11;
 
 const demoEvents = [
   {
@@ -270,7 +270,7 @@ const I18N = {
     hero_location_label: "In deiner Nähe",
     hero_chip_fallback: "Live-Momente entdecken",
     hero_chip_vibe: "Live Music • Beach • Lifestyle",
-    featured_title: "Featured heute",
+    featured_title: "Heute",
     view_list: "Liste",
     featured_open: "Mehr Infos",
     view_map: "Karte",
@@ -282,6 +282,9 @@ const I18N = {
     sheet_sort_soonest: "Bald",
     sheet_filter: "Filter",
     sheet_search_placeholder: "Im Bereich suchen...",
+    sheet_count_total_zero: "Keine Events",
+    sheet_count_total: "{count} Events",
+    sheet_count_selected: "{count} ausgewählt",
     map_search_area: "In diesem Bereich suchen",
     map_search_loading: "Suche...",
     quick_all: "Alle",
@@ -336,6 +339,8 @@ const I18N = {
     details_genre: "Genre",
     details_price: "Preis",
     details_navigate: "Route starten",
+    details_view: "Details ansehen",
+    details_back: "Zurück zur Vorschau",
     details_free: "Eintritt frei",
     details_no_description: "Keine Beschreibung vorhanden.",
     details_time_fallback: "Uhrzeit folgt",
@@ -501,7 +506,7 @@ const I18N = {
     hero_location_label: "Near you",
     hero_chip_fallback: "Discover live moments",
     hero_chip_vibe: "Live Music • Beach • Lifestyle",
-    featured_title: "Featured events",
+    featured_title: "Today",
     view_list: "List",
     featured_open: "Details",
     view_map: "Map",
@@ -513,6 +518,9 @@ const I18N = {
     sheet_sort_soonest: "Soonest",
     sheet_filter: "Filter",
     sheet_search_placeholder: "Search in this area...",
+    sheet_count_total_zero: "No events",
+    sheet_count_total: "{count} events",
+    sheet_count_selected: "{count} selected",
     map_search_area: "Search this area",
     map_search_loading: "Searching...",
     quick_all: "All",
@@ -567,6 +575,8 @@ const I18N = {
     details_genre: "Genre",
     details_price: "Price",
     details_navigate: "Start route",
+    details_view: "View details",
+    details_back: "Back to preview",
     details_free: "Free entry",
     details_no_description: "No description available.",
     details_time_fallback: "Time TBD",
@@ -732,7 +742,7 @@ const I18N = {
     hero_location_label: "Cerca de ti",
     hero_chip_fallback: "Descubre momentos en vivo",
     hero_chip_vibe: "Live Music • Beach • Lifestyle",
-    featured_title: "Destacados de hoy",
+    featured_title: "Hoy",
     view_list: "Lista",
     featured_open: "Más info",
     view_map: "Mapa",
@@ -744,6 +754,9 @@ const I18N = {
     sheet_sort_soonest: "Pronto",
     sheet_filter: "Filtros",
     sheet_search_placeholder: "Buscar en esta zona...",
+    sheet_count_total_zero: "Sin eventos",
+    sheet_count_total: "{count} eventos",
+    sheet_count_selected: "{count} seleccionado",
     map_search_area: "Buscar en esta zona",
     map_search_loading: "Buscando...",
     quick_all: "Todo",
@@ -798,6 +811,8 @@ const I18N = {
     details_genre: "Género",
     details_price: "Precio",
     details_navigate: "Iniciar ruta",
+    details_view: "Ver detalles",
+    details_back: "Volver a la vista previa",
     details_free: "Entrada gratuita",
     details_no_description: "No hay descripción disponible.",
     details_time_fallback: "Hora por confirmar",
@@ -1048,8 +1063,7 @@ const dom = {
   bottomNavDiscover: document.getElementById("bottomNavDiscover"),
   bottomNavMap: document.getElementById("bottomNavMap"),
   bottomNavSubmit: document.getElementById("bottomNavSubmit"),
-  featuredCarousel: document.getElementById("featuredCarousel"),
-  featuredCount: document.getElementById("featuredCount"),
+  heroTodayCountLabel: document.getElementById("heroTodayCountLabel"),
   quickCategoryRail: document.getElementById("quickCategoryRail"),
   viewToggleList: document.getElementById("viewToggleList"),
   viewToggleMap: document.getElementById("viewToggleMap"),
@@ -1327,6 +1341,7 @@ function switchLanguage(nextLangCode) {
     const titleElement = dom.mapBottomSheet.querySelector("[data-i18n='sheet_title']");
     if (titleElement) titleElement.textContent = t("sheet_title");
   }
+  updateMapBottomSheetMeta();
   renderQuickCategories();
   updateFilterOptions();
   syncHeroFilterOptions();
@@ -4972,6 +4987,18 @@ function pickFeaturedEvents() {
     .slice(0, 6);
 }
 
+function formatHeroTodayCountLabel(count) {
+  const safeCount = Number.isFinite(Number(count)) ? Math.max(0, Number(count)) : 0;
+  const title = t("featured_title");
+  if (state.lang === "en") {
+    return `${title} ${safeCount} events`;
+  }
+  if (state.lang === "es") {
+    return `${title} ${safeCount} eventos`;
+  }
+  return `${title} ${safeCount} Events`;
+}
+
 function createFeaturedCard(event) {
   const card = document.createElement("article");
   card.className = "featured-card";
@@ -5033,21 +5060,9 @@ function createFeaturedCard(event) {
 }
 
 function renderFeaturedEvents() {
-  if (!dom.featuredCarousel || !dom.featuredCount) return;
+  if (!dom.heroTodayCountLabel) return;
   const featuredEvents = pickFeaturedEvents();
-  dom.featuredCount.textContent = String(featuredEvents.length);
-  dom.featuredCarousel.innerHTML = "";
-  if (!featuredEvents.length) {
-    const empty = document.createElement("div");
-    empty.className = "featured-empty";
-    empty.textContent = t("no_events_found");
-    dom.featuredCarousel.append(empty);
-    return;
-  }
-
-  featuredEvents.forEach((event) => {
-    dom.featuredCarousel.append(createFeaturedCard(event));
-  });
+  dom.heroTodayCountLabel.textContent = formatHeroTodayCountLabel(featuredEvents.length);
 }
 
 function mapSheetIsAvailable() {
@@ -5071,9 +5086,9 @@ function mapSheetStateIndex(sheetState) {
 }
 
 function mapSheetOffsetYByState(sheetState) {
-  if (sheetState === "peek") return -70;
+  if (sheetState === "peek") return -96;
   if (sheetState === "full") return 0;
-  return -120;
+  return -140;
 }
 
 function flyToEventWithMapSheetOffset(event, zoom = 13) {
@@ -5112,11 +5127,15 @@ function computeMapBottomSheetSnapHeights() {
   if (!mapSheetIsAvailable()) return;
   const viewportHeight = window.innerHeight || 844;
   const mapHeight = dom.mapSection.clientHeight || 430;
-  const safeTop = mapSheetIsMobileViewport() ? 47 : 0;
-  const safeBottom = mapSheetIsMobileViewport() ? 34 : 0;
-  const fullTop = safeTop + 12;
-  const halfTop = Math.round(viewportHeight * 0.46);
-  const peekTop = viewportHeight - (132 + 66 + safeBottom + 10);
+  const mobileViewport = mapSheetIsMobileViewport();
+  const safeTop = mobileViewport ? 47 : 0;
+  const safeBottom = mobileViewport ? 34 : 0;
+  const mobileBottomNavHeight = mobileViewport ? 66 : 0;
+  const shellBottomOffset = mobileViewport ? mobileBottomNavHeight + safeBottom + 10 : 10;
+  const fullTop = safeTop + 8;
+  const halfTop = mobileViewport ? Math.round(viewportHeight * 0.43) : Math.round(viewportHeight * 0.46);
+  const peekHeightTarget = mobileViewport ? 228 : 156;
+  const peekTop = Math.max(fullTop + 84, viewportHeight - (peekHeightTarget + shellBottomOffset));
 
   state.mapSheet.snapPx = {
     full: fullTop,
@@ -5125,7 +5144,7 @@ function computeMapBottomSheetSnapHeights() {
   };
 
   const topToSheetHeight = (topPx) =>
-    clampNumber(viewportHeight - topPx, 120, Math.max(120, mapHeight - 8));
+    clampNumber(viewportHeight - topPx, mobileViewport ? 150 : 120, Math.max(150, mapHeight - 8));
   const fullHeight = topToSheetHeight(fullTop);
   const halfHeight = topToSheetHeight(halfTop);
   const peekHeight = topToSheetHeight(peekTop);
@@ -5142,6 +5161,7 @@ function setMapBottomSheetState(nextState, { animate = true } = {}) {
   state.mapSheet.state = normalizedState;
   if (!animate) dom.mapBottomSheet.classList.add("is-dragging");
   dom.mapBottomSheet.dataset.sheetState = normalizedState;
+  dom.mapBottomSheet.setAttribute("aria-expanded", normalizedState === "full" ? "true" : "false");
   dom.mapBottomSheet.style.transform = "translateY(0)";
   state.mapSheet.currentTop = state.mapSheet.snapPx[normalizedState] || state.mapSheet.snapPx.half || 0;
   if (previousState !== normalizedState && animate) {
@@ -5156,13 +5176,25 @@ function setMapBottomSheetState(nextState, { animate = true } = {}) {
   if (!animate) {
     window.requestAnimationFrame(() => dom.mapBottomSheet.classList.remove("is-dragging"));
   }
+  if (state.viewMode === "map") {
+    window.setTimeout(() => map?.invalidateSize(), animate ? 140 : 40);
+  }
+}
+
+function formatMapBottomSheetCountLabel() {
+  const total = Math.max(0, Number(state.filteredEvents.length) || 0);
+  const selected = state.selectedEventId ? 1 : 0;
+  if (selected) return t("sheet_count_selected", { count: selected });
+  if (total === 0) return t("sheet_count_total_zero");
+  return t("sheet_count_total", { count: total });
 }
 
 function updateMapBottomSheetMeta() {
   if (!dom.mapBottomSheetCount) return;
   dom.mapBottomSheetCount.classList.remove("is-updated");
   window.requestAnimationFrame(() => dom.mapBottomSheetCount.classList.add("is-updated"));
-  dom.mapBottomSheetCount.textContent = String(state.filteredEvents.length);
+  dom.mapBottomSheetCount.textContent = formatMapBottomSheetCountLabel();
+  dom.mapBottomSheetCount.dataset.scope = state.selectedEventId ? "selected" : "total";
 }
 
 function setMapSearchAreaCtaLoading(isLoading) {
@@ -5351,7 +5383,8 @@ function setViewMode(nextMode, { scroll = false } = {}) {
   if (dom.bottomNavDiscover) dom.bottomNavDiscover.classList.toggle("is-active", resolvedMode === "list");
   if (dom.bottomNavMap) dom.bottomNavMap.classList.toggle("is-active", resolvedMode === "map");
   if (mapSheetIsAvailable()) {
-    setMapBottomSheetState(resolvedMode === "map" ? "half" : "peek");
+    const nextSheetState = resolvedMode === "map" && mapSheetIsMobileViewport() ? "peek" : "half";
+    setMapBottomSheetState(resolvedMode === "map" ? nextSheetState : "peek");
   }
 
   if (resolvedMode === "map") {
@@ -5477,6 +5510,7 @@ function renderMapSheetEmptyState() {
       <button type="button" class="button-secondary button-secondary--primary" data-action="sheet-expand-search">${t("sheet_filter")}</button>
     </div>
   `;
+  updateMapBottomSheetMeta();
 }
 
 function createMarkerIcon(event, active = false) {
@@ -5637,6 +5671,7 @@ function renderEventDetails(event) {
     : "";
   const dateText = formatDate(event.event_date, true);
   const timeText = event.event_time || t("details_time_fallback");
+  const dateTimeText = [dateText, timeText].filter(Boolean).join(" • ");
   const genreText = event.genre || "-";
   const priceText = formatPrice(event.price_text);
   const topGenreBadge = genreText && genreText !== "-"
@@ -5675,6 +5710,14 @@ function renderEventDetails(event) {
           <p>${descriptionText}</p>
        </article>`
     : "";
+  const previewArtistLine = mainArtist || additionalArtists || "";
+  const previewLocationLine = [locationLead, addressDetail].filter(Boolean).join(" · ");
+  const previewImageMarkup = event.image_url
+    ? `<img class="event-details__preview-image" src="${event.image_url}" alt="${event.name}" loading="lazy">`
+    : `<span class="event-details__preview-image-fallback" aria-hidden="true">🎵</span>`;
+  const previewArtistMarkup = previewArtistLine
+    ? `<span class="event-details__preview-artist">${previewArtistLine}</span>`
+    : "";
   const navigationCtaInline = navigationUrl
     ? `
       <button
@@ -5698,45 +5741,69 @@ function renderEventDetails(event) {
       </button>
       `;
   dom.eventDetails.innerHTML = `
-    <div class="event-details__layout">
-      <div class="event-details__media">
-        ${
-          event.image_url
-            ? `<img class="event-details__image" src="${event.image_url}" alt="${event.name}" loading="lazy">`
-            : `<div class="event-details__image-fallback" aria-hidden="true"><span>🎵</span></div>`
-        }
+    <div class="event-details__preview">
+      <button
+        type="button"
+        class="event-details__preview-card"
+        data-action="details-preview"
+        data-event-id="${event.id}"
+      >
+        <span class="event-details__preview-media">
+          ${previewImageMarkup}
+        </span>
+        <span class="event-details__preview-main">
+          <span class="event-details__preview-title">${event.name}</span>
+          ${previewArtistMarkup}
+          <span class="event-details__preview-meta">${previewLocationLine || "-"}</span>
+          <span class="event-details__preview-meta">${dateTimeText}</span>
+        </span>
+        <span class="event-details__preview-cta">${t("details_view")}</span>
+      </button>
+    </div>
+    <div class="event-details__full">
+      <div class="event-details__sheet-actions">
+        <button type="button" class="button-link event-details__back" data-action="details-collapse">${t("details_back")}</button>
       </div>
-      <div class="event-details__content">
-        <div class="event-details__header">
-          <h4>${event.name}</h4>
-          ${artistLine}
-          ${additionalArtistsLine}
-          <div class="event-details__location-row">
-            <p class="event-details__location-lead">📍 ${locationLead}</p>
-            ${navigationCtaInline}
+      <div class="event-details__layout">
+        <div class="event-details__media">
+          ${
+            event.image_url
+              ? `<img class="event-details__image" src="${event.image_url}" alt="${event.name}" loading="lazy">`
+              : `<div class="event-details__image-fallback" aria-hidden="true"><span>🎵</span></div>`
+          }
+        </div>
+        <div class="event-details__content">
+          <div class="event-details__header">
+            <h4>${event.name}</h4>
+            ${artistLine}
+            ${additionalArtistsLine}
+            <div class="event-details__location-row">
+              <p class="event-details__location-lead">📍 ${locationLead}</p>
+              ${navigationCtaInline}
+            </div>
+            ${topBadgesMarkup}
+            <p class="event-details__venue-detail">${addressDetail}</p>
+            ${cityCountryMarkup}
+            ${locationExtraMarkup}
+            ${distancePlaceholder}
+            ${recurringLine}
           </div>
-          ${topBadgesMarkup}
-          <p class="event-details__venue-detail">${addressDetail}</p>
-          ${cityCountryMarkup}
-          ${locationExtraMarkup}
-          ${distancePlaceholder}
-          ${recurringLine}
+          <div class="event-details__flow">
+            <article class="event-details__section">
+              <h5>${t("details_date")}</h5>
+              <p>${dateTimeText}</p>
+            </article>
+            <article class="event-details__section">
+              <h5>${t("details_genre")}</h5>
+              <p>${genreText}</p>
+            </article>
+            <article class="event-details__section">
+              <h5>${t("details_price")}</h5>
+              <p>${priceText}</p>
+            </article>
+          </div>
+          ${descriptionMarkup}
         </div>
-        <div class="event-details__flow">
-          <article class="event-details__section">
-            <h5>${t("details_date")}</h5>
-            <p>${dateText} • ${timeText}</p>
-          </article>
-          <article class="event-details__section">
-            <h5>${t("details_genre")}</h5>
-            <p>${genreText}</p>
-          </article>
-          <article class="event-details__section">
-            <h5>${t("details_price")}</h5>
-            <p>${priceText}</p>
-          </article>
-        </div>
-        ${descriptionMarkup}
       </div>
     </div>
   `;
@@ -5744,7 +5811,7 @@ function renderEventDetails(event) {
   window.requestAnimationFrame(() => {
     dom.eventDetails.classList.add("event-details--animate-in");
   });
-  if (state.viewMode === "map" && mapSheetIsAvailable()) {
+  if (state.viewMode === "map" && mapSheetIsAvailable() && mapSheetIsMobileViewport()) {
     setMapBottomSheetState("half");
   }
 }
@@ -5770,21 +5837,22 @@ function resolveSelectEventOptions(source) {
       flyTo: Boolean(source.flyTo),
       openPopup: Boolean(source.openPopup),
       scrollIntoView: Boolean(source.scrollIntoView),
-      preferMapOnMobile: Boolean(source.preferMapOnMobile)
+      preferMapOnMobile: Boolean(source.preferMapOnMobile),
+      expandSheet: Boolean(source.expandSheet)
     };
   }
 
   const sourceKey = String(source || "list").toLowerCase();
   if (sourceKey === "featured") {
-    return { flyTo: true, openPopup: true, scrollIntoView: true, preferMapOnMobile: false };
+    return { flyTo: true, openPopup: true, scrollIntoView: true, preferMapOnMobile: false, expandSheet: true };
   }
   if (sourceKey === "marker") {
-    return { flyTo: false, openPopup: false, scrollIntoView: true, preferMapOnMobile: false };
+    return { flyTo: false, openPopup: false, scrollIntoView: true, preferMapOnMobile: false, expandSheet: true };
   }
   if (sourceKey === "list") {
-    return { flyTo: true, openPopup: true, scrollIntoView: false, preferMapOnMobile: true };
+    return { flyTo: true, openPopup: true, scrollIntoView: false, preferMapOnMobile: true, expandSheet: true };
   }
-  return { flyTo: false, openPopup: false, scrollIntoView: false, preferMapOnMobile: false };
+  return { flyTo: false, openPopup: false, scrollIntoView: false, preferMapOnMobile: false, expandSheet: false };
 }
 
 function renderActiveCard(options = { scrollIntoView: false }) {
@@ -5807,10 +5875,13 @@ function focusMapOnEvent(eventData, options = { flyTo: false, openPopup: false }
   if (options.openPopup && marker) marker.openPopup();
 }
 
-function openMapDetails() {
+function openMapDetails(options = {}) {
   if (!mapSheetIsAvailable()) return;
-  // Detail content should open from every selection entry point, even if desktop view mode is "list".
-  setMapBottomSheetState(mapSheetIsMobileViewport() ? "peek" : "half");
+  const shouldExpand = Boolean(options.expandSheet);
+  const nextState = mapSheetIsMobileViewport()
+    ? (shouldExpand ? "half" : "peek")
+    : "half";
+  setMapBottomSheetState(nextState);
 }
 
 function selectEvent(eventData, source = "list") {
@@ -5825,11 +5896,12 @@ function selectEvent(eventData, source = "list") {
   state.activeEventId = resolvedEvent.id;
   state.activeEvent = resolvedEvent;
   state.selectedEventId = resolvedEvent.id;
+  updateMapBottomSheetMeta();
 
   renderActiveCard({ scrollIntoView: options.scrollIntoView });
   renderEventDetails(resolvedEvent);
   focusMapOnEvent(resolvedEvent, options);
-  openMapDetails();
+  openMapDetails(options);
 }
 
 function clearGenreSelection() {
@@ -6283,6 +6355,18 @@ function bindEvents() {
     dom.eventDetails.addEventListener("click", (event) => {
       const target = event.target instanceof Element ? event.target : null;
       if (!target) return;
+      const detailsPreviewButton = target.closest("button[data-action='details-preview']");
+      if (detailsPreviewButton) {
+        setMapBottomSheetState("full");
+        window.setTimeout(() => map?.invalidateSize(), 100);
+        return;
+      }
+      const detailsCollapseButton = target.closest("button[data-action='details-collapse']");
+      if (detailsCollapseButton) {
+        setMapBottomSheetState("peek");
+        window.setTimeout(() => map?.invalidateSize(), 100);
+        return;
+      }
       const navigateButton = target.closest("button[data-action='details-navigate']");
       if (navigateButton) {
         const eventId = navigateButton.dataset.eventId || state.selectedEventId;
