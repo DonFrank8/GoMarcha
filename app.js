@@ -368,6 +368,12 @@ const I18N = {
     details_navigate: "Route öffnen",
     details_view: "Details ansehen",
     details_back: "Zurück zur Vorschau",
+    details_share: "Teilen",
+    details_save: "Favorit",
+    details_close_short: "Zurück",
+    details_share_copy_success: "Link kopiert.",
+    details_share_not_supported: "Teilen wird auf diesem Gerät nicht unterstützt.",
+    details_share_error: "Teilen ist gerade nicht möglich.",
     details_free: "Eintritt frei",
     details_no_description: "Keine Beschreibung vorhanden.",
     details_time_fallback: "Uhrzeit folgt",
@@ -604,6 +610,12 @@ const I18N = {
     details_navigate: "Open route",
     details_view: "View details",
     details_back: "Back to preview",
+    details_share: "Share",
+    details_save: "Save",
+    details_close_short: "Back",
+    details_share_copy_success: "Link copied.",
+    details_share_not_supported: "Sharing is not supported on this device.",
+    details_share_error: "Unable to share right now.",
     details_free: "Free entry",
     details_no_description: "No description available.",
     details_time_fallback: "Time TBD",
@@ -840,6 +852,12 @@ const I18N = {
     details_navigate: "Abrir ruta",
     details_view: "Ver detalles",
     details_back: "Volver a la vista previa",
+    details_share: "Compartir",
+    details_save: "Guardar",
+    details_close_short: "Atrás",
+    details_share_copy_success: "Enlace copiado.",
+    details_share_not_supported: "Compartir no es compatible en este dispositivo.",
+    details_share_error: "No se puede compartir ahora mismo.",
     details_free: "Entrada gratuita",
     details_no_description: "No hay descripción disponible.",
     details_time_fallback: "Hora por confirmar",
@@ -3782,6 +3800,49 @@ function openNavigationForEvent(event) {
   openRoute(event);
 }
 
+function buildEventSharePayload(event) {
+  if (!event) return null;
+  const title = String(event.name || "").trim() || "GoMarcha Event";
+  const dateLine = [formatDate(event.event_date, true), event.event_time || t("details_time_fallback")]
+    .filter(Boolean)
+    .join(" • ");
+  const locationLine = [event.location_name, event.city, event.country]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .join(" · ");
+  const text = [title, dateLine, locationLine].filter(Boolean).join("\n");
+  return {
+    title,
+    text,
+    url: buildNavigationUrl(event) || window.location.href
+  };
+}
+
+async function shareEventFromDetails(event) {
+  const payload = buildEventSharePayload(event);
+  if (!payload) return;
+  if (navigator.share) {
+    try {
+      await navigator.share(payload);
+      return;
+    } catch (error) {
+      if (String(error?.name || "") === "AbortError") return;
+      setStatus(t("details_share_error"), "warning");
+      return;
+    }
+  }
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(payload.url);
+      setStatus(t("details_share_copy_success"), "ok");
+      return;
+    } catch (_error) {
+      // Fallback warning below.
+    }
+  }
+  setStatus(t("details_share_not_supported"), "warning");
+}
+
 function normalizeFilterText(value) {
   return String(value || "")
     .trim()
@@ -5185,10 +5246,10 @@ function computeMapBottomSheetSnapHeights() {
   const safeBottom = mobileViewport ? 34 : 0;
   const mobileBottomNavHeight = mobileViewport ? 66 : 0;
   const shellBottomOffset = mobileViewport ? mobileBottomNavHeight + safeBottom + 10 : 10;
-  const fullTop = safeTop + 8;
-  const halfTop = mobileViewport ? Math.round(viewportHeight * 0.43) : Math.round(viewportHeight * 0.46);
-  const peekHeightTarget = mobileViewport ? 228 : 156;
-  const peekTop = Math.max(fullTop + 84, viewportHeight - (peekHeightTarget + shellBottomOffset));
+  const fullTop = mobileViewport ? Math.max(safeTop + 6, Math.round(viewportHeight * 0.11)) : safeTop + 8;
+  const halfTop = mobileViewport ? Math.round(viewportHeight * 0.34) : Math.round(viewportHeight * 0.46);
+  const peekHeightTarget = mobileViewport ? 248 : 156;
+  const peekTop = Math.max(fullTop + 96, viewportHeight - (peekHeightTarget + shellBottomOffset));
 
   state.mapSheet.snapPx = {
     full: fullTop,
@@ -5197,7 +5258,7 @@ function computeMapBottomSheetSnapHeights() {
   };
 
   const topToSheetHeight = (topPx) =>
-    clampNumber(viewportHeight - topPx, mobileViewport ? 150 : 120, Math.max(150, mapHeight - 8));
+    clampNumber(viewportHeight - topPx, mobileViewport ? 180 : 120, Math.max(150, mapHeight - 8));
   const fullHeight = topToSheetHeight(fullTop);
   const halfHeight = topToSheetHeight(halfTop);
   const peekHeight = topToSheetHeight(peekTop);
@@ -5216,6 +5277,7 @@ function setMapBottomSheetState(nextState, { animate = true } = {}) {
   dom.mapBottomSheet.dataset.sheetState = normalizedState;
   dom.mapBottomSheet.setAttribute("aria-expanded", normalizedState === "full" ? "true" : "false");
   dom.mapBottomSheet.style.transform = "translateY(0)";
+  dom.mapBottomSheet.classList.toggle("is-detail-view", normalizedState === "full" && Boolean(state.selectedEventId));
   state.mapSheet.currentTop = state.mapSheet.snapPx[normalizedState] || state.mapSheet.snapPx.half || 0;
   if (previousState !== normalizedState && animate) {
     pulseHaptic(8);
@@ -5747,10 +5809,6 @@ function renderEventDetails(event) {
   dom.eventDetails.className = "event-details event-details--filled";
   const locationName = String(event.location_name || "").trim();
   const venueCategory = String(event.venue_category || event.location_category || "").trim();
-  const addressLine = [event.address, event.postal_code, event.city, event.country]
-    .map((value) => String(value || "").trim())
-    .filter(Boolean)
-    .join(", ");
   const fallbackLocationLine = [locationName, event.address, event.city].filter(Boolean).join(", ");
   const navigationUrl = buildNavigationUrl(event);
   const mainArtist = String(event.artist_name || "").trim();
@@ -5812,11 +5870,11 @@ function renderEventDetails(event) {
   const previewArtistMarkup = previewArtistLine
     ? `<span class="event-details__preview-artist">${previewArtistLine}</span>`
     : "";
-  const navigationCtaInline = navigationUrl
+  const routeButtonMarkup = navigationUrl
     ? `
       <button
         type="button"
-        class="button-secondary event-details__route-inline"
+        class="button-secondary button-secondary--navigate event-details__action event-details__action--primary"
         data-action="details-navigate"
         data-event-id="${event.id}"
       >
@@ -5826,7 +5884,7 @@ function renderEventDetails(event) {
     : `
       <button
         type="button"
-        class="button-secondary event-details__route-inline"
+        class="button-secondary button-secondary--navigate event-details__action event-details__action--primary"
         data-action="details-navigate"
         data-event-id="${event.id}"
         disabled
@@ -5834,6 +5892,28 @@ function renderEventDetails(event) {
         ${t("details_navigate")}
       </button>
       `;
+  const favoriteActive = isFavoriteEvent(event.id);
+  const shareButtonMarkup = `
+    <button
+      type="button"
+      class="button-secondary event-details__action"
+      data-action="details-share"
+      data-event-id="${event.id}"
+    >
+      ${t("details_share")}
+    </button>
+  `;
+  const favoriteButtonMarkup = `
+    <button
+      type="button"
+      class="button-secondary event-details__action event-details__action--favorite ${favoriteActive ? "is-active" : ""}"
+      data-action="details-save"
+      data-event-id="${event.id}"
+      aria-pressed="${favoriteActive ? "true" : "false"}"
+    >
+      ${t("details_save")}
+    </button>
+  `;
   dom.eventDetails.innerHTML = `
     <div class="event-details__preview">
       <button
@@ -5851,12 +5931,15 @@ function renderEventDetails(event) {
           <span class="event-details__preview-meta">${previewLocationLine || "-"}</span>
           <span class="event-details__preview-meta">${dateTimeText}</span>
         </span>
-        <span class="event-details__preview-cta">${t("details_view")}</span>
+        <span class="event-details__preview-cta">
+          <span>${t("details_view")}</span>
+          <span class="event-details__preview-cta-icon" aria-hidden="true">→</span>
+        </span>
       </button>
     </div>
     <div class="event-details__full">
       <div class="event-details__sheet-actions">
-        <button type="button" class="button-link event-details__back" data-action="details-collapse">${t("details_back")}</button>
+        <button type="button" class="button-link event-details__back" data-action="details-collapse">${t("details_close_short")}</button>
       </div>
       <div class="event-details__layout">
         <div class="event-details__media">
@@ -5871,16 +5954,13 @@ function renderEventDetails(event) {
             <h4>${event.name}</h4>
             ${artistLine}
             ${additionalArtistsLine}
-            <div class="event-details__location-row">
-              <p class="event-details__location-lead">📍 ${locationLead}</p>
-              ${navigationCtaInline}
-            </div>
-            ${topBadgesMarkup}
+            <p class="event-details__location-lead">📍 ${locationLead}</p>
             <p class="event-details__venue-detail">${addressDetail}</p>
             ${cityCountryMarkup}
             ${locationExtraMarkup}
             ${distancePlaceholder}
             ${recurringLine}
+            ${topBadgesMarkup}
           </div>
           <div class="event-details__flow">
             <article class="event-details__section">
@@ -5895,6 +5975,11 @@ function renderEventDetails(event) {
               <h5>${t("details_price")}</h5>
               <p>${priceText}</p>
             </article>
+          </div>
+          <div class="event-details__full-actions">
+            ${routeButtonMarkup}
+            ${shareButtonMarkup}
+            ${favoriteButtonMarkup}
           </div>
           ${descriptionMarkup}
         </div>
@@ -5973,7 +6058,7 @@ function openMapDetails(options = {}) {
   if (!mapSheetIsAvailable()) return;
   const shouldExpand = Boolean(options.expandSheet);
   const nextState = mapSheetIsMobileViewport()
-    ? (shouldExpand ? "half" : "peek")
+    ? (shouldExpand ? "full" : "peek")
     : "half";
   setMapBottomSheetState(nextState);
 }
@@ -6459,6 +6544,27 @@ function bindEvents() {
       if (detailsCollapseButton) {
         setMapBottomSheetState("peek");
         window.setTimeout(() => map?.invalidateSize(), 100);
+        return;
+      }
+      const shareButton = target.closest("button[data-action='details-share']");
+      if (shareButton) {
+        const eventId = shareButton.dataset.eventId || state.selectedEventId;
+        const selectedEvent = findEventById(eventId) || state.activeEvent;
+        if (selectedEvent) {
+          shareEventFromDetails(selectedEvent);
+        } else {
+          setStatus(t("details_share_error"), "warning");
+        }
+        return;
+      }
+      const saveButton = target.closest("button[data-action='details-save']");
+      if (saveButton) {
+        const eventId = saveButton.dataset.eventId || state.selectedEventId;
+        if (eventId) {
+          const isFavorite = toggleFavoriteEvent(eventId);
+          saveButton.classList.toggle("is-active", isFavorite);
+          saveButton.setAttribute("aria-pressed", String(isFavorite));
+        }
         return;
       }
       const navigateButton = target.closest("button[data-action='details-navigate']");
