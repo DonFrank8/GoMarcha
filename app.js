@@ -29,11 +29,38 @@ const USER_LOCATION_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const INSTALL_BANNER_SHOW_DELAY_MS = 2800;
 const ENABLE_LEGACY_INSTALL_BANNER = false;
 const INSTALL_UI_DEBUG = false;
+const MAP_DEBUG_LOGS = !["prod", "production"].includes(String(window.location?.hostname || "").toLowerCase());
 
 window.PARTYRADAR_CACHE_BUSTER = APP_BUILD_VERSION;
 
 const DEFAULT_CENTER = [36.5101, -4.8824];
 const DEFAULT_ZOOM = 11;
+const DEFAULT_SINGLE_MARKER_ZOOM = 14;
+const COSTA_DEL_SOL_BOUNDS = Object.freeze({
+  minLat: 35.9,
+  maxLat: 36.95,
+  minLng: -5.75,
+  maxLng: -4.05
+});
+
+function mapDebugLog(message, payload = {}) {
+  if (!MAP_DEBUG_LOGS) return;
+  console.info(message, payload);
+}
+
+function isCoordinateWithinBounds(lat, lng, bounds = COSTA_DEL_SOL_BOUNDS) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  return lat >= bounds.minLat && lat <= bounds.maxLat && lng >= bounds.minLng && lng <= bounds.maxLng;
+}
+
+function hasValidUserCoordinates(location, { enforceRegion = false } = {}) {
+  const lat = Number(location?.lat);
+  const lng = Number(location?.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return false;
+  if (enforceRegion && !isCoordinateWithinBounds(lat, lng)) return false;
+  return true;
+}
 
 const demoEvents = [
   {
@@ -338,7 +365,7 @@ const I18N = {
     details_date: "Datum",
     details_genre: "Genre",
     details_price: "Preis",
-    details_navigate: "Route starten",
+    details_navigate: "Route öffnen",
     details_view: "Details ansehen",
     details_back: "Zurück zur Vorschau",
     details_free: "Eintritt frei",
@@ -574,7 +601,7 @@ const I18N = {
     details_date: "Date",
     details_genre: "Genre",
     details_price: "Price",
-    details_navigate: "Start route",
+    details_navigate: "Open route",
     details_view: "View details",
     details_back: "Back to preview",
     details_free: "Free entry",
@@ -810,7 +837,7 @@ const I18N = {
     details_date: "Fecha",
     details_genre: "Género",
     details_price: "Precio",
-    details_navigate: "Iniciar ruta",
+    details_navigate: "Abrir ruta",
     details_view: "Ver detalles",
     details_back: "Volver a la vista previa",
     details_free: "Entrada gratuita",
@@ -4359,7 +4386,7 @@ function updateLocationChipLabel() {
 }
 
 function hasUserLocation() {
-  return Number.isFinite(state.userLocation?.lat) && Number.isFinite(state.userLocation?.lng);
+  return hasValidUserCoordinates(state.userLocation, { enforceRegion: true });
 }
 
 function hasValidEventCoordinates(event) {
@@ -4368,6 +4395,32 @@ function hasValidEventCoordinates(event) {
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
   if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return false;
   return true;
+}
+
+function hasAnyRenderableEventCard() {
+  return state.filteredEvents.length > 0 || state.allEvents.length > 0;
+}
+
+function computeMapFitPadding() {
+  const mobile = mapSheetIsMobileViewport();
+  const safeBottom = mobile ? 34 : 0;
+  const safeTop = mobile ? 20 : 0;
+  const sheetPeekHeight = mobile ? 236 : 110;
+  return {
+    topLeft: [22 + safeTop, 18],
+    bottomRight: [sheetPeekHeight + safeBottom + 24, 20]
+  };
+}
+
+function clampMapCenterToFallbackIfInvalid() {
+  if (!map) return;
+  const center = map.getCenter();
+  if (isCoordinateWithinBounds(center.lat, center.lng)) return;
+  mapDebugLog("[Marcha Debug] Map center outside expected region, resetting fallback.", {
+    center: { lat: center.lat, lng: center.lng },
+    fallback: { lat: DEFAULT_CENTER[0], lng: DEFAULT_CENTER[1], zoom: DEFAULT_ZOOM }
+  });
+  map.setView(DEFAULT_CENTER, DEFAULT_ZOOM, { animate: false });
 }
 
 function getMappableEvents(events) {
@@ -4487,7 +4540,7 @@ function loadStoredUserLocation() {
       window.localStorage.removeItem(USER_LOCATION_STORAGE_KEY);
       return null;
     }
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    if (!hasValidUserCoordinates({ lat, lng }, { enforceRegion: true })) return null;
     return { lat, lng };
   } catch (_error) {
     return null;
@@ -4495,7 +4548,7 @@ function loadStoredUserLocation() {
 }
 
 function persistUserLocation(location) {
-  if (!Number.isFinite(location?.lat) || !Number.isFinite(location?.lng)) return;
+  if (!hasValidUserCoordinates(location, { enforceRegion: true })) return;
   try {
     window.localStorage.setItem(
       USER_LOCATION_STORAGE_KEY,
@@ -4511,7 +4564,7 @@ function persistUserLocation(location) {
 }
 
 function setUserLocation(nextLocation) {
-  if (!Number.isFinite(nextLocation?.lat) || !Number.isFinite(nextLocation?.lng)) return;
+  if (!hasValidUserCoordinates(nextLocation, { enforceRegion: true })) return;
   state.userLocation = {
     lat: Number(nextLocation.lat),
     lng: Number(nextLocation.lng)
@@ -4653,7 +4706,7 @@ function requestUserLocation() {
           (position) => {
             const lat = Number(position?.coords?.latitude);
             const lng = Number(position?.coords?.longitude);
-            if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+            if (!hasValidUserCoordinates({ lat, lng }, { enforceRegion: true })) {
               resolve(null);
               return;
             }
@@ -5584,6 +5637,7 @@ function renderMapMarkers() {
   markerEventsById.clear();
   activeMarkerId = null;
   const bounds = [];
+  const boundsLatLng = [];
 
   const enrichmentCandidates = state.filteredEvents.length ? state.filteredEvents : state.allEvents;
   enqueueMapCoordinateEnrichment(enrichmentCandidates);
@@ -5591,7 +5645,8 @@ function renderMapMarkers() {
   const filteredMappableEvents = getMappableEvents(state.filteredEvents);
   const allMappableEvents = getMappableEvents(state.allEvents);
   const markerSource = filteredMappableEvents.length ? filteredMappableEvents : allMappableEvents;
-  console.log("[Marcha Debug] Map marker render:", {
+
+  mapDebugLog("[Marcha Debug] Map marker render:", {
     mapReady: Boolean(map && markersLayer),
     eventsLoaded: state.eventsLoaded,
     filteredEvents: state.filteredEvents.length,
@@ -5602,7 +5657,7 @@ function renderMapMarkers() {
   });
 
   if (!filteredMappableEvents.length && allMappableEvents.length) {
-    console.info("[Marcha Debug] Map marker fallback active (using all events).", {
+    mapDebugLog("[Marcha Debug] Map marker fallback active (using all events).", {
       filteredEvents: state.filteredEvents.length,
       filteredMappableEvents: filteredMappableEvents.length,
       allEvents: state.allEvents.length,
@@ -5622,15 +5677,54 @@ function renderMapMarkers() {
     markersByEventId.set(event.id, marker);
     markerEventsById.set(event.id, event);
     bounds.push([event.lat, event.lng]);
+    boundsLatLng.push(L.latLng(event.lat, event.lng));
+    mapDebugLog("[Marcha Debug] Marker coordinates:", { id: event.id, lat: event.lat, lng: event.lng, name: event.name });
   });
 
-  if (!bounds.length && state.eventsLoaded) {
-    map.setView(DEFAULT_CENTER, DEFAULT_ZOOM);
+  mapDebugLog("[Marcha Debug] Map event summary:", {
+    loadedEvents: state.allEvents.length,
+    validCoordinateEvents: markerSource.length,
+    hasRenderableCards: hasAnyRenderableEventCard()
+  });
+
+  if (!bounds.length) {
+    if (state.eventsLoaded) {
+      map.setView(DEFAULT_CENTER, DEFAULT_ZOOM, { animate: false });
+      clampMapCenterToFallbackIfInvalid();
+      mapDebugLog("[Marcha Debug] No valid marker coordinates, fallback applied.", {
+        center: map.getCenter(),
+        zoom: map.getZoom()
+      });
+    }
+  } else if (bounds.length === 1) {
+    const [singleLat, singleLng] = bounds[0];
+    map.setView([singleLat, singleLng], DEFAULT_SINGLE_MARKER_ZOOM, { animate: true });
+  } else {
+    const padding = computeMapFitPadding();
+    map.fitBounds(L.latLngBounds(boundsLatLng), {
+      paddingTopLeft: padding.topLeft,
+      paddingBottomRight: padding.bottomRight,
+      maxZoom: 14,
+      animate: true
+    });
   }
 
-  throttledFitMapToBounds(bounds);
-
   syncActiveMarker(state.selectedEventId);
+  if (!state.selectedEventId && markerSource.length) {
+    state.selectedEventId = markerSource[0].id;
+    state.activeEventId = markerSource[0].id;
+    state.activeEvent = markerSource[0];
+    renderEventDetails(markerSource[0]);
+    updateMapBottomSheetMeta();
+  } else {
+    updateMapBottomSheetMeta();
+  }
+
+  clampMapCenterToFallbackIfInvalid();
+  mapDebugLog("[Marcha Debug] Map viewport after marker render:", {
+    center: map.getCenter(),
+    zoom: map.getZoom()
+  });
   if (state.viewMode === "map" && mapSheetIsAvailable()) {
     computeMapBottomSheetSnapHeights();
   }
