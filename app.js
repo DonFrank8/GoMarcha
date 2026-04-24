@@ -4272,13 +4272,8 @@ function applyFiltersFromQuery() {
 function getActiveFilters() {
   const activeQuickCategory = quickCategoryById(state.activeQuickCategoryId);
   const hasUserCoordinates = hasUserLocation();
-  const searchInputValue = dom.searchInput
-    ? dom.searchInput.value
-    : dom.heroSearchInput
-      ? dom.heroSearchInput.value
-      : "";
   return {
-    search: normalizeFilterText(searchInputValue),
+    search: currentSearchQuery(),
     city: dom.cityFilter.value,
     dateRange: cloneDateRange(state.dateRange),
     genres: new Set([...state.activeGenres].map((genre) => genre.toLowerCase())),
@@ -4964,8 +4959,9 @@ function pickFeaturedEvents() {
   let source = state.filteredEvents.length ? state.filteredEvents : state.allEvents;
   if (searchQuery) {
     const searchMatches = state.allEvents.filter((event) => eventSearchText(event).includes(searchQuery));
-    source = searchMatches.length ? searchMatches : state.allEvents;
+    source = searchMatches.length ? searchMatches : source;
   }
+  if (!source.length && state.allEvents.length) source = state.allEvents;
   return [...source]
     .sort((a, b) => {
       const imageWeightA = a.image_url ? 0 : 1;
@@ -6092,7 +6088,7 @@ function bindEvents() {
         state.activeQuickCategoryId = "all";
         renderQuickCategories();
       }
-      debouncedApplyFilters();
+      applyFilters();
     });
   }
   if (dom.heroCityFilter) {
