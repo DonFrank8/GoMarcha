@@ -574,6 +574,27 @@ body.is-standalone-app .hero-first-open__actions {
   box-shadow: inset 0 0 0 1px rgba(236, 72, 153, 0.16);
 }
 
+.hero-summary {
+  margin: 0.78rem auto 0;
+  width: fit-content;
+  min-height: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.16rem 0.62rem;
+  border-radius: 999px;
+  border: 1px solid rgba(171, 194, 255, 0.3);
+  background: rgba(8, 12, 24, 0.44);
+  color: #dbe8ff;
+  font-size: 0.74rem;
+  letter-spacing: 0.02em;
+}
+
+.hero-summary__count {
+  color: #f7fbff;
+  font-weight: 700;
+}
+
 .language-switch {
   display: inline-flex;
   align-items: center;
@@ -3005,14 +3026,9 @@ body.is-standalone-app .hero-first-open__actions {
     margin-top: 0.8rem;
   }
 
-  .featured-carousel {
-    grid-auto-columns: minmax(230px, 86%);
-  }
-
-  .featured-card__media,
-  .featured-card__image,
-  .featured-card__image-fallback {
-    max-height: 300px;
+  .hero-summary {
+    margin-top: 0.62rem;
+    font-size: 0.72rem;
   }
 
   .hero-search__meta {
@@ -3202,14 +3218,10 @@ body.is-standalone-app .hero-first-open__actions {
     font-size: 0.93rem;
   }
 
-  .featured-carousel {
-    grid-auto-columns: minmax(210px, 90%);
-  }
-
-  .featured-card__media,
-  .featured-card__image,
-  .featured-card__image-fallback {
-    max-height: 270px;
+  .hero-summary {
+    margin-top: 0.5rem;
+    font-size: 0.7rem;
+    padding: 0.14rem 0.54rem;
   }
 
   .map-bottom-sheet {

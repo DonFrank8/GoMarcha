@@ -270,7 +270,7 @@ const I18N = {
     hero_location_label: "In deiner Nähe",
     hero_chip_fallback: "Live-Momente entdecken",
     hero_chip_vibe: "Live Music • Beach • Lifestyle",
-    featured_title: "Featured heute",
+    featured_title: "Heute",
     view_list: "Liste",
     featured_open: "Mehr Infos",
     view_map: "Karte",
@@ -501,7 +501,7 @@ const I18N = {
     hero_location_label: "Near you",
     hero_chip_fallback: "Discover live moments",
     hero_chip_vibe: "Live Music • Beach • Lifestyle",
-    featured_title: "Featured events",
+    featured_title: "Today",
     view_list: "List",
     featured_open: "Details",
     view_map: "Map",
@@ -732,7 +732,7 @@ const I18N = {
     hero_location_label: "Cerca de ti",
     hero_chip_fallback: "Descubre momentos en vivo",
     hero_chip_vibe: "Live Music • Beach • Lifestyle",
-    featured_title: "Destacados de hoy",
+    featured_title: "Hoy",
     view_list: "Lista",
     featured_open: "Más info",
     view_map: "Mapa",
@@ -1048,8 +1048,7 @@ const dom = {
   bottomNavDiscover: document.getElementById("bottomNavDiscover"),
   bottomNavMap: document.getElementById("bottomNavMap"),
   bottomNavSubmit: document.getElementById("bottomNavSubmit"),
-  featuredCarousel: document.getElementById("featuredCarousel"),
-  featuredCount: document.getElementById("featuredCount"),
+  heroTodayCountLabel: document.getElementById("heroTodayCountLabel"),
   quickCategoryRail: document.getElementById("quickCategoryRail"),
   viewToggleList: document.getElementById("viewToggleList"),
   viewToggleMap: document.getElementById("viewToggleMap"),
@@ -4972,6 +4971,18 @@ function pickFeaturedEvents() {
     .slice(0, 6);
 }
 
+function formatHeroTodayCountLabel(count) {
+  const safeCount = Number.isFinite(Number(count)) ? Math.max(0, Number(count)) : 0;
+  const title = t("featured_title");
+  if (state.lang === "en") {
+    return `${title} ${safeCount} events`;
+  }
+  if (state.lang === "es") {
+    return `${title} ${safeCount} eventos`;
+  }
+  return `${title} ${safeCount} Events`;
+}
+
 function createFeaturedCard(event) {
   const card = document.createElement("article");
   card.className = "featured-card";
@@ -5033,21 +5044,9 @@ function createFeaturedCard(event) {
 }
 
 function renderFeaturedEvents() {
-  if (!dom.featuredCarousel || !dom.featuredCount) return;
+  if (!dom.heroTodayCountLabel) return;
   const featuredEvents = pickFeaturedEvents();
-  dom.featuredCount.textContent = String(featuredEvents.length);
-  dom.featuredCarousel.innerHTML = "";
-  if (!featuredEvents.length) {
-    const empty = document.createElement("div");
-    empty.className = "featured-empty";
-    empty.textContent = t("no_events_found");
-    dom.featuredCarousel.append(empty);
-    return;
-  }
-
-  featuredEvents.forEach((event) => {
-    dom.featuredCarousel.append(createFeaturedCard(event));
-  });
+  dom.heroTodayCountLabel.textContent = formatHeroTodayCountLabel(featuredEvents.length);
 }
 
 function mapSheetIsAvailable() {
