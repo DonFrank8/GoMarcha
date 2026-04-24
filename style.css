@@ -2294,6 +2294,16 @@ body.is-standalone-app .hero-first-open__actions {
 .marker-pin-wrap {
   background: transparent;
   border: 0;
+  z-index: 640 !important;
+  pointer-events: auto;
+}
+
+.map-section .leaflet-pane.leaflet-marker-pane {
+  z-index: 660;
+}
+
+.map-section .leaflet-pane.leaflet-popup-pane {
+  z-index: 690;
 }
 
 .marker-pin {

@@ -1613,6 +1613,64 @@ function parseCoordinateValue(rawValue) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+const EVENT_LAT_FIELD_CANDIDATES = Object.freeze([
+  "lat",
+  "latitude",
+  "event_lat",
+  "location_lat",
+  "latitude_decimal"
+]);
+
+const EVENT_LNG_FIELD_CANDIDATES = Object.freeze([
+  "lng",
+  "longitude",
+  "event_lng",
+  "location_lng",
+  "longitude_decimal"
+]);
+
+function pickEventCoordinateMeta(event, fieldCandidates) {
+  if (!event || typeof event !== "object") {
+    return { parsed: null, field: "", raw: null };
+  }
+  let firstSeenField = "";
+  let firstSeenRaw = null;
+  for (const field of fieldCandidates) {
+    if (!Object.prototype.hasOwnProperty.call(event, field)) continue;
+    const raw = event[field];
+    if (raw === null || raw === undefined || raw === "") continue;
+    if (!firstSeenField) {
+      firstSeenField = field;
+      firstSeenRaw = raw;
+    }
+    const parsed = parseCoordinateValue(raw);
+    if (Number.isFinite(parsed)) {
+      return { parsed, field, raw };
+    }
+  }
+  return { parsed: null, field: firstSeenField, raw: firstSeenRaw };
+}
+
+function resolveEventCoordinates(event) {
+  const latMeta = pickEventCoordinateMeta(event, EVENT_LAT_FIELD_CANDIDATES);
+  const lngMeta = pickEventCoordinateMeta(event, EVENT_LNG_FIELD_CANDIDATES);
+  const lat = latMeta.parsed;
+  const lng = lngMeta.parsed;
+  const valid = Number.isFinite(lat)
+    && Number.isFinite(lng)
+    && Math.abs(lat) <= 90
+    && Math.abs(lng) <= 180;
+  return {
+    lat,
+    lng,
+    valid,
+    rawLat: latMeta.raw,
+    rawLng: lngMeta.raw,
+    latField: latMeta.field,
+    lngField: lngMeta.field
+  };
+}
+
 function normalizeDateWithFallbackYear(rawDate, fallbackYear = null) {
   const value = String(rawDate || "").trim();
   const match = value.match(/^(\d{1,4})-(\d{2})-(\d{2})$/);
@@ -1627,8 +1685,9 @@ function normalizeDateWithFallbackYear(rawDate, fallbackYear = null) {
 }
 
 function normalizeEvent(event, index) {
-  const lat = parseCoordinateValue(event.lat ?? event.latitude ?? event.latitude_decimal ?? null);
-  const lng = parseCoordinateValue(event.lng ?? event.longitude ?? event.longitude_decimal ?? null);
+  const coordinateMeta = resolveEventCoordinates(event);
+  const lat = coordinateMeta.lat;
+  const lng = coordinateMeta.lng;
   const address = String(event.address || event.street || "").trim();
   const postal_code = String(event.postal_code || event.zip || "").trim();
   const geocodingQuery = String(event.geocoding_query || "").trim();
@@ -4451,8 +4510,22 @@ function hasUserLocation() {
 }
 
 function hasValidEventCoordinates(event) {
-  const lat = Number(event?.lat);
-  const lng = Number(event?.lng);
+  const lat = parseCoordinateValue(
+    event?.lat
+    ?? event?.latitude
+    ?? event?.event_lat
+    ?? event?.location_lat
+    ?? event?.lat_decimal
+    ?? null
+  );
+  const lng = parseCoordinateValue(
+    event?.lng
+    ?? event?.longitude
+    ?? event?.event_lng
+    ?? event?.location_lng
+    ?? event?.lng_decimal
+    ?? null
+  );
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
   if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return false;
   return true;
@@ -4485,7 +4558,40 @@ function clampMapCenterToFallbackIfInvalid() {
 }
 
 function getMappableEvents(events) {
-  return (Array.isArray(events) ? events : []).filter((event) => hasValidEventCoordinates(event));
+  const source = Array.isArray(events) ? events : [];
+  return source
+    .map((event) => {
+      const coordinateMeta = resolveEventCoordinates(event);
+      const normalizedEvent = {
+        ...event,
+        lat: coordinateMeta.lat,
+        lng: coordinateMeta.lng
+      };
+      mapDebugLog("[Marcha Debug] Map event coordinate candidate", {
+        id: normalizedEvent.id,
+        title: normalizedEvent.name || normalizedEvent.title || "",
+        lat: normalizedEvent.lat,
+        lng: normalizedEvent.lng,
+        rawLat: coordinateMeta.rawLat,
+        rawLng: coordinateMeta.rawLng,
+        parsedLat: coordinateMeta.lat,
+        parsedLng: coordinateMeta.lng,
+        latField: coordinateMeta.latField,
+        lngField: coordinateMeta.lngField,
+        valid: coordinateMeta.valid
+      });
+      return normalizedEvent;
+    })
+    .filter((event) => hasValidEventCoordinates(event));
+}
+
+function normalizeEventMapCoordinates(event) {
+  const coordinateMeta = resolveEventCoordinates(event);
+  return {
+    ...event,
+    lat: coordinateMeta.lat,
+    lng: coordinateMeta.lng
+  };
 }
 
 const mapCoordinateEnrichmentState = {
@@ -5639,20 +5745,58 @@ function createMarkerIcon(event, active = false) {
   });
 }
 
+function createMarker(event, active = false) {
+  const markerLat = parseCoordinateValue(event?.lat);
+  const markerLng = parseCoordinateValue(event?.lng);
+  if (!Number.isFinite(markerLat) || !Number.isFinite(markerLng)) return null;
+  const markerOptions = {
+    title: event?.name || "",
+    keyboard: true,
+    riseOnHover: true,
+    riseOffset: 280
+  };
+  try {
+    markerOptions.icon = createMarkerIcon(event, active);
+    return L.marker([markerLat, markerLng], markerOptions);
+  } catch (error) {
+    mapDebugLog("[Marcha Debug] Custom marker icon failed, using default marker.", {
+      eventId: event?.id,
+      name: event?.name,
+      reason: String(error?.message || error || "unknown")
+    });
+    return L.marker([markerLat, markerLng], markerOptions);
+  }
+}
+
 function syncActiveMarker(eventId) {
   if (activeMarkerId === eventId) return;
   if (activeMarkerId && markersByEventId.has(activeMarkerId)) {
     const previousMarker = markersByEventId.get(activeMarkerId);
     const previousEvent = markerEventsById.get(activeMarkerId);
     if (previousMarker && previousEvent) {
-      previousMarker.setIcon(createMarkerIcon(previousEvent, false));
+      try {
+        previousMarker.setIcon(createMarkerIcon(previousEvent, false));
+      } catch (error) {
+        mapDebugLog("[Marcha Debug] Failed to reset previous marker icon.", {
+          eventId: activeMarkerId,
+          reason: String(error?.message || error || "unknown")
+        });
+      }
     }
   }
   if (eventId && markersByEventId.has(eventId)) {
     const nextMarker = markersByEventId.get(eventId);
     const nextEvent = markerEventsById.get(eventId);
     if (nextMarker && nextEvent) {
-      nextMarker.setIcon(createMarkerIcon(nextEvent, true));
+      try {
+        nextMarker.setIcon(createMarkerIcon(nextEvent, true));
+      } catch (error) {
+        mapDebugLog("[Marcha Debug] Failed to set active marker icon.", {
+          eventId,
+          reason: String(error?.message || error || "unknown")
+        });
+        nextMarker.setZIndexOffset(900);
+      }
     }
   }
   activeMarkerId = eventId || null;
@@ -5728,19 +5872,22 @@ function renderMapMarkers() {
   }
 
   markerSource.forEach((event) => {
-    const marker = L.marker([event.lat, event.lng], {
-      title: event.name,
-      icon: createMarkerIcon(event, false)
-    })
-      .bindPopup(markerPopupHtml(event))
-      .on("click", () => selectEvent(event, "marker"));
+    const normalizedEvent = normalizeEventMapCoordinates(event);
+    const marker = createMarker(normalizedEvent, false);
+    if (!marker) return;
+    marker.bindPopup(markerPopupHtml(normalizedEvent)).on("click", () => selectEvent(normalizedEvent, "marker"));
 
     markersLayer.addLayer(marker);
-    markersByEventId.set(event.id, marker);
-    markerEventsById.set(event.id, event);
-    bounds.push([event.lat, event.lng]);
-    boundsLatLng.push(L.latLng(event.lat, event.lng));
-    mapDebugLog("[Marcha Debug] Marker coordinates:", { id: event.id, lat: event.lat, lng: event.lng, name: event.name });
+    markersByEventId.set(normalizedEvent.id, marker);
+    markerEventsById.set(normalizedEvent.id, normalizedEvent);
+    bounds.push([normalizedEvent.lat, normalizedEvent.lng]);
+    boundsLatLng.push(L.latLng(normalizedEvent.lat, normalizedEvent.lng));
+    mapDebugLog("[Marcha Debug] Marker coordinates:", {
+      id: normalizedEvent.id,
+      lat: normalizedEvent.lat,
+      lng: normalizedEvent.lng,
+      name: normalizedEvent.name
+    });
   });
 
   mapDebugLog("[Marcha Debug] Map event summary:", {
@@ -5782,7 +5929,7 @@ function renderMapMarkers() {
     updateMapBottomSheetMeta();
   }
 
-  clampMapCenterToFallbackIfInvalid();
+  if (!bounds.length) clampMapCenterToFallbackIfInvalid();
   mapDebugLog("[Marcha Debug] Map viewport after marker render:", {
     center: map.getCenter(),
     zoom: map.getZoom()
