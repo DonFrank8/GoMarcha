@@ -162,6 +162,7 @@ const QUICK_CATEGORY_DEFINITIONS = [
     keywords: ["dj", "dj set", "techno", "electro", "afterhours"]
   }
 ];
+const QUICK_CATEGORY_DYNAMIC_MAX = 10;
 
 const MAP_SHEET_STATE_ORDER = ["full", "half", "peek"];
 const MAP_SHEET_DEFAULT_STATE = "half";
@@ -1249,18 +1250,69 @@ function renderLanguageControls() {
 }
 
 function quickCategoryById(categoryId) {
-  return QUICK_CATEGORY_DEFINITIONS.find((category) => category.id === categoryId) || QUICK_CATEGORY_DEFINITIONS[0];
+  const categories = getQuickCategories();
+  return categories.find((category) => category.id === categoryId) || categories[0];
+}
+
+function slugifyQuickCategoryValue(value) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return normalized || "genre";
+}
+
+function getQuickCategories() {
+  if (state.availableGenres.length) {
+    const usedIds = new Set(["all"]);
+    const dynamicGenreCategories = state.availableGenres.slice(0, QUICK_CATEGORY_DYNAMIC_MAX).map((genre, index) => {
+      const baseId = `genre-${slugifyQuickCategoryValue(genre) || index + 1}`;
+      let nextId = baseId;
+      let suffix = 2;
+      while (usedIds.has(nextId)) {
+        nextId = `${baseId}-${suffix}`;
+        suffix += 1;
+      }
+      usedIds.add(nextId);
+      return {
+        id: nextId,
+        label: genre,
+        keywords: [normalizeFilterText(genre)]
+      };
+    });
+    return [
+      {
+        id: "all",
+        label: t("quick_all"),
+        keywords: []
+      },
+      ...dynamicGenreCategories
+    ];
+  }
+
+  return QUICK_CATEGORY_DEFINITIONS.map((category) => ({
+    id: category.id,
+    label: t(category.labelKey),
+    keywords: category.keywords
+  }));
 }
 
 function renderQuickCategories() {
   if (!dom.quickCategoryRail) return;
   dom.quickCategoryRail.innerHTML = "";
-  QUICK_CATEGORY_DEFINITIONS.forEach((category) => {
+  const categories = getQuickCategories();
+  if (!categories.some((category) => category.id === state.activeQuickCategoryId)) {
+    state.activeQuickCategoryId = "all";
+  }
+  categories.forEach((category) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = `quick-category-chip ${state.activeQuickCategoryId === category.id ? "is-active" : ""}`;
     button.dataset.quickCategory = category.id;
-    button.textContent = t(category.labelKey);
+    button.textContent = category.label;
     dom.quickCategoryRail.append(button);
   });
 }
@@ -4166,6 +4218,7 @@ function updateFilterOptions() {
   state.activeGenres.forEach((genre) => {
     if (!state.availableGenres.includes(genre)) state.activeGenres.delete(genre);
   });
+  renderQuickCategories();
   renderGenreFilter();
   syncHeroFilterOptions();
   syncMapSheetFilterOptions();
