@@ -2967,11 +2967,128 @@ async function insertEventWithSchemaFallback(client, payload) {
 
 function splitGenres(value) {
   if (!value) return [];
-  if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
-  return String(value)
-    .split(/[,/|;]+/)
+  if (Array.isArray(value)) {
+    return [...new Set(
+      value
+        .flatMap((item) => normalizedGenresFromRaw(item))
+        .filter(Boolean)
+    )];
+  }
+  const normalized = normalizedGenresFromRaw(value);
+  if (normalized.length) return normalized;
+  return [String(value).trim()].filter(Boolean);
+}
+
+const GENRE_NORMALIZATION_RULES = [
+  {
+    canonical: "Salsa",
+    patterns: [/\bsalsa\b/i, /\bslasa\b/i, /\bsalza\b/i, /\bsalssa\b/i]
+  },
+  {
+    canonical: "Bachata",
+    patterns: [/\bbachata\b/i, /\bbachatta\b/i, /\bbacchata\b/i]
+  },
+  {
+    canonical: "Latin",
+    patterns: [/\blatin\b/i, /\blatino\b/i, /\blatina\b/i, /\blatina?o?s?\b/i, /\bmusica latina\b/i, /\bmusica latin\b/i, /\bmúsica latina\b/i]
+  },
+  {
+    canonical: "Reggaeton",
+    patterns: [/\breggaeton\b/i, /\bregueton\b/i]
+  },
+  {
+    canonical: "DJ Set",
+    patterns: [/\bdj\s*set\b/i, /\bdjset\b/i]
+  },
+  {
+    canonical: "DJ",
+    patterns: [/\bdj\b/i]
+  },
+  {
+    canonical: "Live Band",
+    patterns: [/\blive\s*band\b/i]
+  },
+  {
+    canonical: "Live Music",
+    patterns: [/\blive\s*music\b/i, /\bmusica\s+en\s+vivo\b/i, /\bmúsica\s+en\s+vivo\b/i]
+  },
+  {
+    canonical: "House",
+    patterns: [/\bhouse\b/i, /\btech\s*house\b/i, /\bdeep\s*house\b/i]
+  },
+  {
+    canonical: "Techno",
+    patterns: [/\btechno\b/i]
+  },
+  {
+    canonical: "Electro",
+    patterns: [/\belectro\b/i]
+  },
+  {
+    canonical: "Rock",
+    patterns: [/\brock\b/i]
+  },
+  {
+    canonical: "Jazz",
+    patterns: [/\bjazz\b/i]
+  },
+  {
+    canonical: "Flamenco",
+    patterns: [/\bflamenco\b/i]
+  },
+  {
+    canonical: "Pop",
+    patterns: [/\bpop\b/i]
+  },
+  {
+    canonical: "Hip-Hop",
+    patterns: [/\bhip[\s-]?hop\b/i]
+  },
+  {
+    canonical: "R&B",
+    patterns: [/\br&b\b/i]
+  }
+];
+
+function normalizeGenreToken(rawToken) {
+  const token = String(rawToken || "").trim();
+  if (!token) return "";
+  const matchedRule = GENRE_NORMALIZATION_RULES.find((rule) => rule.patterns.some((pattern) => pattern.test(token)));
+  if (matchedRule) return matchedRule.canonical;
+  const normalized = token
+    .replace(/\b(y|and|&|con|mas|más|etc\.?)\b/gi, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  if (!normalized) return "";
+  if (normalized.length <= 2) return "";
+  return normalized
+    .split(" ")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function normalizedGenresFromRaw(value) {
+  const text = String(value || "").trim();
+  if (!text) return [];
+  const rawParts = text
+    .split(/[,/|;]+|\s+\+\s+|\s+-\s+|\s+y\s+|\s+and\s+|\s+con\s+|\s+mas\s+|\s+más\s+/i)
     .map((part) => part.trim())
     .filter(Boolean);
+  if (!rawParts.length) rawParts.push(text);
+  const normalized = rawParts
+    .map((part) => normalizeGenreToken(part))
+    .filter(Boolean);
+
+  // If only a single broad token was recognized but source text implies "mixed latin",
+  // include the most common dance subgenres so users can find it via Salsa/Bachata chips.
+  if (normalized.length <= 1 && /\bbachata\b/i.test(text) && /\bsalsa\b|\bslasa\b|\bsalza\b/i.test(text)) {
+    normalized.push("Bachata", "Salsa");
+  }
+  if (normalized.length <= 1 && /\blatin|latino|latina|musica latina|música latina\b/i.test(text)) {
+    normalized.push("Latin");
+  }
+
+  return [...new Set(normalized)];
 }
 
 function loadFavoriteEventIds() {
@@ -3579,6 +3696,7 @@ function normalizeFilterText(value) {
 
 function eventSearchText(event) {
   // Unified search: name, artist, location and city are core dimensions.
+  const normalizedGenreText = splitGenres(event.genre).join(" ");
   return [
     event.name,
     event.artist_name,
@@ -3586,6 +3704,7 @@ function eventSearchText(event) {
     event.city,
     event.address,
     event.genre,
+    normalizedGenreText,
     event.description
   ]
     .join(" ")
