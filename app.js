@@ -2942,9 +2942,38 @@ function buildInsertPayload(payload) {
   const eventDate = isRecurring
     ? recurrenceStartDate
     : normalizeDateWithFallbackYear(String(payload.event_date || "").trim(), currentYear);
+  const activeLanguageCode = resolveLocalizedFieldLanguage(state.lang);
+  const titleBase = String(payload.title || payload.name || "").trim();
+  const descriptionBase = String(payload.description || "").trim();
+  const artistBioBase = String(payload.artist_bio || payload.artist_biography || payload.bio || "").trim();
+  const titleByCode = {
+    de: String(payload.title_de || "").trim(),
+    en: String(payload.title_en || "").trim(),
+    es: String(payload.title_es || "").trim()
+  };
+  const descriptionByCode = {
+    de: String(payload.description_de || "").trim(),
+    en: String(payload.description_en || "").trim(),
+    es: String(payload.description_es || "").trim()
+  };
+  const artistBioByCode = {
+    de: String(payload.artist_bio_de || "").trim(),
+    en: String(payload.artist_bio_en || "").trim(),
+    es: String(payload.artist_bio_es || "").trim()
+  };
+  if (!titleByCode[activeLanguageCode] && titleBase) {
+    titleByCode[activeLanguageCode] = titleBase;
+  }
+  if (!descriptionByCode[activeLanguageCode] && descriptionBase) {
+    descriptionByCode[activeLanguageCode] = descriptionBase;
+  }
+  if (!artistBioByCode[activeLanguageCode] && artistBioBase) {
+    artistBioByCode[activeLanguageCode] = artistBioBase;
+  }
 
   return {
     name: payload.name,
+    title: titleBase || null,
     location_name: payload.location_name,
     street: payload.street || payload.address || null,
     address: payload.address || null,
@@ -2964,7 +2993,17 @@ function buildInsertPayload(payload) {
     artist_name: payload.artist_name,
     additional_artists: payload.additional_artists || null,
     price_text: payload.price_text || null,
-    description: payload.description || null,
+    description: descriptionBase || null,
+    artist_bio: artistBioBase || null,
+    title_de: titleByCode.de || null,
+    title_en: titleByCode.en || null,
+    title_es: titleByCode.es || null,
+    description_de: descriptionByCode.de || null,
+    description_en: descriptionByCode.en || null,
+    description_es: descriptionByCode.es || null,
+    artist_bio_de: artistBioByCode.de || null,
+    artist_bio_en: artistBioByCode.en || null,
+    artist_bio_es: artistBioByCode.es || null,
     image_url: payload.image_url || null,
     contact_email: payload.contact_email,
     submitted_by: payload.submitted_by,
@@ -2978,144 +3017,25 @@ function buildInsertPayload(payload) {
   };
 }
 
-function eventTranslationFieldGroups() {
-  return [
-    {
-      targets: ["title_de", "title_en", "title_es"],
-      languageToField: {
-        German: "title_de",
-        English: "title_en",
-        Spanish: "title_es"
-      },
-      sourceCandidates: {
-        German: ["title_de", "name_de", "event_title_de", "name"],
-        English: ["title_en", "name_en", "event_title_en", "title", "name"],
-        Spanish: ["title_es", "name_es", "event_title_es", "title", "name"]
-      }
-    },
-    {
-      targets: ["description_de", "description_en", "description_es"],
-      languageToField: {
-        German: "description_de",
-        English: "description_en",
-        Spanish: "description_es"
-      },
-      sourceCandidates: {
-        German: ["description_de", "details_de", "event_description_de", "description"],
-        English: ["description_en", "details_en", "event_description_en", "description"],
-        Spanish: ["description_es", "details_es", "event_description_es", "description"]
-      }
-    },
-    {
-      targets: ["artist_bio_de", "artist_bio_en", "artist_bio_es"],
-      languageToField: {
-        German: "artist_bio_de",
-        English: "artist_bio_en",
-        Spanish: "artist_bio_es"
-      },
-      sourceCandidates: {
-        German: ["artist_bio_de"],
-        English: ["artist_bio_en"],
-        Spanish: ["artist_bio_es"]
-      }
+function ensureActiveLanguageSeed(payload) {
+  const nextPayload = { ...(payload || {}) };
+  const activeLanguageCode = resolveLocalizedFieldLanguage(state.lang);
+
+  const seedFieldGroup = (baseKeys, languageFieldByCode) => {
+    if (!languageFieldByCode || !languageFieldByCode[activeLanguageCode]) return;
+    const activeField = languageFieldByCode[activeLanguageCode];
+    if (String(nextPayload[activeField] || "").trim()) return;
+    for (const baseKey of baseKeys) {
+      const baseValue = String(nextPayload[baseKey] || "").trim();
+      if (!baseValue) continue;
+      nextPayload[activeField] = baseValue;
+      return;
     }
-  ];
-}
+  };
 
-function mapTargetLanguageToFieldSuffix(targetLanguage) {
-  if (targetLanguage === "English") return "_en";
-  if (targetLanguage === "Spanish") return "_es";
-  return "_de";
-}
-
-function readNonEmptyEventValue(payload, candidates = []) {
-  for (const key of candidates) {
-    const value = String(payload?.[key] || "").trim();
-    if (value) return value;
-  }
-  return "";
-}
-
-async function translateText(text, targetLang) {
-  const source = String(text || "").trim();
-  if (!source) return "";
-  const language = String(targetLang || "").trim();
-  if (!language) return source;
-
-  // TODO(security): Re-enable JWT verification on smart-action before production rollout.
-  const response = await fetch(`${SUPABASE_URL}/functions/v1/smart-action`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      apikey: SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${SUPABASE_ANON_KEY}`
-    },
-    body: JSON.stringify({
-      text: source,
-      targetLang: language
-    })
-  });
-
-  if (!response.ok) {
-    throw new Error(`Translation failed with status ${response.status}`);
-  }
-
-  const data = await response.json();
-  const translated = String(data?.translated || "").trim();
-  if (!translated) {
-    throw new Error("Translation response missing translated text");
-  }
-  return translated;
-}
-
-async function generateMissingEventTranslations(eventPayload) {
-  const nextPayload = { ...eventPayload };
-  const translationGroups = eventTranslationFieldGroups();
-
-  for (const group of translationGroups) {
-    const targetFields = group.targets || [];
-    const hasMissingTargets = targetFields.some((fieldName) => !String(nextPayload[fieldName] || "").trim());
-    if (!hasMissingTargets) continue;
-
-    const sourceByLanguage = {
-      German: readNonEmptyEventValue(nextPayload, group.sourceCandidates?.German || []),
-      English: readNonEmptyEventValue(nextPayload, group.sourceCandidates?.English || []),
-      Spanish: readNonEmptyEventValue(nextPayload, group.sourceCandidates?.Spanish || [])
-    };
-
-    const languagePriority = ["Spanish", "German", "English"];
-    const sourceLanguage = languagePriority.find((language) => sourceByLanguage[language]) || null;
-    if (!sourceLanguage) continue;
-    const sourceText = sourceByLanguage[sourceLanguage];
-
-    const targets = ["German", "English", "Spanish"];
-    for (const targetLanguage of targets) {
-      const targetField = group.languageToField?.[targetLanguage];
-      if (!targetField) continue;
-      if (String(nextPayload[targetField] || "").trim()) continue;
-
-      const directSource = sourceByLanguage[targetLanguage];
-      if (directSource) {
-        nextPayload[targetField] = directSource;
-        continue;
-      }
-
-      if (targetLanguage === sourceLanguage) {
-        nextPayload[targetField] = sourceText;
-        continue;
-      }
-
-      const translated = await translateText(sourceText, targetLanguage);
-      nextPayload[targetField] = translated;
-
-      const suffix = mapTargetLanguageToFieldSuffix(targetLanguage);
-      const baseField = targetField.replace(/_(de|en|es)$/i, "");
-      const genericFieldName = baseField === "title" ? "name" : baseField;
-      if (!String(nextPayload[`${genericFieldName}${suffix}`] || "").trim()) {
-        nextPayload[`${genericFieldName}${suffix}`] = translated;
-      }
-    }
-  }
+  seedFieldGroup(["title", "name"], { de: "title_de", en: "title_en", es: "title_es" });
+  seedFieldGroup(["description"], { de: "description_de", en: "description_en", es: "description_es" });
+  seedFieldGroup(["artist_bio"], { de: "artist_bio_de", en: "artist_bio_en", es: "artist_bio_es" });
 
   return nextPayload;
 }
@@ -3548,7 +3468,7 @@ async function translateText(text, targetLang) {
   const targetLanguage = String(targetLang || "").trim();
   if (!sourceText || !targetLanguage) return "";
   // TODO: Re-enable JWT verification for smart-action before production release.
-  const response = await fetch(`${SUPABASE_URL}/functions/v1/smart-action`, {
+  const response = await fetch(SMART_ACTION_ENDPOINT, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -3571,86 +3491,74 @@ async function translateText(text, targetLang) {
   return translated;
 }
 
-function resolvePreferredTranslationSource(payload, candidatesByLanguage) {
-  for (const languageCode of TRANSLATION_SOURCE_LANGUAGE_ORDER) {
-    const fieldName = candidatesByLanguage[languageCode];
-    const candidate = String(payload?.[fieldName] || "").trim();
-    if (candidate) {
+function readFirstNonEmptyValue(payload, fieldNames = []) {
+  for (const fieldName of fieldNames) {
+    const value = String(payload?.[fieldName] || "").trim();
+    if (value) return value;
+  }
+  return "";
+}
+
+function resolveTranslationGroupSource(payload, group) {
+  const languageCodesByPriority = ["es", "de", "en"];
+  for (const languageCode of languageCodesByPriority) {
+    const fieldName = group.languageFieldByCode?.[languageCode];
+    const languageAliasFields = (group.sourceCandidates || []).map((candidate) => `${candidate}_${languageCode}`);
+    const sourceText = readFirstNonEmptyValue(payload, [fieldName, ...languageAliasFields]);
+    if (sourceText) {
       return {
-        sourceText: candidate,
+        sourceText,
         sourceLanguageCode: languageCode
       };
     }
   }
+
+  const genericSourceText = readFirstNonEmptyValue(payload, group.sourceCandidates || []);
+  if (!genericSourceText) {
+    return {
+      sourceText: "",
+      sourceLanguageCode: ""
+    };
+  }
+
   return {
-    sourceText: "",
-    sourceLanguageCode: ""
+    sourceText: genericSourceText,
+    sourceLanguageCode: resolveLocalizedFieldLanguage(state.lang)
   };
 }
 
 async function generateMissingEventTranslations(eventPayload) {
-  const payload = { ...(eventPayload || {}) };
-  const translationGroups = [
-    {
-      fields: {
-        de: "title_de",
-        en: "title_en",
-        es: "title_es"
-      },
-      aliases: ["title", "name", "event_title"]
-    },
-    {
-      fields: {
-        de: "description_de",
-        en: "description_en",
-        es: "description_es"
-      },
-      aliases: ["description", "details", "event_description"]
-    },
-    {
-      fields: {
-        de: "artist_bio_de",
-        en: "artist_bio_en",
-        es: "artist_bio_es"
-      },
-      aliases: ["artist_bio", "artist_description", "bio"]
-    }
-  ];
+  const payload = ensureActiveLanguageSeed({ ...(eventPayload || {}) });
+  const targetLanguageCodes = ["de", "en", "es"];
 
-  for (const group of translationGroups) {
-    for (const [languageCode, fieldName] of Object.entries(group.fields)) {
-      const current = String(payload[fieldName] || "").trim();
-      if (current) {
-        payload[fieldName] = current;
-        continue;
-      }
-      const aliasValue = group.aliases
-        .map((alias) => String(payload[alias] || "").trim())
-        .find(Boolean);
-      if (aliasValue) {
-        payload[fieldName] = aliasValue;
-      }
-    }
-
-    const { sourceText, sourceLanguageCode } = resolvePreferredTranslationSource(payload, group.fields);
-    if (!sourceText || !sourceLanguageCode) continue;
-
-    for (const [targetLanguageCode, fieldName] of Object.entries(group.fields)) {
+  for (const group of AUTO_TRANSLATABLE_FIELD_GROUPS) {
+    for (const languageCode of targetLanguageCodes) {
+      const fieldName = group.languageFieldByCode?.[languageCode];
+      if (!fieldName) continue;
       const existingValue = String(payload[fieldName] || "").trim();
-      if (existingValue) {
-        payload[fieldName] = existingValue;
-        continue;
-      }
-      if (targetLanguageCode === sourceLanguageCode) {
+      if (existingValue) payload[fieldName] = existingValue;
+    }
+
+    const { sourceText, sourceLanguageCode } = resolveTranslationGroupSource(payload, group);
+    if (!sourceText) continue;
+
+    for (const languageCode of targetLanguageCodes) {
+      const fieldName = group.languageFieldByCode?.[languageCode];
+      if (!fieldName) continue;
+      if (String(payload[fieldName] || "").trim()) continue;
+      if (languageCode === sourceLanguageCode) {
         payload[fieldName] = sourceText;
         continue;
       }
-      const targetLanguage = TRANSLATION_LANGUAGE_NAME_BY_CODE[targetLanguageCode];
+      const targetLanguage = TRANSLATION_TARGET_LANGUAGE_BY_CODE[languageCode];
       if (!targetLanguage) continue;
       const translated = await translateText(sourceText, targetLanguage);
-      if (translated) {
-        payload[fieldName] = translated;
-      }
+      if (translated) payload[fieldName] = translated;
+    }
+
+    const baseFieldName = group.key;
+    if (!String(payload[baseFieldName] || "").trim()) {
+      payload[baseFieldName] = sourceText;
     }
   }
 
@@ -6934,7 +6842,7 @@ async function applyMissingTranslationsBeforeSave(client, payload, feedbackTarge
     setModerationFeedback(t("form_translation_loading"), "info");
   }
   try {
-    workingPayload = await generateMissingEventTranslations(payload, client);
+    workingPayload = await generateMissingEventTranslations(payload);
   } catch (translationError) {
     console.warn("[Marcha Debug] Auto-translation failed. Saving original payload.", translationError);
     translationWarning = true;
@@ -6997,6 +6905,17 @@ async function handleCreateEventSubmit(submitEvent) {
     }
     const insertPayload = buildInsertPayload(payloadWithCoordinates);
     const translationResult = await applyMissingTranslationsBeforeSave(client, insertPayload, "form");
+    console.log("FINAL EVENT PAYLOAD TRANSLATIONS", {
+      title_de: translationResult.payload.title_de,
+      title_en: translationResult.payload.title_en,
+      title_es: translationResult.payload.title_es,
+      description_de: translationResult.payload.description_de,
+      description_en: translationResult.payload.description_en,
+      description_es: translationResult.payload.description_es,
+      artist_bio_de: translationResult.payload.artist_bio_de,
+      artist_bio_en: translationResult.payload.artist_bio_en,
+      artist_bio_es: translationResult.payload.artist_bio_es
+    });
     const { data, error } = await insertEventWithSchemaFallback(client, translationResult.payload);
 
     console.log("[Marcha Debug] Event insert data:", data);
