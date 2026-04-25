@@ -398,6 +398,7 @@ const I18N = {
     details_navigate: "Route öffnen",
     details_view: "Details ansehen",
     details_back: "Zurück zur Vorschau",
+    details_image_counter: "{current} / {total}",
     details_share: "Teilen",
     details_share_whatsapp: "WhatsApp",
     details_calendar_add: "Zum Kalender",
@@ -652,6 +653,7 @@ const I18N = {
     details_navigate: "Open route",
     details_view: "View details",
     details_back: "Back to preview",
+    details_image_counter: "{current} / {total}",
     details_share: "Share",
     details_share_whatsapp: "WhatsApp",
     details_calendar_add: "Add to calendar",
@@ -906,6 +908,7 @@ const I18N = {
     details_navigate: "Abrir ruta",
     details_view: "Ver detalles",
     details_back: "Volver a la vista previa",
+    details_image_counter: "{current} / {total}",
     details_share: "Compartir",
     details_share_whatsapp: "WhatsApp",
     details_calendar_add: "Anadir al calendario",
@@ -1411,6 +1414,128 @@ function eventDisplayVenue(event, lang = state.lang) {
 function eventDisplayAddress(event, lang = state.lang) {
   return getEventAddress(event, lang)
     || String(event?.address || event?.street || event?.formatted_address || "").trim();
+}
+
+function collectEventImageUrls(event) {
+  if (!event || typeof event !== "object") return [];
+  const candidates = [];
+  const pushValue = (value) => {
+    const normalized = String(value || "").trim();
+    if (!normalized) return;
+    candidates.push(normalized);
+  };
+  const collectFromEntry = (entry) => {
+    if (!entry) return;
+    if (typeof entry === "string" || typeof entry === "number") {
+      pushValue(entry);
+      return;
+    }
+    if (typeof entry === "object") {
+      pushValue(entry.url || entry.image_url || entry.src || entry.path);
+    }
+  };
+
+  collectFromEntry(event.image_url);
+  collectFromEntry(event.image);
+
+  const possibleCollections = [
+    event.images,
+    event.image_urls,
+    event.imageUrls,
+    event.gallery,
+    event.gallery_images,
+    event.photos
+  ];
+  possibleCollections.forEach((collection) => {
+    if (!collection) return;
+    if (Array.isArray(collection)) {
+      collection.forEach(collectFromEntry);
+      return;
+    }
+    if (typeof collection === "string") {
+      collection
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .forEach(pushValue);
+    }
+  });
+
+  const unique = [];
+  const seen = new Set();
+  candidates.forEach((candidate) => {
+    if (seen.has(candidate)) return;
+    seen.add(candidate);
+    unique.push(candidate);
+  });
+  return unique;
+}
+
+function renderEventGalleryMarkup(imageUrls, eventTitle, eventId) {
+  if (!Array.isArray(imageUrls) || !imageUrls.length) {
+    return `<div class="event-details__image-fallback" aria-hidden="true"><span>🎵</span></div>`;
+  }
+  const isSingle = imageUrls.length <= 1;
+  const counterMarkup = isSingle
+    ? ""
+    : `<div class="event-gallery__counter" data-gallery-counter>${t("details_image_counter", { current: 1, total: imageUrls.length })}</div>`;
+  const galleryClassName = `event-gallery ${isSingle ? "event-gallery--single" : ""}`.trim();
+  const itemsMarkup = imageUrls
+    .map((url, index) => `
+      <figure class="event-gallery-item ${index === 0 ? "is-active" : ""}" data-gallery-item data-gallery-index="${index}">
+        <img class="event-details__image" src="${url}" alt="${eventTitle}" loading="lazy">
+      </figure>
+    `)
+    .join("");
+  return `
+    ${counterMarkup}
+    <div class="${galleryClassName}" data-event-gallery data-event-id="${eventId}">
+      ${itemsMarkup}
+    </div>
+  `;
+}
+
+function bindEventGalleryCounter() {
+  const mediaNode = dom.eventDetails?.querySelector(".event-details__media");
+  if (!mediaNode) return;
+  const galleryNode = mediaNode.querySelector("[data-event-gallery]");
+  const counterNode = mediaNode.querySelector("[data-gallery-counter]");
+  if (!galleryNode || !counterNode) return;
+
+  const itemNodes = [...galleryNode.querySelectorAll("[data-gallery-item]")];
+  if (itemNodes.length <= 1) return;
+
+  const updateCounter = () => {
+    const galleryRect = galleryNode.getBoundingClientRect();
+    const galleryCenter = galleryRect.left + galleryRect.width / 2;
+    let closestIndex = 0;
+    let closestDistance = Number.POSITIVE_INFINITY;
+
+    itemNodes.forEach((itemNode, index) => {
+      const itemRect = itemNode.getBoundingClientRect();
+      const itemCenter = itemRect.left + itemRect.width / 2;
+      const distance = Math.abs(itemCenter - galleryCenter);
+      if (distance < closestDistance) {
+        closestDistance = distance;
+        closestIndex = index;
+      }
+    });
+
+    itemNodes.forEach((itemNode, index) => {
+      itemNode.classList.toggle("is-active", index === closestIndex);
+    });
+    counterNode.textContent = t("details_image_counter", { current: closestIndex + 1, total: itemNodes.length });
+  };
+
+  galleryNode.addEventListener("scroll", () => {
+    window.requestAnimationFrame(updateCounter);
+  }, { passive: true });
+  updateCounter();
+}
+
+function bindEventDetailsGalleryInteractions() {
+  if (!dom.eventDetails) return;
+  bindEventGalleryCounter();
 }
 
 function applyStaticTranslations() {
@@ -6536,6 +6661,8 @@ function renderEventDetails(event) {
     : "";
   const previewArtistLine = mainArtist || additionalArtists || "";
   const previewLocationLine = [locationLead, addressDetail].filter(Boolean).join(" · ");
+  const galleryImageUrls = collectEventImageUrls(event);
+  const galleryMarkup = renderEventGalleryMarkup(galleryImageUrls, eventTitle, event.id);
   const previewImageMarkup = event.image_url
     ? `<img class="event-details__preview-image" src="${event.image_url}" alt="${eventTitle}" loading="lazy">`
     : `<span class="event-details__preview-image-fallback" aria-hidden="true">🎵</span>`;
@@ -6637,11 +6764,7 @@ function renderEventDetails(event) {
       </div>
       <div class="event-details__layout">
         <div class="event-details__media">
-          ${
-            event.image_url
-              ? `<img class="event-details__image" src="${event.image_url}" alt="${eventTitle}" loading="lazy">`
-              : `<div class="event-details__image-fallback" aria-hidden="true"><span>🎵</span></div>`
-          }
+          ${galleryMarkup}
         </div>
         <div class="event-details__content">
           <div class="event-details__header">
@@ -6690,6 +6813,7 @@ function renderEventDetails(event) {
   window.requestAnimationFrame(() => {
     dom.eventDetails.classList.add("event-details--animate-in");
   });
+  bindEventDetailsGalleryInteractions();
   if (state.viewMode === "map" && mapSheetIsAvailable() && mapSheetIsMobileViewport()) {
     setMapBottomSheetState("half");
   }
