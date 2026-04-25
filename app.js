@@ -3017,29 +3017,6 @@ function buildInsertPayload(payload) {
   };
 }
 
-function ensureActiveLanguageSeed(payload) {
-  const nextPayload = { ...(payload || {}) };
-  const activeLanguageCode = resolveLocalizedFieldLanguage(state.lang);
-
-  const seedFieldGroup = (baseKeys, languageFieldByCode) => {
-    if (!languageFieldByCode || !languageFieldByCode[activeLanguageCode]) return;
-    const activeField = languageFieldByCode[activeLanguageCode];
-    if (String(nextPayload[activeField] || "").trim()) return;
-    for (const baseKey of baseKeys) {
-      const baseValue = String(nextPayload[baseKey] || "").trim();
-      if (!baseValue) continue;
-      nextPayload[activeField] = baseValue;
-      return;
-    }
-  };
-
-  seedFieldGroup(["title", "name"], { de: "title_de", en: "title_en", es: "title_es" });
-  seedFieldGroup(["description"], { de: "description_de", en: "description_en", es: "description_es" });
-  seedFieldGroup(["artist_bio"], { de: "artist_bio_de", en: "artist_bio_en", es: "artist_bio_es" });
-
-  return nextPayload;
-}
-
 function sanitizeFileName(fileName) {
   const raw = String(fileName || "").trim();
   const normalized = raw.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
