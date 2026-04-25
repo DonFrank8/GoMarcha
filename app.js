@@ -6691,7 +6691,6 @@ function renderEventDetails(event) {
         ${t("details_navigate")}
       </button>
       `;
-  const favoriteActive = isFavoriteEvent(event.id);
   const shareButtonMarkup = `
     <button
       type="button"
@@ -6702,18 +6701,6 @@ function renderEventDetails(event) {
       ${t("details_share")}
     </button>
   `;
-  const whatsappUrl = buildWhatsappShareUrl(event);
-  const whatsappButtonMarkup = `
-    <button
-      type="button"
-      class="button-secondary event-details__action"
-      data-action="details-share-whatsapp"
-      data-event-id="${event.id}"
-      ${whatsappUrl ? "" : "disabled"}
-    >
-      ${t("details_share_whatsapp")}
-    </button>
-  `;
   const calendarButtonMarkup = `
     <button
       type="button"
@@ -6722,17 +6709,6 @@ function renderEventDetails(event) {
       data-event-id="${event.id}"
     >
       ${t("details_calendar_add")}
-    </button>
-  `;
-  const favoriteButtonMarkup = `
-    <button
-      type="button"
-      class="button-secondary event-details__action event-details__action--favorite ${favoriteActive ? "is-active" : ""}"
-      data-action="details-save"
-      data-event-id="${event.id}"
-      aria-pressed="${favoriteActive ? "true" : "false"}"
-    >
-      ${t("details_save")}
     </button>
   `;
   dom.eventDetails.innerHTML = `
@@ -6800,9 +6776,7 @@ function renderEventDetails(event) {
           <div class="event-details__full-actions">
             ${routeButtonMarkup}
             ${shareButtonMarkup}
-            ${whatsappButtonMarkup}
             ${calendarButtonMarkup}
-            ${favoriteButtonMarkup}
           </div>
           ${descriptionMarkup}
         </div>
@@ -7412,25 +7386,6 @@ function bindEvents() {
         }
         return;
       }
-      const shareWhatsappButton = target.closest("button[data-action='details-share-whatsapp']");
-      if (shareWhatsappButton) {
-        const eventId = shareWhatsappButton.dataset.eventId || state.selectedEventId;
-        const selectedEvent = findEventById(eventId) || state.activeEvent;
-        if (selectedEvent) {
-          const whatsappUrl = buildWhatsappShareUrl(selectedEvent);
-          if (whatsappUrl) {
-            const openedWindow = window.open(whatsappUrl, "_blank", "noopener,noreferrer");
-            if (!openedWindow) {
-              window.location.href = whatsappUrl;
-            }
-          } else {
-            setStatus(t("details_share_error"), "warning");
-          }
-        } else {
-          setStatus(t("details_share_error"), "warning");
-        }
-        return;
-      }
       const addCalendarButton = target.closest("button[data-action='details-calendar']");
       if (addCalendarButton) {
         const eventId = addCalendarButton.dataset.eventId || state.selectedEventId;
@@ -7439,17 +7394,6 @@ function bindEvents() {
           addEventToCalendar(selectedEvent);
         } else {
           setStatus(t("details_calendar_error"), "warning");
-        }
-        return;
-      }
-      const saveButton = target.closest("button[data-action='details-save']");
-      if (saveButton) {
-        const eventId = saveButton.dataset.eventId || state.selectedEventId;
-        if (eventId) {
-          const isFavorite = toggleFavoriteEvent(eventId);
-          saveButton.classList.toggle("is-active", isFavorite);
-          saveButton.setAttribute("aria-pressed", String(isFavorite));
-          setStatus(isFavorite ? t("details_favorite_added") : t("details_favorite_removed"), "ok");
         }
         return;
       }
