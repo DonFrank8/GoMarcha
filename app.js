@@ -4507,6 +4507,16 @@ async function shareEventFromDetails(event) {
   const payload = buildEventSharePayload(event);
   if (!payload) return;
   const whatsappUrl = buildWhatsappShareUrl(event);
+  const platform = String(navigator.platform || "").toLowerCase();
+  const isMac = platform.includes("mac");
+  // On macOS, browser share sheets often omit WhatsApp even when installed.
+  // Prefer direct WhatsApp opening for the most reliable "Compartir" experience.
+  if (isMac && whatsappUrl) {
+    const openedWindow = window.open(whatsappUrl, "_blank", "noopener,noreferrer");
+    if (openedWindow) return;
+    window.location.href = whatsappUrl;
+    return;
+  }
   if (navigator.share) {
     try {
       await navigator.share(payload);
