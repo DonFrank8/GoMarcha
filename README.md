@@ -107,6 +107,20 @@ A separate moderation dashboard is now available at:
 3. Ensure moderator users have `app_metadata.role = 'admin'`
 4. If your table is older and missing columns like `status`, run the same script: it now bootstraps required columns before creating policies
 
+### Description column typo migration (`descrption_*` -> `description_*`)
+
+If your `events` table still uses legacy typo columns (`descrption_de`, `descrption_en`, `descrption_es`), run:
+
+1. Open Supabase SQL editor
+2. Paste and run `supabase-description-column-migration.sql`
+
+What it does:
+- creates canonical columns `description_de`, `description_en`, `description_es` if missing
+- backfills canonical columns from legacy typo columns
+- keeps legacy columns in sync with canonical values (one-time safety backfill)
+- includes a verification query you can run after migration
+- leaves `descrption_*` drop as a separate manual step (after verification)
+
 ### If event submit fails with RLS
 
 If you see `new row violates row-level security policy for table "events"`:
