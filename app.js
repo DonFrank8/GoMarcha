@@ -29,6 +29,11 @@ const TRANSLATION_TARGET_LANGUAGE_BY_CODE = Object.freeze({
   en: "English",
   es: "Spanish"
 });
+const TRANSLATION_TARGET_ALIASES_BY_CODE = Object.freeze({
+  de: ["de", "German"],
+  en: ["en", "English"],
+  es: ["es", "Spanish"]
+});
 const AUTO_TRANSLATABLE_FIELD_GROUPS = Object.freeze([
   {
     key: "title",
