@@ -1974,6 +1974,7 @@ function normalizeEvent(event, index) {
   const normalizedRecurrenceEndDate = normalizeDateWithFallbackYear(event.recurrence_end_date || "", createdAtYear);
 
   return {
+    ...event,
     id: String(event.id ?? `event-${index}`),
     name: event.name || event.title || "Untitled Event",
     location_name: event.location_name || event.location || "Unknown venue",
