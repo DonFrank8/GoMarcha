@@ -16,8 +16,9 @@ const PRE_CACHE_ASSETS = [
   "/style.css",
   "/manifest.json",
   "./assets/favicon.png",
-  "./assets/icon.png",
-  "./assets/app-icon.png",
+  "./assets/icon-192.png",
+  "./assets/icon-512.png",
+  "./assets/apple-touch-icon.png",
   "./assets/logo.png",
   "./assets/logo-schrift.png"
 ];
