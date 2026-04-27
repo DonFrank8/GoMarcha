@@ -3536,6 +3536,42 @@ async function translateText(text, targetLang) {
   return translated;
 }
 
+function normalizeTranslationOutput(translatedText, sourceText = "") {
+  const raw = String(translatedText || "").trim();
+  if (!raw) return "";
+  const source = String(sourceText || "").trim();
+  const lowerRaw = raw.toLowerCase();
+  const lowerSource = source.toLowerCase();
+
+  const commonPrefixes = [
+    "sure!",
+    "here's",
+    "here is",
+    "translation:",
+    "translated text:",
+    "natural translation:"
+  ];
+  if (commonPrefixes.some((prefix) => lowerRaw.startsWith(prefix))) {
+    const firstQuoted = raw.match(/["“](.+?)["”]/);
+    if (firstQuoted?.[1]) {
+      return firstQuoted[1].trim();
+    }
+    const lines = raw
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const candidateLine = lines.find((line) => !line.endsWith(":")) || lines[0] || raw;
+    return candidateLine.replace(/^[-*]\s*/, "").trim();
+  }
+
+  // If model echoes mostly source text (common on fallback), treat as invalid translation.
+  if (lowerSource && (lowerRaw === lowerSource || lowerRaw.includes(lowerSource))) {
+    return "";
+  }
+
+  return raw;
+}
+
 async function translateTextByLanguageCode(text, languageCode) {
   const aliases = TRANSLATION_TARGET_ALIASES_BY_CODE[languageCode] || [];
   const fallbackTarget = TRANSLATION_TARGET_LANGUAGE_BY_CODE[languageCode];
@@ -3544,7 +3580,8 @@ async function translateTextByLanguageCode(text, languageCode) {
   for (const target of targets) {
     try {
       const translated = await translateText(text, target);
-      if (translated) return translated;
+      const normalized = normalizeTranslationOutput(translated, text);
+      if (normalized) return normalized;
     } catch (error) {
       lastError = error;
     }
