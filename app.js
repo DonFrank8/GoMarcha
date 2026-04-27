@@ -1434,7 +1434,6 @@ function ensureActiveLanguageSeed(payload) {
     }
   };
 
-  seedFieldGroup(["title", "name"], { de: "title_de", en: "title_en", es: "title_es" });
   seedFieldGroup(
     ["description", "descrption"],
     { de: "description_de", en: "description_en", es: "description_es" },
@@ -1443,6 +1442,17 @@ function ensureActiveLanguageSeed(payload) {
   seedFieldGroup(["artist_bio"], { de: "artist_bio_de", en: "artist_bio_en", es: "artist_bio_es" });
 
   return normalizeDescriptionColumnVariants(nextPayload);
+}
+
+function preserveManualTitleFields(originalPayload, translatedPayload) {
+  const source = originalPayload && typeof originalPayload === "object" ? originalPayload : {};
+  const next = translatedPayload && typeof translatedPayload === "object" ? { ...translatedPayload } : {};
+  const preservedKeys = ["name", "title", "title_de", "title_en", "title_es"];
+  preservedKeys.forEach((key) => {
+    if (!Object.prototype.hasOwnProperty.call(source, key)) return;
+    next[key] = source[key];
+  });
+  return next;
 }
 
 function getEventVenue(event, lang = state.lang) {
@@ -7040,7 +7050,7 @@ async function applyMissingTranslationsBeforeSave(client, payload, feedbackTarge
   }
   try {
     const translationResult = await generateMissingEventTranslations(payload);
-    workingPayload = translationResult.payload;
+    workingPayload = preserveManualTitleFields(payload, translationResult.payload);
     if (translationResult.warning) {
       translationWarning = true;
       console.warn(
@@ -7057,7 +7067,7 @@ async function applyMissingTranslationsBeforeSave(client, payload, feedbackTarge
       `[Marcha Debug] Auto-translation failed. Saving original payload. ${translationError?.message || translationError}`
     );
     // Absolute fallback: keep multilingual columns non-empty even when translation service is unavailable.
-    workingPayload = fillMissingLocalizedFieldsWithSource(payload);
+    workingPayload = preserveManualTitleFields(payload, fillMissingLocalizedFieldsWithSource(payload));
     translationWarning = true;
     if (feedbackTarget === "form") {
       setFormFeedback(t("form_translation_warning"), "info");
@@ -7119,9 +7129,6 @@ async function handleCreateEventSubmit(submitEvent) {
     const insertPayload = buildInsertPayload(payloadWithCoordinates);
     const translationResult = await applyMissingTranslationsBeforeSave(client, insertPayload, "form");
     console.log("FINAL EVENT PAYLOAD TRANSLATIONS", {
-      title_de: translationResult.payload.title_de,
-      title_en: translationResult.payload.title_en,
-      title_es: translationResult.payload.title_es,
       description_de: translationResult.payload.description_de,
       description_en: translationResult.payload.description_en,
       description_es: translationResult.payload.description_es,
