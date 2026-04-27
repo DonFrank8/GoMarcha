@@ -3546,7 +3546,16 @@ function normalizeTranslationOutput(translatedText, sourceText = "") {
   if (!raw) return "";
   const source = String(sourceText || "").trim();
   const lowerRaw = raw.toLowerCase();
+  const normalizedLowerRaw = lowerRaw
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "");
   const lowerSource = source.toLowerCase();
+
+  const stripWrappingQuotes = (value) => {
+    const text = String(value || "").trim();
+    if (!text) return "";
+    return text.replace(/^["“”'`]+|["“”'`]+$/g, "").trim();
+  };
 
   const commonPrefixes = [
     "sure!",
@@ -3554,19 +3563,25 @@ function normalizeTranslationOutput(translatedText, sourceText = "") {
     "here is",
     "translation:",
     "translated text:",
-    "natural translation:"
+    "natural translation:",
+    "claro, aqui tienes",
+    "aqui tienes",
+    "aqui tienes la traduccion",
+    "aqui tienes la traduccion natural",
+    "traduccion:",
+    "texto traducido:"
   ];
-  if (commonPrefixes.some((prefix) => lowerRaw.startsWith(prefix))) {
+  if (commonPrefixes.some((prefix) => normalizedLowerRaw.startsWith(prefix))) {
     const firstQuoted = raw.match(/["“](.+?)["”]/);
     if (firstQuoted?.[1]) {
-      return firstQuoted[1].trim();
+      return stripWrappingQuotes(firstQuoted[1]);
     }
     const lines = raw
       .split("\n")
       .map((line) => line.trim())
       .filter(Boolean);
     const candidateLine = lines.find((line) => !line.endsWith(":")) || lines[0] || raw;
-    return candidateLine.replace(/^[-*]\s*/, "").trim();
+    return stripWrappingQuotes(candidateLine.replace(/^[-*]\s*/, "").trim());
   }
 
   // If model echoes mostly source text (common on fallback), treat as invalid translation.
@@ -3574,7 +3589,7 @@ function normalizeTranslationOutput(translatedText, sourceText = "") {
     return "";
   }
 
-  return raw;
+  return stripWrappingQuotes(raw);
 }
 
 function languageMarkerScore(text, languageCode) {
