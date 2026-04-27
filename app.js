@@ -3567,6 +3567,17 @@ function normalizeTranslationOutput(translatedText, sourceText = "") {
   return raw;
 }
 
+function languageMarkerScore(text, languageCode) {
+  const tokens = new Set(tokenizeLanguageQuality(text));
+  const markersByLanguage = {
+    en: ["the", "and", "for", "with", "event", "description", "this", "is", "are", "to", "an", "of"],
+    es: ["el", "la", "los", "las", "y", "para", "con", "evento", "descripcion", "es", "de", "una", "un"],
+    de: ["der", "die", "das", "und", "mit", "fuer", "für", "veranstaltung", "beschreibung", "ist", "zu", "ein"]
+  };
+  const markers = markersByLanguage[languageCode] || [];
+  return markers.reduce((count, marker) => count + (tokens.has(marker) ? 1 : 0), 0);
+}
+
 function tokenizeLanguageQuality(text) {
   return String(text || "")
     .toLowerCase()
@@ -3579,16 +3590,28 @@ function tokenizeLanguageQuality(text) {
 function hasLanguageQuality(translatedText, languageCode) {
   const tokens = tokenizeLanguageQuality(translatedText);
   if (!tokens.length) return false;
-  const uniqueTokens = new Set(tokens);
-  const markersByLanguage = {
-    en: ["the", "and", "for", "with", "event", "description", "this", "is", "are", "to"],
-    es: ["el", "la", "los", "las", "y", "para", "con", "evento", "descripcion", "es", "de"],
-    de: ["der", "die", "das", "und", "mit", "fur", "fuer", "veranstaltung", "beschreibung", "ist", "zu"]
-  };
-  const markers = markersByLanguage[languageCode] || [];
-  if (!markers.length) return true;
-  const hitCount = markers.reduce((count, marker) => count + (uniqueTokens.has(marker) ? 1 : 0), 0);
-  return hitCount >= 1;
+  const targetScore = languageMarkerScore(translatedText, languageCode);
+  if (targetScore < 1) return false;
+  const competitorScores = ["de", "en", "es"]
+    .filter((code) => code !== languageCode)
+    .map((code) => languageMarkerScore(translatedText, code));
+  const strongestCompetitor = Math.max(0, ...competitorScores);
+  if (targetScore < strongestCompetitor) return false;
+  if (targetScore === strongestCompetitor && targetScore < 2) return false;
+  return true;
+}
+
+function buildStrictTranslationPrompt(sourceText, languageCode) {
+  const cleanSource = String(sourceText || "").trim();
+  if (!cleanSource) return "";
+  const targetLanguageName = TRANSLATION_TARGET_LANGUAGE_BY_CODE[languageCode] || languageCode;
+  return [
+    `Translate the following text into ${targetLanguageName}.`,
+    "Return only the translated text in the target language.",
+    "Do not include explanations, labels, or prefixes.",
+    "",
+    cleanSource
+  ].join("\n");
 }
 
 async function translateTextByLanguageCode(text, languageCode) {
@@ -3605,6 +3628,21 @@ async function translateTextByLanguageCode(text, languageCode) {
       return normalized;
     } catch (error) {
       lastError = error;
+    }
+  }
+  // Last attempt with an explicit instruction prompt to reduce mixed-language outputs.
+  const strictPrompt = buildStrictTranslationPrompt(text, languageCode);
+  if (strictPrompt) {
+    for (const target of targets) {
+      try {
+        const translated = await translateText(strictPrompt, target);
+        const normalized = normalizeTranslationOutput(translated, text);
+        if (!normalized) continue;
+        if (!hasLanguageQuality(normalized, languageCode)) continue;
+        return normalized;
+      } catch (error) {
+        lastError = error;
+      }
     }
   }
   throw lastError || new Error(`No translation target resolved for ${languageCode}`);
