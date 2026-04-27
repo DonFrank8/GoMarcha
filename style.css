@@ -2102,12 +2102,40 @@ body.is-standalone-app .hero-first-open__actions {
 }
 
 .event-details__back {
-  padding: 0.24rem 0.36rem;
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: #c9d9fb;
-  border-radius: 10px;
-  background: rgba(20, 28, 52, 0.58);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  min-width: 112px;
+  padding: 0.5rem 0.84rem;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #f1f6ff;
+  border-radius: 12px;
+  border: 1px solid rgba(174, 199, 255, 0.56);
+  background: linear-gradient(135deg, rgba(44, 61, 108, 0.92), rgba(31, 46, 84, 0.9));
+  box-shadow:
+    0 0 0 1px rgba(138, 169, 243, 0.24) inset,
+    0 8px 18px rgba(4, 8, 22, 0.42);
+  text-decoration: none;
+  letter-spacing: 0.01em;
+  transition: transform var(--motion-fast), border-color var(--motion-fast), box-shadow var(--motion-fast), background var(--motion-fast);
+}
+
+.event-details__back:hover {
+  border-color: rgba(255, 178, 123, 0.82);
+  box-shadow:
+    0 0 0 1px rgba(255, 196, 154, 0.28) inset,
+    0 10px 20px rgba(4, 8, 22, 0.5);
+}
+
+.event-details__back:active {
+  transform: scale(0.98);
+}
+
+.event-details__back:focus-visible {
+  outline: 2px solid rgba(255, 157, 94, 0.86);
+  outline-offset: 2px;
 }
 
 .event-details__full-actions {
