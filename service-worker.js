@@ -1,4 +1,4 @@
-const CACHE_VERSION = "marcha-beta-v7";
+const CACHE_VERSION = "marcha-beta-v8";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 
@@ -15,10 +15,10 @@ const PRE_CACHE_ASSETS = [
   "/index.html",
   "/style.css",
   "/manifest.json",
-  "./assets/favicon-v2.png",
-  "./assets/icon-192-v2.png",
-  "./assets/icon-512-v2.png",
-  "./assets/apple-touch-icon-v2.png",
+  "./assets/favicon-v3.png",
+  "./assets/icon-192-v3.png",
+  "./assets/icon-512-v3.png",
+  "./assets/apple-touch-icon-v3.png",
   "./assets/logo.png",
   "./assets/logo-schrift.png"
 ];
