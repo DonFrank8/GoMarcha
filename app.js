@@ -6863,7 +6863,10 @@ function renderEventDetails(event) {
     </div>
     <div class="event-details__full">
       <div class="event-details__sheet-actions">
-        <button type="button" class="button-link event-details__back" data-action="details-collapse">${t("details_close_short")}</button>
+        <button type="button" class="button-secondary event-details__back" data-action="details-collapse">
+          <span class="event-details__back-icon" aria-hidden="true">←</span>
+          <span>${t("details_close_short")}</span>
+        </button>
       </div>
       <div class="event-details__layout">
         <div class="event-details__media">

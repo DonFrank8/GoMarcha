@@ -2200,6 +2200,12 @@ body.is-standalone-app .hero-first-open__actions {
 .map-bottom-sheet[data-sheet-state="full"] .event-details__sheet-actions {
   display: flex;
   justify-content: flex-start;
+  position: sticky;
+  top: 0;
+  z-index: 7;
+  padding: 0.18rem 0 0.24rem;
+  margin-bottom: 0.16rem;
+  background: linear-gradient(180deg, rgba(7, 11, 21, 0.96), rgba(7, 11, 21, 0.84), rgba(7, 11, 21, 0));
 }
 
 .map-bottom-sheet[data-sheet-state="full"] .event-details {
@@ -3500,6 +3506,23 @@ body.is-standalone-app .hero-first-open__actions {
 
   .map-bottom-sheet[data-sheet-state="full"] .event-details__action--primary {
     grid-column: 1 / -1;
+  }
+
+  .map-bottom-sheet[data-sheet-state="half"] .event-details__sheet-actions,
+  .map-bottom-sheet[data-sheet-state="full"] .event-details__sheet-actions {
+    top: calc(env(safe-area-inset-top) * 0.08);
+    padding-top: 0.24rem;
+  }
+
+  .event-details__back {
+    min-height: 48px;
+    min-width: 132px;
+    padding: 0.56rem 0.98rem;
+    font-size: 0.96rem;
+    border-radius: 13px;
+    box-shadow:
+      0 0 0 1px rgba(169, 193, 255, 0.34) inset,
+      0 11px 22px rgba(3, 7, 21, 0.52);
   }
 
   .bottom-nav {
