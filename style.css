@@ -1590,8 +1590,7 @@ body.is-standalone-app .hero-first-open__actions {
   min-width: 0;
 }
 
-.event-card__artist,
-.event-card_artist {
+.event-card__artist {
   margin: 2px 0 1px 0;
   font-size: 0.92rem;
   line-height: 1.2;
@@ -1600,8 +1599,7 @@ body.is-standalone-app .hero-first-open__actions {
   letter-spacing: 0;
 }
 
-.event-card__artist::before,
-.event-card_artist::before {
+.event-card__artist::before {
   content: "🎤 ";
   opacity: 0.85;
 }

@@ -418,20 +418,15 @@ const I18N = {
     details_price: "Eintritt",
     details_navigate: "Route öffnen",
     details_view: "Details ansehen",
-    details_back: "Zurück zur Vorschau",
     details_image_counter: "{current} / {total}",
     details_share: "Teilen",
-    details_share_whatsapp: "WhatsApp",
     details_calendar_add: "Zum Kalender",
-    details_save: "Favorit",
     details_close_short: "Zurück",
     details_share_copy_success: "Link kopiert.",
     details_share_not_supported: "Teilen wird auf diesem Gerät nicht unterstützt.",
     details_share_error: "Teilen ist gerade nicht möglich.",
     details_calendar_success: "Kalendereintrag heruntergeladen.",
     details_calendar_error: "Kalendereintrag konnte nicht erstellt werden.",
-    details_favorite_added: "Zu Favoriten hinzugefügt.",
-    details_favorite_removed: "Aus Favoriten entfernt.",
     badge_tonight: "Heute Abend",
     badge_now: "Jetzt",
     badge_popular: "Beliebt",
@@ -679,20 +674,15 @@ const I18N = {
     details_price: "Entry",
     details_navigate: "Open route",
     details_view: "View details",
-    details_back: "Back to preview",
     details_image_counter: "{current} / {total}",
     details_share: "Share",
-    details_share_whatsapp: "WhatsApp",
     details_calendar_add: "Add to calendar",
-    details_save: "Save",
     details_close_short: "Back",
     details_share_copy_success: "Link copied.",
     details_share_not_supported: "Sharing is not supported on this device.",
     details_share_error: "Unable to share right now.",
     details_calendar_success: "Calendar entry downloaded.",
     details_calendar_error: "Unable to create calendar entry.",
-    details_favorite_added: "Added to favorites.",
-    details_favorite_removed: "Removed from favorites.",
     badge_tonight: "Tonight",
     badge_now: "Now",
     badge_popular: "Popular",
@@ -940,20 +930,15 @@ const I18N = {
     details_price: "Entrada",
     details_navigate: "Abrir ruta",
     details_view: "Ver detalles",
-    details_back: "Volver a la vista previa",
     details_image_counter: "{current} / {total}",
     details_share: "Compartir",
-    details_share_whatsapp: "WhatsApp",
     details_calendar_add: "Añadir al calendario",
-    details_save: "Guardar",
     details_close_short: "Volver",
     details_share_copy_success: "Enlace copiado.",
     details_share_not_supported: "Compartir no es compatible en este dispositivo.",
     details_share_error: "No se puede compartir ahora mismo.",
     details_calendar_success: "Entrada de calendario descargada.",
     details_calendar_error: "No se pudo crear la entrada de calendario.",
-    details_favorite_added: "Añadido a favoritos.",
-    details_favorite_removed: "Eliminado de favoritos.",
     badge_tonight: "Esta noche",
     badge_now: "Ahora",
     badge_popular: "Popular",
@@ -1214,12 +1199,8 @@ const dom = {
   languageSwitch: document.getElementById("languageSwitch"),
   heroSearchForm: document.getElementById("heroSearchForm"),
   heroSearchInput: document.getElementById("heroSearchInput"),
-  heroCityFilter: document.getElementById("heroCityFilter"),
-  heroDateFilter: document.getElementById("heroDateFilter"),
-  heroDiscoverCta: document.getElementById("heroDiscoverCta"),
   heroFeedbackCta: document.getElementById("heroFeedbackCta"),
   submitModal: document.getElementById("submitModal"),
-  openSubmitModal: document.getElementById("openSubmitModal"),
   closeSubmitModal: document.getElementById("closeSubmitModal"),
   status: document.getElementById("status"),
   eventList: document.getElementById("eventList"),
@@ -1755,7 +1736,6 @@ function switchLanguage(nextLangCode) {
   updateMapBottomSheetMeta();
   renderQuickCategories();
   updateFilterOptions();
-  syncHeroFilterOptions();
   applyFiltersFromQuery();
   applyFilters();
   if (state.selectedEventId) {
@@ -1807,9 +1787,6 @@ function applyLegacyUiCleanupOverrides() {
     }
   }
 
-  if (dom.openSubmitModal && dom.sidebar?.contains(dom.openSubmitModal)) {
-    dom.openSubmitModal.hidden = true;
-  }
 }
 
 function setStatus(message, tone = "loading") {
@@ -5185,7 +5162,6 @@ function updateFilterOptions() {
   });
   renderQuickCategories();
   renderGenreFilter();
-  syncHeroFilterOptions();
   syncMapSheetFilterOptions();
 }
 
@@ -5253,15 +5229,6 @@ function hasActiveDiscoveryFilters(filters) {
   );
 }
 
-function syncHeroFilterOptions() {
-  if (!dom.heroCityFilter || !dom.heroDateFilter || !dom.cityFilter || !dom.dateFilter) return;
-
-  dom.heroCityFilter.innerHTML = dom.cityFilter.innerHTML;
-  dom.heroDateFilter.innerHTML = dom.dateFilter.innerHTML;
-  dom.heroCityFilter.value = dom.cityFilter.value;
-  dom.heroDateFilter.value = dom.dateFilter.value;
-}
-
 function syncMapSheetFilterOptions() {
   if (!dom.mapSheetCityFilter || !dom.mapSheetDateFilter || !dom.cityFilter || !dom.dateFilter) return;
   dom.mapSheetCityFilter.innerHTML = dom.cityFilter.innerHTML;
@@ -5272,14 +5239,10 @@ function syncMapSheetFilterOptions() {
 
 function syncHeroControlsFromSidebar() {
   if (dom.heroSearchInput && dom.searchInput) dom.heroSearchInput.value = dom.searchInput.value;
-  if (dom.heroCityFilter && dom.cityFilter) dom.heroCityFilter.value = dom.cityFilter.value;
-  if (dom.heroDateFilter && dom.dateFilter) dom.heroDateFilter.value = dom.dateFilter.value;
 }
 
 function syncSidebarFromHeroControls() {
   if (dom.heroSearchInput && dom.searchInput) dom.searchInput.value = dom.heroSearchInput.value;
-  if (dom.heroCityFilter && dom.cityFilter) dom.cityFilter.value = dom.heroCityFilter.value;
-  if (dom.heroDateFilter && dom.dateFilter) dom.dateFilter.value = dom.heroDateFilter.value;
 }
 
 function syncMapSheetControlsFromSidebar() {
@@ -6494,7 +6457,7 @@ function createEventCard(event, index = 0) {
     <div class="event-card__body">
       <div class="event-card__header">
         <h4 class="event-card__title">${eventTitle}</h4>
-        <div class="event-card_artist">${eventArtist ? `${t("details_artist")}: ${eventArtist}` : ""}</div>
+        <div class="event-card__artist">${eventArtist ? `${t("details_artist")}: ${eventArtist}` : ""}</div>
       </div>
       ${recurrenceLine}
       ${distanceLine}
@@ -6781,10 +6744,6 @@ function renderMapMarkers() {
   }
 }
 
-function formatRecurringDetail(event) {
-  return getRecurringText(event, state.lang);
-}
-
 function renderEventDetails(event) {
   if (!event) {
     dom.eventDetails.className = "event-details event-details--empty";
@@ -6814,7 +6773,7 @@ function renderEventDetails(event) {
   const additionalArtistsLine = additionalArtists
     ? `<p class="event-details__subtitle">${additionalArtists}</p>`
     : "";
-  const recurringText = formatRecurringDetail(event);
+  const recurringText = getRecurringText(event, state.lang);
   const recurringLine = recurringText
     ? `<p class="event-details__recurrence">📅 ${recurringText}</p>`
     : "";
@@ -7398,20 +7357,6 @@ function bindEvents() {
       applyFilters();
     });
   }
-  if (dom.heroCityFilter) {
-    dom.heroCityFilter.addEventListener("change", () => {
-      syncSidebarFromHeroControls();
-      syncMapSheetControlsFromSidebar();
-      debouncedApplyFilters();
-    });
-  }
-  if (dom.heroDateFilter) {
-    dom.heroDateFilter.addEventListener("change", () => {
-      syncSidebarFromHeroControls();
-      syncMapSheetControlsFromSidebar();
-      handleLegacyDateFilterChange();
-    });
-  }
   if (dom.mapSheetSearchInput) {
     dom.mapSheetSearchInput.addEventListener("input", () => {
       syncSidebarFromMapSheetControls();
@@ -7444,12 +7389,6 @@ function bindEvents() {
     dom.locationChip.addEventListener("click", () => {
       setViewMode("list", { scroll: true });
       dom.heroSearchInput?.focus();
-    });
-  }
-  if (dom.openSubmitModal) {
-    dom.openSubmitModal.addEventListener("click", () => {
-      setFormFeedback("");
-      openSubmitModal();
     });
   }
   if (dom.openSubmitModalHero) {
