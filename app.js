@@ -82,23 +82,26 @@ const demoEvents = [
 ];
 
 const GENRE_ORDER = [
-  "Latin",
   "Salsa",
+  "Bachata",
+  "Reggaeton",
+  "Latin",
   "Rock",
   "Electro",
   "House",
-  "Techno",
-  "R&B",
-  "Flamenco",
+  "Jazz",
+  "Blues",
+  "Live Band",
+  "Acoustic",
+  "Chill",
+  "DJ Set",
   "DJ",
   "Live Music",
-  "Jazz",
-  "Pop",
-  "Bachata",
-  "Reggaeton",
+  "Techno",
   "Hip-Hop",
-  "Live Band",
-  "DJ Set"
+  "Pop",
+  "R&B",
+  "Flamenco"
 ];
 
 const GENRE_ICON_MAP = {
@@ -128,29 +131,44 @@ const QUICK_CATEGORY_DEFINITIONS = [
     keywords: []
   },
   {
-    id: "house",
-    labelKey: "quick_house",
-    keywords: ["house", "tech house", "deep house", "electro", "dj"]
+    id: "salsa",
+    labelKey: "quick_salsa",
+    keywords: ["salsa"]
   },
   {
-    id: "latino",
-    labelKey: "quick_latino",
-    keywords: ["latin", "salsa", "bachata", "reggaeton", "latino"]
+    id: "bachata",
+    labelKey: "quick_bachata",
+    keywords: ["bachata"]
+  },
+  {
+    id: "reggaeton-latin",
+    labelKey: "quick_reggaeton_latin",
+    keywords: ["reggaeton", "latin", "latino", "dembow"]
+  },
+  {
+    id: "rock",
+    labelKey: "quick_rock",
+    keywords: ["rock"]
+  },
+  {
+    id: "electro-house",
+    labelKey: "quick_electro_house",
+    keywords: ["electro", "house", "techno", "dj", "edm"]
+  },
+  {
+    id: "jazz-blues",
+    labelKey: "quick_jazz_blues",
+    keywords: ["jazz", "blues"]
   },
   {
     id: "live-band",
     labelKey: "quick_live_band",
-    keywords: ["live band", "live music", "band", "rock", "jazz", "flamenco", "acoustic"]
+    keywords: ["live band", "live music", "band"]
   },
   {
-    id: "beach",
-    labelKey: "quick_beach",
-    keywords: ["beach", "sunset", "coast", "seaside", "ocean", "pool"]
-  },
-  {
-    id: "dj",
-    labelKey: "quick_dj",
-    keywords: ["dj", "dj set", "techno", "electro", "afterhours"]
+    id: "acoustic-chill",
+    labelKey: "quick_acoustic_chill",
+    keywords: ["acoustic", "chill", "unplugged", "lounge"]
   }
 ];
 
@@ -207,8 +225,8 @@ const I18N = {
     hero_subtitle: "Live Musik, DJs und besondere Locations – alles an einem Ort.",
     hero_location_label: "In deiner Nähe",
     hero_chip_fallback: "Live-Momente entdecken",
-    hero_chip_vibe: "Live Music • Beach • Lifestyle",
-    featured_title: "Featured heute",
+    hero_chip_vibe: "Salsa • Sunset • Live Vibes",
+    featured_title: "Heute im Trend",
     view_list: "Liste",
     featured_open: "Mehr Infos",
     view_map: "Karte",
@@ -223,15 +241,18 @@ const I18N = {
     map_search_area: "In diesem Bereich suchen",
     map_search_loading: "Suche...",
     quick_all: "Alle",
-    quick_house: "House",
-    quick_latino: "Latino",
+    quick_salsa: "Salsa",
+    quick_bachata: "Bachata",
+    quick_reggaeton_latin: "Reggaeton / Latin",
+    quick_rock: "Rock",
+    quick_electro_house: "Electro / House",
+    quick_jazz_blues: "Jazz / Blues",
     quick_live_band: "Live Band",
-    quick_beach: "Beach",
-    quick_dj: "DJ",
+    quick_acoustic_chill: "Acoustic / Chill",
     hero_search_label: "Suche",
     hero_search_placeholder: "Events, Künstler, Locations suchen...",
-    discover_title: "Musik in deiner Nähe entdecken",
-    discover_subtitle: "Suche nach Events, Bands, DJs und Locations in deiner Nähe.",
+    discover_title: "Wo ist der beste Sound gerade?",
+    discover_subtitle: "Finde Salsa, Bachata, Live Bands und DJ-Sessions mit echter Marbella-Energie.",
     filter_search: "Suche",
     filter_search_placeholder: "Events, Künstler, Locations suchen...",
     filter_city: "Stadt",
@@ -263,6 +284,9 @@ const I18N = {
     details_genre: "Genre",
     details_price: "Preis",
     details_navigate: "Route starten",
+    badge_tonight: "Tonight",
+    badge_now: "Now",
+    badge_popular: "Popular",
     details_free: "Eintritt frei",
     details_no_description: "Keine Beschreibung vorhanden.",
     details_time_fallback: "Uhrzeit folgt",
@@ -408,8 +432,8 @@ const I18N = {
     hero_subtitle: "Live music, DJs and unique venues – all in one place.",
     hero_location_label: "Near you",
     hero_chip_fallback: "Discover live moments",
-    hero_chip_vibe: "Live Music • Beach • Lifestyle",
-    featured_title: "Featured events",
+    hero_chip_vibe: "Salsa • Sunset • Live Vibes",
+    featured_title: "Trending tonight",
     view_list: "List",
     featured_open: "Details",
     view_map: "Map",
@@ -424,15 +448,18 @@ const I18N = {
     map_search_area: "Search this area",
     map_search_loading: "Searching...",
     quick_all: "All",
-    quick_house: "House",
-    quick_latino: "Latino",
+    quick_salsa: "Salsa",
+    quick_bachata: "Bachata",
+    quick_reggaeton_latin: "Reggaeton / Latin",
+    quick_rock: "Rock",
+    quick_electro_house: "Electro / House",
+    quick_jazz_blues: "Jazz / Blues",
     quick_live_band: "Live Band",
-    quick_beach: "Beach",
-    quick_dj: "DJ",
+    quick_acoustic_chill: "Acoustic / Chill",
     hero_search_label: "Search",
     hero_search_placeholder: "Search events, artists, locations...",
-    discover_title: "Discover music near you",
-    discover_subtitle: "Discover events, bands, DJs and venues near you.",
+    discover_title: "Where is the best vibe right now?",
+    discover_subtitle: "Find Salsa, Bachata, live bands and DJ sessions with authentic Marbella energy.",
     filter_search: "Search",
     filter_search_placeholder: "Search events, artists, locations...",
     filter_city: "City",
@@ -464,6 +491,9 @@ const I18N = {
     details_genre: "Genre",
     details_price: "Price",
     details_navigate: "Start route",
+    badge_tonight: "Tonight",
+    badge_now: "Now",
+    badge_popular: "Popular",
     details_free: "Free entry",
     details_no_description: "No description available.",
     details_time_fallback: "Time TBD",
@@ -609,7 +639,7 @@ const I18N = {
     hero_subtitle: "Música en vivo, DJs y lugares únicos – todo en un solo lugar.",
     hero_location_label: "Cerca de ti",
     hero_chip_fallback: "Descubre momentos en vivo",
-    hero_chip_vibe: "Live Music • Beach • Lifestyle",
+    hero_chip_vibe: "Salsa • Sunset • Live Vibes",
     featured_title: "Destacados de hoy",
     view_list: "Lista",
     featured_open: "Más info",
@@ -625,15 +655,18 @@ const I18N = {
     map_search_area: "Buscar en esta zona",
     map_search_loading: "Buscando...",
     quick_all: "Todo",
-    quick_house: "House",
-    quick_latino: "Latino",
+    quick_salsa: "Salsa",
+    quick_bachata: "Bachata",
+    quick_reggaeton_latin: "Reggaeton / Latin",
+    quick_rock: "Rock",
+    quick_electro_house: "Electro / House",
+    quick_jazz_blues: "Jazz / Blues",
     quick_live_band: "Live Band",
-    quick_beach: "Beach",
-    quick_dj: "DJ",
+    quick_acoustic_chill: "Acoustic / Chill",
     hero_search_label: "Buscar",
     hero_search_placeholder: "Busca eventos, artistas, ubicaciones...",
-    discover_title: "Descubre música cerca de ti",
-    discover_subtitle: "Descubre eventos, bandas, DJs y venues cerca de ti.",
+    discover_title: "¿Dónde está el mejor vibe ahora?",
+    discover_subtitle: "Encuentra Salsa, Bachata, Live Bands y sesiones DJ con auténtica energía de Marbella.",
     filter_search: "Buscar",
     filter_search_placeholder: "Busca eventos, artistas, ubicaciones...",
     filter_city: "Ciudad",
@@ -665,6 +698,9 @@ const I18N = {
     details_genre: "Género",
     details_price: "Precio",
     details_navigate: "Iniciar ruta",
+    badge_tonight: "Esta noche",
+    badge_now: "Ahora",
+    badge_popular: "Popular",
     details_free: "Entrada gratuita",
     details_no_description: "No hay descripción disponible.",
     details_time_fallback: "Hora por confirmar",
@@ -2828,6 +2864,39 @@ function pickFeaturedEvents() {
     .slice(0, 6);
 }
 
+function getEventVibeBadges(event) {
+  const badges = [];
+  const eventDate = parseIsoDate(event?.event_date);
+  if (eventDate) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (eventDate.getTime() === today.getTime()) {
+      badges.push(t("badge_tonight"));
+    }
+  }
+
+  const timestamp = eventTimestamp(event);
+  if (Number.isFinite(timestamp)) {
+    const timeDistanceMs = Math.abs(timestamp - Date.now());
+    if (timeDistanceMs <= 2 * 60 * 60 * 1000) {
+      badges.unshift(t("badge_now"));
+    }
+  }
+
+  const popularitySignal = Boolean(event?.image_url) || splitGenres(event?.genre).length > 1;
+  if (popularitySignal) {
+    badges.push(t("badge_popular"));
+  }
+
+  return [...new Set(badges)].slice(0, 2);
+}
+
+function renderEventVibeBadges(event, className) {
+  const badges = getEventVibeBadges(event);
+  if (!badges.length) return "";
+  return badges.map((badge) => `<span class="${className}">${badge}</span>`).join("");
+}
+
 function createFeaturedCard(event) {
   const card = document.createElement("article");
   card.className = "featured-card";
@@ -2835,6 +2904,7 @@ function createFeaturedCard(event) {
   const genre = splitGenres(event.genre)[0] || event.genre || "-";
   const artistName = String(event.artist_name || "").trim();
   const featuredSubline = [artistName || null, event.city || event.location_name || "-"].filter(Boolean).join(" • ");
+  const vibeBadges = renderEventVibeBadges(event, "featured-card__micro-tag");
   card.innerHTML = `
     <div class="featured-card__media">
       ${
@@ -2843,6 +2913,7 @@ function createFeaturedCard(event) {
           : `<div class="featured-card__image-fallback" aria-hidden="true"><span>${iconForGenre(genre)}</span></div>`
       }
       <div class="featured-card__shade"></div>
+      ${vibeBadges ? `<div class="featured-card__micro-tags">${vibeBadges}</div>` : ""}
       <div class="featured-card__content">
         <span class="featured-card__badge">${genre}</span>
         <h3>${event.name}</h3>
@@ -3218,6 +3289,7 @@ function createEventCard(event, index = 0) {
   card.style.setProperty("--card-index", String(index));
   const primaryGenre = splitGenres(event.genre)[0] || event.genre || "-";
   const favoriteActive = isFavoriteEvent(event.id);
+  const vibeBadges = renderEventVibeBadges(event, "event-card__micro-tag");
   card.innerHTML = `
     <div class="event-card__media">
       ${
@@ -3225,6 +3297,7 @@ function createEventCard(event, index = 0) {
           ? `<img class="event-card__image" src="${event.image_url}" alt="${event.name}" loading="lazy">`
           : `<div class="event-card__image-fallback" aria-hidden="true"><span>${iconForGenre(primaryGenre)}</span></div>`
       }
+      ${vibeBadges ? `<div class="event-card__micro-tags">${vibeBadges}</div>` : ""}
       <span class="event-card__genre-badge">${primaryGenre}</span>
       <button
         type="button"
