@@ -257,35 +257,59 @@ function renderEventCard(event) {
   const card = document.createElement("article");
   card.className = "event-card";
   card.dataset.eventId = String(event.id);
-  card.innerHTML = `
-    <header class="event-card__head">
-      <div>
-        <h3>${escapeHtml(event.name)}</h3>
-        <p class="muted">${escapeHtml(eventPlace(event))}</p>
+  const previewGenre = escapeHtml(String(event.genre || "Event").split(",")[0].trim() || "Event");
+  const previewTitle = escapeHtml(event.name || "Untitled Event");
+  const previewMeta = escapeHtml([event.location_name, event.city].filter(Boolean).join(" · ") || "-");
+  const previewMarkup = event.image_url
+    ? `
+      <figure class="event-card__preview">
+        <img class="event-card__image" src="${escapeHtml(event.image_url)}" alt="${previewTitle}" loading="lazy">
+        <figcaption class="event-card__preview-overlay">
+          <span class="event-card__preview-badge">${previewGenre}</span>
+          <strong>${previewTitle}</strong>
+          <span>${previewMeta}</span>
+        </figcaption>
+      </figure>
+    `
+    : `
+      <div class="event-card__preview event-card__preview--empty" aria-hidden="true">
+        <div class="event-card__preview-overlay">
+          <span class="event-card__preview-badge">${previewGenre}</span>
+          <strong>${previewTitle}</strong>
+          <span>${previewMeta}</span>
+        </div>
       </div>
-      <span class="${statusPillClass(event.status)}">${escapeHtml(statusLabel(event.status))}</span>
-    </header>
+    `;
+  card.innerHTML = `
+    <div class="event-card__layout">
+      <div class="event-card__media-column">
+        ${previewMarkup}
+      </div>
+      <div class="event-card__content-column">
+        <header class="event-card__head">
+          <div>
+            <h3>${escapeHtml(event.name)}</h3>
+            <p class="muted">${escapeHtml(eventPlace(event))}</p>
+          </div>
+          <span class="${statusPillClass(event.status)}">${escapeHtml(statusLabel(event.status))}</span>
+        </header>
 
-    <ul class="event-meta">
-      <li><strong>Datum:</strong> ${escapeHtml(formatDateTime(event))}</li>
-      <li><strong>Wiederholung:</strong> ${escapeHtml(recurrenceLabel(event))}</li>
-      <li><strong>Regel:</strong> ${escapeHtml(recurrenceDetails(event))}</li>
-      <li><strong>Genre:</strong> ${escapeHtml(event.genre || "-")}</li>
-      <li><strong>Preis:</strong> ${escapeHtml(event.price_text || "-")}</li>
-      <li><strong>Eingereicht von:</strong> ${escapeHtml(event.submitted_by || "-")}</li>
-      <li><strong>Kontakt:</strong> ${escapeHtml(event.contact_email || "-")}</li>
-      <li><strong>Koordinaten:</strong> ${
+        <ul class="event-meta">
+          <li><strong>Datum:</strong> ${escapeHtml(formatDateTime(event))}</li>
+          <li><strong>Wiederholung:</strong> ${escapeHtml(recurrenceLabel(event))}</li>
+          <li><strong>Regel:</strong> ${escapeHtml(recurrenceDetails(event))}</li>
+          <li><strong>Genre:</strong> ${escapeHtml(event.genre || "-")}</li>
+          <li><strong>Preis:</strong> ${escapeHtml(event.price_text || "-")}</li>
+          <li><strong>Eingereicht von:</strong> ${escapeHtml(event.submitted_by || "-")}</li>
+          <li><strong>Kontakt:</strong> ${escapeHtml(event.contact_email || "-")}</li>
+          <li><strong>Koordinaten:</strong> ${
     event.lat !== null && event.lng !== null
       ? `${escapeHtml(String(event.lat))}, ${escapeHtml(String(event.lng))}`
       : "-"
   }</li>
-    </ul>
-
-    ${
-      event.image_url
-        ? `<img class="event-card__image" src="${escapeHtml(event.image_url)}" alt="${escapeHtml(event.name)}" loading="lazy">`
-        : ""
-    }
+        </ul>
+      </div>
+    </div>
     <p class="event-description">${escapeHtml(event.description || "Keine Beschreibung")}</p>
 
     <label class="field">
@@ -358,10 +382,22 @@ async function updateEventWithFallback(eventId, updates) {
   const payload = { ...updates };
   const maxAttempts = Object.keys(payload).length + 1;
   let lastError = null;
+  let lastData = null;
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const { error } = await client.from("events").update(payload).eq("id", eventId);
-    if (!error) return;
+    const { data, error } = await client
+      .from("events")
+      .update(payload)
+      .eq("id", eventId)
+      .select("id,status")
+      .limit(1);
+    lastData = data;
+    if (!error) {
+      if (!Array.isArray(data) || !data.length) {
+        throw new Error("No row updated. Check admin role and RLS policies.");
+      }
+      return data[0];
+    }
     lastError = error;
     if (!removeMissingColumnFromPayload(payload, error)) break;
   }
@@ -433,11 +469,12 @@ async function handleCardAction(clickEvent) {
       await updateEventWithFallback(eventData.id, { verification_notes: notes });
       setGlobalFeedback("Notes saved.", "success");
     } else {
-      await updateEventWithFallback(eventData.id, {
+      const updatedRow = await updateEventWithFallback(eventData.id, {
         status: button.dataset.action,
         verification_notes: notes
       });
-      setGlobalFeedback(`Status updated to ${button.dataset.action}.`, "success");
+      const persistedStatus = String(updatedRow?.status || button.dataset.action);
+      setGlobalFeedback(`Status updated to ${persistedStatus}.`, "success");
     }
 
     const featuredChanged = state.featureColumns.featured && featuredInput

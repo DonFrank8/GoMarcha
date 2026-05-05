@@ -19,6 +19,11 @@ alter table public.events add column if not exists recurrence_start_date date;
 alter table public.events add column if not exists recurrence_end_date date;
 alter table public.events add column if not exists recurrence_weekday smallint;
 alter table public.events add column if not exists recurrence_day_of_month smallint;
+alter table public.events add column if not exists place_id text;
+alter table public.events add column if not exists formatted_address text;
+alter table public.events add column if not exists street text;
+alter table public.events add column if not exists province text;
+alter table public.events add column if not exists region text;
 
 -- Normalize status values for existing rows.
 update public.events

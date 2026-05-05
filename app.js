@@ -4,6 +4,8 @@ const APP_BUILD_VERSION = "2026.04.08-14";
 const ADMIN_REQUIRED_ROLE = "admin";
 const USE_MODERATION_EDGE_FUNCTION = false;
 const MODERATION_EDGE_FUNCTION_NAME = "moderate-event";
+const SMART_ACTION_FUNCTION_NAME = "smart-action";
+const SMART_ACTION_ENDPOINT = `${SUPABASE_URL}/functions/v1/${SMART_ACTION_FUNCTION_NAME}`;
 const ENABLE_AUTO_GEOCODING = true;
 const GEOCODING_PROVIDER = "nominatim";
 const GEOCODING_MIN_INTERVAL_MS = 850;
@@ -13,18 +15,76 @@ const EVENT_IMAGES_BUCKET = "event-images";
 const MAX_EVENT_IMAGE_BYTES = 5 * 1024 * 1024;
 const ALLOWED_EVENT_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const DEFAULT_NAVIGATION_PROVIDER = "google";
+const GOOGLE_PLACES_AUTOCOMPLETE_DEBOUNCE_MS = 220;
+const GOOGLE_PLACES_AUTOCOMPLETE_MIN_CHARS = 3;
+const BETA_FEEDBACK_EMAIL = "support@gomarcha.com";
 const FAVORITES_STORAGE_KEY = "vibeon_event_favorites";
 const SUBMITTER_PROFILE_STORAGE_KEY = "vibeon.submitterProfile.v1";
 const INSTALL_BANNER_DISMISS_STORAGE_KEY = "vibeon.installBanner.dismissedUntil";
 const INSTALL_BANNER_INSTALLED_STORAGE_KEY = "vibeon.installBanner.installedUntil";
+const MOBILE_INSTALL_CTA_DISMISS_STORAGE_KEY = "vibeon.installCta.dismissedUntil";
+const USER_LOCATION_STORAGE_KEY = "vibeon.userLocation.v1";
+const TRANSLATION_TARGET_LANGUAGE_BY_CODE = Object.freeze({
+  de: "German",
+  en: "English",
+  es: "Spanish"
+});
+const TRANSLATION_TARGET_ALIASES_BY_CODE = Object.freeze({
+  de: ["de", "German"],
+  en: ["en", "English"],
+  es: ["es", "Spanish"]
+});
+const AUTO_TRANSLATABLE_FIELD_GROUPS = Object.freeze([
+  {
+    key: "description",
+    languageFieldByCode: { de: "description_de", en: "description_en", es: "description_es" },
+    sourceCandidates: ["description", "descrption", "details", "event_description"]
+  },
+  {
+    key: "artist_bio",
+    languageFieldByCode: { de: "artist_bio_de", en: "artist_bio_en", es: "artist_bio_es" },
+    sourceCandidates: ["artist_bio", "artist_biography", "bio"]
+  }
+]);
 const INSTALL_BANNER_DISMISS_DAYS = 5;
 const INSTALL_BANNER_INSTALLED_DAYS = 180;
+const MOBILE_INSTALL_CTA_DISMISS_DAYS = 21;
+const USER_LOCATION_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const INSTALL_BANNER_SHOW_DELAY_MS = 2800;
+const ENABLE_LEGACY_INSTALL_BANNER = false;
+const INSTALL_UI_DEBUG = false;
+const MAP_DEBUG_LOGS = !["prod", "production"].includes(String(window.location?.hostname || "").toLowerCase());
 
 window.PARTYRADAR_CACHE_BUSTER = APP_BUILD_VERSION;
 
-const DEFAULT_CENTER = [51.1657, 10.4515];
-const DEFAULT_ZOOM = 6;
+const DEFAULT_CENTER = [36.5101, -4.8824];
+const DEFAULT_ZOOM = 11;
+const DEFAULT_SINGLE_MARKER_ZOOM = 14;
+const COSTA_DEL_SOL_BOUNDS = Object.freeze({
+  minLat: 35.9,
+  maxLat: 36.95,
+  minLng: -5.75,
+  maxLng: -4.05
+});
+
+function mapDebugLog(message, payload = {}) {
+  if (!MAP_DEBUG_LOGS) return;
+  console.info(message, payload);
+}
+
+function isCoordinateWithinBounds(lat, lng, bounds = COSTA_DEL_SOL_BOUNDS) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  return lat >= bounds.minLat && lat <= bounds.maxLat && lng >= bounds.minLng && lng <= bounds.maxLng;
+}
+
+function hasValidUserCoordinates(location, { enforceRegion = false } = {}) {
+  const lat = Number(location?.lat);
+  const lng = Number(location?.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return false;
+  if (enforceRegion && !isCoordinateWithinBounds(lat, lng)) return false;
+  return true;
+}
 
 const demoEvents = [
   {
@@ -171,6 +231,7 @@ const QUICK_CATEGORY_DEFINITIONS = [
     keywords: ["acoustic", "chill", "unplugged", "lounge"]
   }
 ];
+const QUICK_CATEGORY_DYNAMIC_MAX = 10;
 
 const MAP_SHEET_STATE_ORDER = ["full", "half", "peek"];
 const MAP_SHEET_DEFAULT_STATE = "half";
@@ -182,6 +243,44 @@ const RECURRENCE_MAX_OCCURRENCES_PER_EVENT = 64;
 const RECURRENCE_TYPE_NONE = "none";
 const RECURRENCE_TYPE_WEEKLY = "weekly";
 const RECURRENCE_TYPE_MONTHLY = "monthly";
+const WEEKDAYS = Object.freeze({
+  de: ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"],
+  en: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+  es: ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"]
+});
+const RECURRING_LABELS = Object.freeze({
+  de: { weekly: "Jeden", monthly: "Jeden" },
+  en: { weekly: "Every", monthly: "Every" },
+  es: { weekly: "Cada", monthly: "Cada" }
+});
+const RECURRING_FALLBACK_LABELS = Object.freeze({
+  de: { weekly: "Jede Woche", monthly: "Jeden Monat", until: "bis", generic: "Wiederkehrendes Event" },
+  en: { weekly: "Every week", monthly: "Every month", until: "until", generic: "Recurring event" },
+  es: { weekly: "Cada semana", monthly: "Cada mes", until: "hasta", generic: "Evento recurrente" }
+});
+const WEEKDAY_NAME_TO_INDEX = Object.freeze({
+  sunday: 0,
+  sonntag: 0,
+  domingo: 0,
+  monday: 1,
+  montag: 1,
+  lunes: 1,
+  tuesday: 2,
+  dienstag: 2,
+  martes: 2,
+  wednesday: 3,
+  mittwoch: 3,
+  miercoles: 3,
+  thursday: 4,
+  donnerstag: 4,
+  jueves: 4,
+  friday: 5,
+  freitag: 5,
+  viernes: 5,
+  saturday: 6,
+  samstag: 6,
+  sabado: 6
+});
 const SHEET_SNAP_VISUAL_MS = 220;
 const VIEW_TRANSITION_MS = 360;
 const TAP_FEEDBACK_MS = 180;
@@ -200,6 +299,15 @@ const PRESS_FEEDBACK_SELECTOR = [
 ].join(", ");
 const TAP_FEEDBACK_SELECTOR = `${PRESS_FEEDBACK_SELECTOR}, .event-card__favorite, .marker-pin`;
 const TRANSITION_STATE_CLASSES = ["is-transitioning", "is-transitioning-to-map", "is-transitioning-to-list"];
+const DATE_PRESET_IDS = Object.freeze({
+  TODAY: "today",
+  TOMORROW: "tomorrow",
+  THIS_WEEKEND: "this-weekend",
+  NEXT_WEEKEND: "next-weekend",
+  CUSTOM: "custom"
+});
+const NEARBY_RADIUS_OPTIONS = Object.freeze([5, 10, 25, 50]);
+const DEFAULT_NEARBY_RADIUS_KM = 10;
 
 const NAVIGATION_URL_BUILDERS = {
   google: {
@@ -223,6 +331,11 @@ const I18N = {
   de: {
     hero_title: "Erlebe die besten Events in deiner Nähe",
     hero_subtitle: "Live Musik, DJs und besondere Locations – alles an einem Ort.",
+    hero_beta_label: "Early Access",
+    hero_value_proposition: "Finde heute Live-Musik, DJs und besondere Spots in deiner Nähe.",
+    hero_first_open_text: "Marcha zeigt dir kuratierte Events auf Karte und in Liste. Als App bist du mit einem Tap wieder drin.",
+    hero_discover_cta: "Jetzt entdecken",
+    hero_feedback_cta: "Beta-Feedback senden",
     hero_location_label: "In deiner Nähe",
     hero_chip_fallback: "Live-Momente entdecken",
     hero_chip_vibe: "Salsa • Sunset • Live Vibes",
@@ -238,6 +351,9 @@ const I18N = {
     sheet_sort_soonest: "Bald",
     sheet_filter: "Filter",
     sheet_search_placeholder: "Im Bereich suchen...",
+    sheet_count_total_zero: "Keine Events",
+    sheet_count_total: "{count} Events",
+    sheet_count_selected: "{count} ausgewählt",
     map_search_area: "In diesem Bereich suchen",
     map_search_loading: "Suche...",
     quick_all: "Alle",
@@ -259,6 +375,17 @@ const I18N = {
     filter_city_all: "Alle Städte",
     filter_date: "Datum",
     filter_date_all: "Alle Daten",
+    filter_time: "Zeitraum",
+    filter_time_today: "Heute",
+    filter_time_tomorrow: "Morgen",
+    filter_time_this_weekend: "Dieses Wochenende",
+    filter_time_next_weekend: "Nächstes Wochenende",
+    filter_time_custom: "Datum wählen",
+    filter_time_custom_start: "Von",
+    filter_time_custom_end: "Bis",
+    filter_nearby_toggle: "In meiner Nähe",
+    filter_nearby_radius: "Radius",
+    filter_nearby_hint: "Standortzugriff aktivieren, um Nähe-Filter zu nutzen.",
     filter_genre: "Genres",
     filter_genre_all: "Alle Genres",
     filter_reset: "Alle Filter zurücksetzen",
@@ -279,17 +406,40 @@ const I18N = {
     source_demo_error: "Temporäre Daten",
     no_events_found: "Keine passenden Vibes gefunden.",
     details_empty: "Wähle ein Event aus, um Details, Bild und Route zu sehen.",
+    details_artist: "Künstler",
     details_location: "Location",
+    details_address: "Adresse",
+    details_description: "Beschreibung",
     details_date: "Datum",
-    details_genre: "Genre",
-    details_price: "Preis",
-    details_navigate: "Route starten",
-    badge_tonight: "Tonight",
-    badge_now: "Now",
-    badge_popular: "Popular",
+    details_time: "Uhrzeit",
+    details_category: "Kategorie",
+    details_entry: "Eintritt",
+    details_genre: "Kategorie",
+    details_price: "Eintritt",
+    details_navigate: "Route öffnen",
+    details_view: "Details ansehen",
+    details_back: "Zurück zur Vorschau",
+    details_image_counter: "{current} / {total}",
+    details_share: "Teilen",
+    details_share_whatsapp: "WhatsApp",
+    details_calendar_add: "Zum Kalender",
+    details_save: "Favorit",
+    details_close_short: "Zurück",
+    details_share_copy_success: "Link kopiert.",
+    details_share_not_supported: "Teilen wird auf diesem Gerät nicht unterstützt.",
+    details_share_error: "Teilen ist gerade nicht möglich.",
+    details_calendar_success: "Kalendereintrag heruntergeladen.",
+    details_calendar_error: "Kalendereintrag konnte nicht erstellt werden.",
+    details_favorite_added: "Zu Favoriten hinzugefügt.",
+    details_favorite_removed: "Aus Favoriten entfernt.",
+    badge_tonight: "Heute Abend",
+    badge_now: "Jetzt",
+    badge_popular: "Beliebt",
     details_free: "Eintritt frei",
     details_no_description: "Keine Beschreibung vorhanden.",
     details_time_fallback: "Uhrzeit folgt",
+    distance_under_1km: "unter 1 km",
+    distance_km_away: "{distance} km entfernt",
     navigation_unavailable: "Für dieses Event sind keine Navigationsdaten vorhanden.",
     debug_no_error: "Nein",
     debug_note_pending: "Noch keine Entscheidung",
@@ -298,6 +448,9 @@ const I18N = {
     debug_note_error: "Live-Daten derzeit nicht erreichbar",
     button_all: "Alle",
     submit_cta: "Event hinzufügen",
+    feedback_cta: "Feedback senden",
+    feedback_email_subject: "Marcha Beta Feedback",
+    feedback_email_body: "Hi Marcha Team,%0A%0Amein Feedback zur Beta:%0A",
     admin_quick_access: "Admin",
     form_title: "Event hinzufügen",
     form_hint: "Dein Event wird eingereicht und vor Veröffentlichung kuratiert.",
@@ -308,6 +461,8 @@ const I18N = {
     form_error_rls_submit:
       "Zugriff durch Datenbank-Sicherheitsregel (RLS) blockiert. Bitte supabase-rls.sql ausführen/aktualisieren, damit pending Einreichungen erlaubt sind.",
     form_error_geocoding_failed: "Adresse konnte nicht geokodiert werden. Bitte Eingabe prüfen.",
+    form_error_places_details_cors:
+      "Google Places Detailabfrage wurde durch Browser/CORS blockiert. Bitte Domain-/Referrer-Regeln oder einen Places-Proxy prüfen.",
     form_error_image_required: "Bitte ein Hauptbild auswählen.",
     form_error_image_type: "Bitte ein gültiges Bild (JPG, PNG oder WebP) auswählen.",
     form_error_image_size: "Das Bild ist zu groß. Maximal 5 MB erlaubt.",
@@ -411,6 +566,13 @@ const I18N = {
     install_banner_text_android_manual: "Über das Browser-Menü „Zum Startbildschirm hinzufügen“ auswählen.",
     install_banner_cta: "Installieren",
     install_banner_dismiss: "Später",
+    install_mobile_title: "Marcha als App",
+    install_mobile_hint_android: "Direkt vom Homescreen öffnen – schnell und ohne Browserleiste.",
+    install_mobile_hint_ios: "Tippe auf Teilen und dann „Zum Home-Bildschirm“.",
+    install_mobile_android_helper: "Im Browser-Menü „Zum Startbildschirm hinzufügen“ auswählen.",
+    install_mobile_ios_helper: "Safari: Teilen → „Zum Home-Bildschirm“.",
+    install_mobile_cta: "Installieren",
+    install_mobile_dismiss: "Später",
     create_title: "Neues Event",
     create_toggle: "Event hinzufügen",
     create_name: "Name",
@@ -430,6 +592,11 @@ const I18N = {
   en: {
     hero_title: "Discover the best events near you",
     hero_subtitle: "Live music, DJs and unique venues – all in one place.",
+    hero_beta_label: "Early Access",
+    hero_value_proposition: "Find live music, DJs and unique spots happening near you today.",
+    hero_first_open_text: "Marcha helps you discover curated events on map and list. Install it for instant one-tap access.",
+    hero_discover_cta: "Start discovering",
+    hero_feedback_cta: "Send beta feedback",
     hero_location_label: "Near you",
     hero_chip_fallback: "Discover live moments",
     hero_chip_vibe: "Salsa • Sunset • Live Vibes",
@@ -445,6 +612,9 @@ const I18N = {
     sheet_sort_soonest: "Soonest",
     sheet_filter: "Filter",
     sheet_search_placeholder: "Search in this area...",
+    sheet_count_total_zero: "No events",
+    sheet_count_total: "{count} events",
+    sheet_count_selected: "{count} selected",
     map_search_area: "Search this area",
     map_search_loading: "Searching...",
     quick_all: "All",
@@ -466,6 +636,17 @@ const I18N = {
     filter_city_all: "All cities",
     filter_date: "Date",
     filter_date_all: "All dates",
+    filter_time: "Time",
+    filter_time_today: "Today",
+    filter_time_tomorrow: "Tomorrow",
+    filter_time_this_weekend: "This weekend",
+    filter_time_next_weekend: "Next weekend",
+    filter_time_custom: "Pick date",
+    filter_time_custom_start: "Start",
+    filter_time_custom_end: "End",
+    filter_nearby_toggle: "Near me",
+    filter_nearby_radius: "Radius",
+    filter_nearby_hint: "Enable location access to use nearby filtering.",
     filter_genre: "Genres",
     filter_genre_all: "All genres",
     filter_reset: "Reset all filters",
@@ -486,17 +667,40 @@ const I18N = {
     source_demo_error: "Temporary data",
     no_events_found: "No matching vibes found.",
     details_empty: "Select an event to view details, image and directions.",
+    details_artist: "Artist",
     details_location: "Location",
+    details_address: "Address",
+    details_description: "Description",
     details_date: "Date",
-    details_genre: "Genre",
-    details_price: "Price",
-    details_navigate: "Start route",
+    details_time: "Time",
+    details_category: "Category",
+    details_entry: "Entry",
+    details_genre: "Category",
+    details_price: "Entry",
+    details_navigate: "Open route",
+    details_view: "View details",
+    details_back: "Back to preview",
+    details_image_counter: "{current} / {total}",
+    details_share: "Share",
+    details_share_whatsapp: "WhatsApp",
+    details_calendar_add: "Add to calendar",
+    details_save: "Save",
+    details_close_short: "Back",
+    details_share_copy_success: "Link copied.",
+    details_share_not_supported: "Sharing is not supported on this device.",
+    details_share_error: "Unable to share right now.",
+    details_calendar_success: "Calendar entry downloaded.",
+    details_calendar_error: "Unable to create calendar entry.",
+    details_favorite_added: "Added to favorites.",
+    details_favorite_removed: "Removed from favorites.",
     badge_tonight: "Tonight",
     badge_now: "Now",
     badge_popular: "Popular",
     details_free: "Free entry",
     details_no_description: "No description available.",
     details_time_fallback: "Time TBD",
+    distance_under_1km: "under 1 km",
+    distance_km_away: "{distance} km away",
     navigation_unavailable: "No navigation data is available for this event.",
     debug_no_error: "No",
     debug_note_pending: "No decision yet",
@@ -505,6 +709,9 @@ const I18N = {
     debug_note_error: "Live data currently unavailable",
     button_all: "All",
     submit_cta: "Add your event",
+    feedback_cta: "Send feedback",
+    feedback_email_subject: "Marcha Beta Feedback",
+    feedback_email_body: "Hi Marcha Team,%0A%0Amy beta feedback:%0A",
     admin_quick_access: "Admin",
     form_title: "Add your event",
     form_hint: "Your event will be reviewed and curated before publication.",
@@ -515,6 +722,8 @@ const I18N = {
     form_error_rls_submit:
       "Permission denied by database security (RLS). Please run/update supabase-rls.sql to allow pending event submissions.",
     form_error_geocoding_failed: "Address could not be geocoded. Please check your input.",
+    form_error_places_details_cors:
+      "Google Places detail request was blocked by browser/CORS. Please verify domain/referrer restrictions.",
     form_error_image_required: "Please select a main image.",
     form_error_image_type: "Please upload a valid image (JPG, PNG, or WebP).",
     form_error_image_size: "The image is too large. Maximum is 5 MB.",
@@ -618,6 +827,13 @@ const I18N = {
     install_banner_text_android_manual: "Use your browser menu and choose Add to Home screen.",
     install_banner_cta: "Install",
     install_banner_dismiss: "Not now",
+    install_mobile_title: "Install Marcha app",
+    install_mobile_hint_android: "Open Marcha faster from your home screen in app mode.",
+    install_mobile_hint_ios: "Tap Share and then Add to Home Screen.",
+    install_mobile_android_helper: "Use your browser menu and choose Add to Home screen.",
+    install_mobile_ios_helper: "In Safari: tap Share, then Add to Home Screen.",
+    install_mobile_cta: "Install app",
+    install_mobile_dismiss: "Not now",
     create_title: "New event",
     create_toggle: "Add event",
     create_name: "Name",
@@ -637,6 +853,11 @@ const I18N = {
   es: {
     hero_title: "Encuentra la mejor marcha cerca de ti",
     hero_subtitle: "Música en vivo, DJs y lugares únicos – todo en un solo lugar.",
+    hero_beta_label: "Acceso anticipado",
+    hero_value_proposition: "Encuentra hoy música en vivo, DJs y lugares únicos cerca de ti.",
+    hero_first_open_text: "Marcha te muestra eventos seleccionados en mapa y lista. Instálala para volver con un solo toque.",
+    hero_discover_cta: "Descubrir ahora",
+    hero_feedback_cta: "Enviar feedback beta",
     hero_location_label: "Cerca de ti",
     hero_chip_fallback: "Descubre momentos en vivo",
     hero_chip_vibe: "Salsa • Sunset • Live Vibes",
@@ -652,6 +873,9 @@ const I18N = {
     sheet_sort_soonest: "Pronto",
     sheet_filter: "Filtros",
     sheet_search_placeholder: "Buscar en esta zona...",
+    sheet_count_total_zero: "Sin eventos",
+    sheet_count_total: "{count} eventos",
+    sheet_count_selected: "{count} seleccionado",
     map_search_area: "Buscar en esta zona",
     map_search_loading: "Buscando...",
     quick_all: "Todo",
@@ -673,6 +897,17 @@ const I18N = {
     filter_city_all: "Todas las ciudades",
     filter_date: "Fecha",
     filter_date_all: "Todas las fechas",
+    filter_time: "Periodo",
+    filter_time_today: "Hoy",
+    filter_time_tomorrow: "Mañana",
+    filter_time_this_weekend: "Este fin de semana",
+    filter_time_next_weekend: "Próximo fin de semana",
+    filter_time_custom: "Elegir fecha",
+    filter_time_custom_start: "Desde",
+    filter_time_custom_end: "Hasta",
+    filter_nearby_toggle: "Cerca de mí",
+    filter_nearby_radius: "Radio",
+    filter_nearby_hint: "Activa la ubicación para usar el filtro cercano.",
     filter_genre: "Géneros",
     filter_genre_all: "Todos los géneros",
     filter_reset: "Restablecer filtros",
@@ -693,17 +928,40 @@ const I18N = {
     source_demo_error: "Datos temporales",
     no_events_found: "No se encontraron vibes para tu búsqueda.",
     details_empty: "Selecciona un evento para ver detalles, imagen y ruta.",
-    details_location: "Ubicación",
+    details_artist: "Artista",
+    details_location: "Lugar",
+    details_address: "Dirección",
+    details_description: "Descripción",
     details_date: "Fecha",
-    details_genre: "Género",
-    details_price: "Precio",
-    details_navigate: "Iniciar ruta",
+    details_time: "Hora",
+    details_category: "Categoría",
+    details_entry: "Entrada",
+    details_genre: "Categoría",
+    details_price: "Entrada",
+    details_navigate: "Abrir ruta",
+    details_view: "Ver detalles",
+    details_back: "Volver a la vista previa",
+    details_image_counter: "{current} / {total}",
+    details_share: "Compartir",
+    details_share_whatsapp: "WhatsApp",
+    details_calendar_add: "Añadir al calendario",
+    details_save: "Guardar",
+    details_close_short: "Volver",
+    details_share_copy_success: "Enlace copiado.",
+    details_share_not_supported: "Compartir no es compatible en este dispositivo.",
+    details_share_error: "No se puede compartir ahora mismo.",
+    details_calendar_success: "Entrada de calendario descargada.",
+    details_calendar_error: "No se pudo crear la entrada de calendario.",
+    details_favorite_added: "Añadido a favoritos.",
+    details_favorite_removed: "Eliminado de favoritos.",
     badge_tonight: "Esta noche",
     badge_now: "Ahora",
     badge_popular: "Popular",
     details_free: "Entrada gratuita",
     details_no_description: "No hay descripción disponible.",
     details_time_fallback: "Hora por confirmar",
+    distance_under_1km: "menos de 1 km",
+    distance_km_away: "a {distance} km",
     navigation_unavailable: "No hay datos de navegación disponibles para este evento.",
     debug_no_error: "No",
     debug_note_pending: "Sin decisión todavía",
@@ -712,6 +970,9 @@ const I18N = {
     debug_note_error: "Datos en vivo no disponibles temporalmente",
     button_all: "Todos",
     submit_cta: "Añade tu evento",
+    feedback_cta: "Enviar feedback",
+    feedback_email_subject: "Feedback Beta Marcha",
+    feedback_email_body: "Hola equipo Marcha,%0A%0Ami feedback de la beta:%0A",
     admin_quick_access: "Admin",
     form_title: "Añade tu evento",
     form_hint: "Tu evento será revisado y curado antes de publicarse.",
@@ -722,6 +983,8 @@ const I18N = {
     form_error_rls_submit:
       "Permiso denegado por la seguridad de base de datos (RLS). Ejecuta/actualiza supabase-rls.sql para permitir envíos en estado pending.",
     form_error_geocoding_failed: "No se pudo geocodificar la dirección. Revisa los datos.",
+    form_error_places_details_cors:
+      "La consulta de detalles de Google Places fue bloqueada por el navegador/CORS. Verifica restricciones de dominio/referer.",
     form_error_image_required: "Selecciona una imagen principal.",
     form_error_image_type: "Sube una imagen válida (JPG, PNG o WebP).",
     form_error_image_size: "La imagen es demasiado grande. Máximo 5 MB.",
@@ -825,6 +1088,13 @@ const I18N = {
     install_banner_text_android_manual: "Usa el menú del navegador y selecciona Añadir a pantalla de inicio.",
     install_banner_cta: "Instalar",
     install_banner_dismiss: "Ahora no",
+    install_mobile_title: "Marcha como app",
+    install_mobile_hint_android: "Abre Marcha más rápido desde tu pantalla de inicio.",
+    install_mobile_hint_ios: "Pulsa Compartir y luego Añadir a pantalla de inicio.",
+    install_mobile_android_helper: "En el menú del navegador, elige Añadir a pantalla de inicio.",
+    install_mobile_ios_helper: "En Safari: pulsa Compartir y luego Añadir a pantalla de inicio.",
+    install_mobile_cta: "Instalar app",
+    install_mobile_dismiss: "Ahora no",
     create_title: "Nuevo evento",
     create_toggle: "Añadir evento",
     create_name: "Nombre",
@@ -859,6 +1129,8 @@ const state = {
   allEvents: [],
   moderationEvents: [],
   filteredEvents: [],
+  eventsLoaded: false,
+  userLocation: null,
   selectedEventId: null,
   activeEventId: null,
   activeEvent: null,
@@ -868,6 +1140,15 @@ const state = {
   availableGenres: [],
   availableDates: [],
   activeGenres: new Set(),
+  dateRange: {
+    start: null,
+    end: null
+  },
+  activeDatePreset: "",
+  nearbyOnly: false,
+  radiusKm: DEFAULT_NEARBY_RADIUS_KM,
+  nearbyHintVisible: false,
+  locationPermissionState: "unknown",
   discoverySort: "soonest",
   activeQuickCategoryId: "all",
   viewMode: "list",
@@ -902,6 +1183,8 @@ const state = {
   }
 };
 
+const EARTH_RADIUS_KM = 6371;
+
 const dom = {
   htmlRoot: document.documentElement,
   sidebar: document.querySelector(".sidebar"),
@@ -924,8 +1207,7 @@ const dom = {
   bottomNavDiscover: document.getElementById("bottomNavDiscover"),
   bottomNavMap: document.getElementById("bottomNavMap"),
   bottomNavSubmit: document.getElementById("bottomNavSubmit"),
-  featuredCarousel: document.getElementById("featuredCarousel"),
-  featuredCount: document.getElementById("featuredCount"),
+  heroTodayCountLabel: document.getElementById("heroTodayCountLabel"),
   quickCategoryRail: document.getElementById("quickCategoryRail"),
   viewToggleList: document.getElementById("viewToggleList"),
   viewToggleMap: document.getElementById("viewToggleMap"),
@@ -934,6 +1216,8 @@ const dom = {
   heroSearchInput: document.getElementById("heroSearchInput"),
   heroCityFilter: document.getElementById("heroCityFilter"),
   heroDateFilter: document.getElementById("heroDateFilter"),
+  heroDiscoverCta: document.getElementById("heroDiscoverCta"),
+  heroFeedbackCta: document.getElementById("heroFeedbackCta"),
   submitModal: document.getElementById("submitModal"),
   openSubmitModal: document.getElementById("openSubmitModal"),
   closeSubmitModal: document.getElementById("closeSubmitModal"),
@@ -957,6 +1241,14 @@ const dom = {
   searchInput: document.getElementById("searchInput"),
   cityFilter: document.getElementById("cityFilter"),
   dateFilter: document.getElementById("dateFilter"),
+  timePresetGroup: document.getElementById("timePresetGroup"),
+  customDateRange: document.getElementById("customDateRange"),
+  dateRangeStart: document.getElementById("dateRangeStart"),
+  dateRangeEnd: document.getElementById("dateRangeEnd"),
+  nearbyToggle: document.getElementById("nearbyToggle"),
+  nearbyRadiusWrap: document.getElementById("nearbyRadiusWrap"),
+  nearbyRadiusGroup: document.getElementById("nearbyRadiusGroup"),
+  nearbyHint: document.getElementById("nearbyHint"),
   genreFilterGroup: document.getElementById("genreFilterGroup"),
   clearGenresButton: document.getElementById("clearGenresButton"),
   resetFilters: document.getElementById("resetFilters"),
@@ -965,6 +1257,8 @@ const dom = {
   formSubmitButton: document.getElementById("formSubmitButton"),
   formName: document.getElementById("formName"),
   formLocationName: document.getElementById("formLocationName"),
+  formLocationSuggestionList: document.getElementById("formLocationSuggestions"),
+  formLocationAutocompleteStatus: document.getElementById("formLocationAutocompleteStatus"),
   formAddress: document.getElementById("formAddress"),
   formPostalCode: document.getElementById("formPostalCode"),
   formCity: document.getElementById("formCity"),
@@ -990,9 +1284,14 @@ const dom = {
   formSubmittedBy: document.getElementById("formSubmittedBy"),
   formContactEmail: document.getElementById("formContactEmail"),
   formDescription: document.getElementById("formDescription"),
+  mobileInstallEntry: document.getElementById("mobileInstallEntry"),
+  mobileInstallEntryHint: document.getElementById("mobileInstallEntryHint"),
+  mobileInstallEntryCta: document.getElementById("mobileInstallEntryCta"),
+  mobileInstallEntryDismiss: document.getElementById("mobileInstallEntryDismiss"),
+  mobileInstallEntryHelper: document.getElementById("mobileInstallEntryHelper"),
   installBanner: document.getElementById("installBanner"),
   installBannerText: document.getElementById("installBannerText"),
-  installBannerPrimary: document.getElementById("installBannerInstall"),
+  installBannerPrimary: document.getElementById("installBannerPrimary"),
   installBannerDismiss: document.getElementById("installBannerDismiss")
 };
 
@@ -1003,6 +1302,22 @@ const markerEventsById = new Map();
 let activeMarkerId = null;
 let deferredInstallPromptEvent = null;
 let installBannerShowTimer = null;
+let serviceWorkerRegistrationPromise = null;
+let serviceWorkerHasRefreshed = false;
+let locationRequestInFlightPromise = null;
+const locationAutocompleteState = {
+  enabled: false,
+  sessionToken: "",
+  selectedPlace: null,
+  selectedPredictionId: "",
+  lastSearchText: "",
+  isPointerDownOnSuggestions: false,
+  suppressNextInputSearch: false,
+  detailsFetchUnavailable: false,
+  suggestionsByPlaceId: new Map(),
+  searchCounter: 0,
+  activeRequestCounter: 0
+};
 const throttledSelectEventMapFocus = throttle((event, zoom) => {
   flyToEventWithMapSheetOffset(event, zoom);
 }, 180);
@@ -1057,6 +1372,273 @@ function t(key, params = {}) {
   );
 }
 
+function resolveLocalizedFieldLanguage(langValue = state.lang) {
+  const normalized = String(langValue || "").trim().toLowerCase();
+  if (normalized === "en" || normalized === "es") return normalized;
+  return "de";
+}
+
+function localizedLanguageFallbackOrder(langValue = state.lang) {
+  const resolvedLang = resolveLocalizedFieldLanguage(langValue);
+  if (resolvedLang === "en") return ["de", "es"];
+  if (resolvedLang === "es") return ["de", "en"];
+  return ["es", "en"];
+}
+
+function readEventFieldValue(event, fieldName) {
+  if (!event || !fieldName) return "";
+  const rawValue = event[fieldName];
+  if (rawValue === null || rawValue === undefined) return "";
+  return String(rawValue).trim();
+}
+
+function getLocalizedValue(event, baseKey, lang = state.lang, aliases = []) {
+  const normalizedBase = String(baseKey || "").trim();
+  if (!normalizedBase) return "";
+  const language = resolveLocalizedFieldLanguage(lang);
+  const fallbackLanguages = localizedLanguageFallbackOrder(language);
+  const keys = [normalizedBase, ...aliases]
+    .map((key) => String(key || "").trim())
+    .filter(Boolean);
+  const candidates = [];
+
+  keys.forEach((key) => candidates.push(`${key}_${language}`));
+  keys.forEach((key) => candidates.push(key));
+  fallbackLanguages.forEach((fallbackLanguage) => {
+    keys.forEach((key) => candidates.push(`${key}_${fallbackLanguage}`));
+  });
+
+  const seen = new Set();
+  for (const candidate of candidates) {
+    if (seen.has(candidate)) continue;
+    seen.add(candidate);
+    const value = readEventFieldValue(event, candidate);
+    if (value) return value;
+  }
+  return "";
+}
+
+function getEventTitle(event, lang = state.lang) {
+  return getLocalizedValue(event, "title", lang, ["name", "event_title"]) || "Untitled Event";
+}
+
+function getEventDescription(event, lang = state.lang) {
+  return getLocalizedValue(event, "description", lang, ["descrption", "details", "event_description"])
+    || t("details_no_description");
+}
+
+function normalizeDescriptionColumnVariants(payload) {
+  const nextPayload = { ...(payload || {}) };
+  const languageCodes = ["de", "en", "es"];
+  for (const code of languageCodes) {
+    const canonicalField = `description_${code}`;
+    const legacyTypoField = `descrption_${code}`;
+    const canonicalValue = String(nextPayload[canonicalField] || "").trim();
+    const legacyValue = String(nextPayload[legacyTypoField] || "").trim();
+    const merged = canonicalValue || legacyValue;
+    if (!merged) continue;
+    nextPayload[canonicalField] = merged;
+    nextPayload[legacyTypoField] = merged;
+  }
+  return nextPayload;
+}
+
+function ensureActiveLanguageSeed(payload) {
+  const nextPayload = normalizeDescriptionColumnVariants({ ...(payload || {}) });
+  const activeLanguageCode = resolveLocalizedFieldLanguage(state.lang);
+
+  const seedFieldGroup = (baseKeys, languageFieldByCode, legacyFieldByCode = null) => {
+    if (!languageFieldByCode || !languageFieldByCode[activeLanguageCode]) return;
+    const activeField = languageFieldByCode[activeLanguageCode];
+    const activeLegacyField = legacyFieldByCode?.[activeLanguageCode] || "";
+    const existing = String(nextPayload[activeField] || nextPayload[activeLegacyField] || "").trim();
+    if (existing) {
+      if (activeField && !String(nextPayload[activeField] || "").trim()) {
+        nextPayload[activeField] = existing;
+      }
+      if (activeLegacyField && !String(nextPayload[activeLegacyField] || "").trim()) {
+        nextPayload[activeLegacyField] = existing;
+      }
+      return;
+    }
+    for (const baseKey of baseKeys) {
+      const baseValue = String(nextPayload[baseKey] || "").trim();
+      if (!baseValue) continue;
+      nextPayload[activeField] = baseValue;
+      if (activeLegacyField) nextPayload[activeLegacyField] = baseValue;
+      return;
+    }
+  };
+
+  seedFieldGroup(
+    ["description", "descrption"],
+    { de: "description_de", en: "description_en", es: "description_es" },
+    { de: "descrption_de", en: "descrption_en", es: "descrption_es" }
+  );
+  seedFieldGroup(["artist_bio"], { de: "artist_bio_de", en: "artist_bio_en", es: "artist_bio_es" });
+
+  return normalizeDescriptionColumnVariants(nextPayload);
+}
+
+function preserveManualTitleFields(originalPayload, translatedPayload) {
+  const source = originalPayload && typeof originalPayload === "object" ? originalPayload : {};
+  const next = translatedPayload && typeof translatedPayload === "object" ? { ...translatedPayload } : {};
+  const preservedKeys = ["name", "title", "title_de", "title_en", "title_es"];
+  preservedKeys.forEach((key) => {
+    if (!Object.prototype.hasOwnProperty.call(source, key)) return;
+    next[key] = source[key];
+  });
+  return next;
+}
+
+function getEventVenue(event, lang = state.lang) {
+  return getLocalizedValue(event, "venue", lang, ["location_name", "location"]);
+}
+
+function getEventAddress(event, lang = state.lang) {
+  return getLocalizedValue(event, "address", lang, ["street", "formatted_address"]);
+}
+
+function getEventCategory(event, lang = state.lang) {
+  return getLocalizedValue(event, "genre", lang, ["music_genre", "category", "event_category"]);
+}
+
+function getEventArtist(event, lang = state.lang) {
+  return getLocalizedValue(event, "artist_name", lang, ["artist", "event_artist"]);
+}
+
+function eventDisplayVenue(event, lang = state.lang) {
+  return getEventVenue(event, lang)
+    || String(event?.location_name || event?.location || "").trim();
+}
+
+function eventDisplayAddress(event, lang = state.lang) {
+  return getEventAddress(event, lang)
+    || String(event?.address || event?.street || event?.formatted_address || "").trim();
+}
+
+function collectEventImageUrls(event) {
+  if (!event || typeof event !== "object") return [];
+  const candidates = [];
+  const pushValue = (value) => {
+    const normalized = String(value || "").trim();
+    if (!normalized) return;
+    candidates.push(normalized);
+  };
+  const collectFromEntry = (entry) => {
+    if (!entry) return;
+    if (typeof entry === "string" || typeof entry === "number") {
+      pushValue(entry);
+      return;
+    }
+    if (typeof entry === "object") {
+      pushValue(entry.url || entry.image_url || entry.src || entry.path);
+    }
+  };
+
+  collectFromEntry(event.image_url);
+  collectFromEntry(event.image);
+
+  const possibleCollections = [
+    event.images,
+    event.image_urls,
+    event.imageUrls,
+    event.gallery,
+    event.gallery_images,
+    event.photos
+  ];
+  possibleCollections.forEach((collection) => {
+    if (!collection) return;
+    if (Array.isArray(collection)) {
+      collection.forEach(collectFromEntry);
+      return;
+    }
+    if (typeof collection === "string") {
+      collection
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .forEach(pushValue);
+    }
+  });
+
+  const unique = [];
+  const seen = new Set();
+  candidates.forEach((candidate) => {
+    if (seen.has(candidate)) return;
+    seen.add(candidate);
+    unique.push(candidate);
+  });
+  return unique;
+}
+
+function renderEventGalleryMarkup(imageUrls, eventTitle, eventId) {
+  if (!Array.isArray(imageUrls) || !imageUrls.length) {
+    return `<div class="event-details__image-fallback" aria-hidden="true"><span>🎵</span></div>`;
+  }
+  const isSingle = imageUrls.length <= 1;
+  const counterMarkup = isSingle
+    ? ""
+    : `<div class="event-gallery__counter" data-gallery-counter>${t("details_image_counter", { current: 1, total: imageUrls.length })}</div>`;
+  const galleryClassName = `event-gallery ${isSingle ? "event-gallery--single" : ""}`.trim();
+  const itemsMarkup = imageUrls
+    .map((url, index) => `
+      <figure class="event-gallery-item ${index === 0 ? "is-active" : ""}" data-gallery-item data-gallery-index="${index}">
+        <img class="event-details__image" src="${url}" alt="${eventTitle}" loading="lazy">
+      </figure>
+    `)
+    .join("");
+  return `
+    ${counterMarkup}
+    <div class="${galleryClassName}" data-event-gallery data-event-id="${eventId}">
+      ${itemsMarkup}
+    </div>
+  `;
+}
+
+function bindEventGalleryCounter() {
+  const mediaNode = dom.eventDetails?.querySelector(".event-details__media");
+  if (!mediaNode) return;
+  const galleryNode = mediaNode.querySelector("[data-event-gallery]");
+  const counterNode = mediaNode.querySelector("[data-gallery-counter]");
+  if (!galleryNode || !counterNode) return;
+
+  const itemNodes = [...galleryNode.querySelectorAll("[data-gallery-item]")];
+  if (itemNodes.length <= 1) return;
+
+  const updateCounter = () => {
+    const galleryRect = galleryNode.getBoundingClientRect();
+    const galleryCenter = galleryRect.left + galleryRect.width / 2;
+    let closestIndex = 0;
+    let closestDistance = Number.POSITIVE_INFINITY;
+
+    itemNodes.forEach((itemNode, index) => {
+      const itemRect = itemNode.getBoundingClientRect();
+      const itemCenter = itemRect.left + itemRect.width / 2;
+      const distance = Math.abs(itemCenter - galleryCenter);
+      if (distance < closestDistance) {
+        closestDistance = distance;
+        closestIndex = index;
+      }
+    });
+
+    itemNodes.forEach((itemNode, index) => {
+      itemNode.classList.toggle("is-active", index === closestIndex);
+    });
+    counterNode.textContent = t("details_image_counter", { current: closestIndex + 1, total: itemNodes.length });
+  };
+
+  galleryNode.addEventListener("scroll", () => {
+    window.requestAnimationFrame(updateCounter);
+  }, { passive: true });
+  updateCounter();
+}
+
+function bindEventDetailsGalleryInteractions() {
+  if (!dom.eventDetails) return;
+  bindEventGalleryCounter();
+}
+
 function applyStaticTranslations() {
   dom.htmlRoot.lang = state.lang;
   document.querySelectorAll("[data-i18n]").forEach((element) => {
@@ -1093,18 +1675,69 @@ function renderLanguageControls() {
 }
 
 function quickCategoryById(categoryId) {
-  return QUICK_CATEGORY_DEFINITIONS.find((category) => category.id === categoryId) || QUICK_CATEGORY_DEFINITIONS[0];
+  const categories = getQuickCategories();
+  return categories.find((category) => category.id === categoryId) || categories[0];
+}
+
+function slugifyQuickCategoryValue(value) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return normalized || "genre";
+}
+
+function getQuickCategories() {
+  if (state.availableGenres.length) {
+    const usedIds = new Set(["all"]);
+    const dynamicGenreCategories = state.availableGenres.slice(0, QUICK_CATEGORY_DYNAMIC_MAX).map((genre, index) => {
+      const baseId = `genre-${slugifyQuickCategoryValue(genre) || index + 1}`;
+      let nextId = baseId;
+      let suffix = 2;
+      while (usedIds.has(nextId)) {
+        nextId = `${baseId}-${suffix}`;
+        suffix += 1;
+      }
+      usedIds.add(nextId);
+      return {
+        id: nextId,
+        label: genre,
+        keywords: [normalizeFilterText(genre)]
+      };
+    });
+    return [
+      {
+        id: "all",
+        label: t("quick_all"),
+        keywords: []
+      },
+      ...dynamicGenreCategories
+    ];
+  }
+
+  return QUICK_CATEGORY_DEFINITIONS.map((category) => ({
+    id: category.id,
+    label: t(category.labelKey),
+    keywords: category.keywords
+  }));
 }
 
 function renderQuickCategories() {
   if (!dom.quickCategoryRail) return;
   dom.quickCategoryRail.innerHTML = "";
-  QUICK_CATEGORY_DEFINITIONS.forEach((category) => {
+  const categories = getQuickCategories();
+  if (!categories.some((category) => category.id === state.activeQuickCategoryId)) {
+    state.activeQuickCategoryId = "all";
+  }
+  categories.forEach((category) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = `quick-category-chip ${state.activeQuickCategoryId === category.id ? "is-active" : ""}`;
     button.dataset.quickCategory = category.id;
-    button.textContent = t(category.labelKey);
+    button.textContent = category.label;
     dom.quickCategoryRail.append(button);
   });
 }
@@ -1114,11 +1747,12 @@ function switchLanguage(nextLangCode) {
   if (nextLang === state.lang) return;
   state.lang = nextLang;
   applyStaticTranslations();
-  updateInstallBannerContent();
+  updateInstallUiVisibility();
   if (dom.mapBottomSheet) {
     const titleElement = dom.mapBottomSheet.querySelector("[data-i18n='sheet_title']");
     if (titleElement) titleElement.textContent = t("sheet_title");
   }
+  updateMapBottomSheetMeta();
   renderQuickCategories();
   updateFilterOptions();
   syncHeroFilterOptions();
@@ -1141,6 +1775,12 @@ function switchLanguage(nextLangCode) {
       : t("map_search_area");
   }
   updateUrlFromFilters();
+}
+
+function openBetaFeedback() {
+  const subject = encodeURIComponent(t("feedback_email_subject"));
+  const body = encodeURIComponent(t("feedback_email_body"));
+  window.location.href = `mailto:${BETA_FEEDBACK_EMAIL}?subject=${subject}&body=${body}`;
 }
 
 function getLocale() {
@@ -1339,6 +1979,64 @@ function parseCoordinateValue(rawValue) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+const EVENT_LAT_FIELD_CANDIDATES = Object.freeze([
+  "lat",
+  "latitude",
+  "event_lat",
+  "location_lat",
+  "latitude_decimal"
+]);
+
+const EVENT_LNG_FIELD_CANDIDATES = Object.freeze([
+  "lng",
+  "longitude",
+  "event_lng",
+  "location_lng",
+  "longitude_decimal"
+]);
+
+function pickEventCoordinateMeta(event, fieldCandidates) {
+  if (!event || typeof event !== "object") {
+    return { parsed: null, field: "", raw: null };
+  }
+  let firstSeenField = "";
+  let firstSeenRaw = null;
+  for (const field of fieldCandidates) {
+    if (!Object.prototype.hasOwnProperty.call(event, field)) continue;
+    const raw = event[field];
+    if (raw === null || raw === undefined || raw === "") continue;
+    if (!firstSeenField) {
+      firstSeenField = field;
+      firstSeenRaw = raw;
+    }
+    const parsed = parseCoordinateValue(raw);
+    if (Number.isFinite(parsed)) {
+      return { parsed, field, raw };
+    }
+  }
+  return { parsed: null, field: firstSeenField, raw: firstSeenRaw };
+}
+
+function resolveEventCoordinates(event) {
+  const latMeta = pickEventCoordinateMeta(event, EVENT_LAT_FIELD_CANDIDATES);
+  const lngMeta = pickEventCoordinateMeta(event, EVENT_LNG_FIELD_CANDIDATES);
+  const lat = latMeta.parsed;
+  const lng = lngMeta.parsed;
+  const valid = Number.isFinite(lat)
+    && Number.isFinite(lng)
+    && Math.abs(lat) <= 90
+    && Math.abs(lng) <= 180;
+  return {
+    lat,
+    lng,
+    valid,
+    rawLat: latMeta.raw,
+    rawLng: lngMeta.raw,
+    latField: latMeta.field,
+    lngField: lngMeta.field
+  };
+}
+
 function normalizeDateWithFallbackYear(rawDate, fallbackYear = null) {
   const value = String(rawDate || "").trim();
   const match = value.match(/^(\d{1,4})-(\d{2})-(\d{2})$/);
@@ -1353,8 +2051,9 @@ function normalizeDateWithFallbackYear(rawDate, fallbackYear = null) {
 }
 
 function normalizeEvent(event, index) {
-  const lat = parseCoordinateValue(event.lat ?? event.latitude ?? event.latitude_decimal ?? null);
-  const lng = parseCoordinateValue(event.lng ?? event.longitude ?? event.longitude_decimal ?? null);
+  const coordinateMeta = resolveEventCoordinates(event);
+  const lat = coordinateMeta.lat;
+  const lng = coordinateMeta.lng;
   const address = String(event.address || event.street || "").trim();
   const postal_code = String(event.postal_code || event.zip || "").trim();
   const geocodingQuery = String(event.geocoding_query || "").trim();
@@ -1376,12 +2075,18 @@ function normalizeEvent(event, index) {
   const normalizedRecurrenceEndDate = normalizeDateWithFallbackYear(event.recurrence_end_date || "", createdAtYear);
 
   return {
+    ...event,
     id: String(event.id ?? `event-${index}`),
     name: event.name || event.title || "Untitled Event",
     location_name: event.location_name || event.location || "Unknown venue",
+    place_id: String(event.place_id || "").trim(),
+    formatted_address: String(event.formatted_address || "").trim(),
+    street: String(event.street || event.address || "").trim(),
     address: event.address || event.street || "",
     postal_code,
     city: event.city || event.location_city || "",
+    province: String(event.province || "").trim(),
+    region: String(event.region || "").trim(),
     country: event.country || event.country_name || "",
     event_date: normalizedEventDate,
     event_time: event.event_time || event.time || "",
@@ -1442,9 +2147,750 @@ function readFormPayload() {
     contact_email: dom.formContactEmail.value.trim(),
     description: dom.formDescription.value.trim(),
     image_url: null,
+    street: locationAutocompleteState.selectedPlace?.street || (dom.formAddress?.value.trim() || ""),
+    province: locationAutocompleteState.selectedPlace?.province || "",
+    region: locationAutocompleteState.selectedPlace?.region || "",
+    place_id: locationAutocompleteState.selectedPlace?.place_id || null,
+    formatted_address: locationAutocompleteState.selectedPlace?.formatted_address || null,
+    lat: locationAutocompleteState.selectedPlace?.lat || null,
+    lng: locationAutocompleteState.selectedPlace?.lng || null
+  };
+}
+
+function ensureLocationSearchToken() {
+  if (locationAutocompleteState.sessionToken) return locationAutocompleteState.sessionToken;
+  locationAutocompleteState.sessionToken =
+    (window.crypto && typeof window.crypto.randomUUID === "function")
+      ? window.crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+  return locationAutocompleteState.sessionToken;
+}
+
+function resetLocationSearchToken() {
+  locationAutocompleteState.sessionToken = "";
+  locationAutocompleteState.selectedPredictionId = "";
+  locationAutocompleteState.lastSearchText = "";
+}
+
+function clearLocationSuggestionList() {
+  if (!dom.formLocationSuggestionList) return;
+  locationAutocompleteState.suggestionsByPlaceId.clear();
+  dom.formLocationSuggestionList.innerHTML = "";
+  dom.formLocationSuggestionList.hidden = true;
+  dom.formLocationSuggestionList.dataset.state = "hidden";
+  if (dom.formLocationAutocompleteStatus) {
+    dom.formLocationAutocompleteStatus.hidden = true;
+    dom.formLocationAutocompleteStatus.textContent = "";
+    dom.formLocationAutocompleteStatus.classList.remove("is-error");
+  }
+  if (dom.formLocationName) {
+    dom.formLocationName.setAttribute("aria-expanded", "false");
+  }
+}
+
+function hideLocationSuggestionList() {
+  if (locationAutocompleteState.isPointerDownOnSuggestions) return;
+  clearLocationSuggestionList();
+}
+
+function resetLocationSelection() {
+  locationAutocompleteState.selectedPlace = null;
+  locationAutocompleteState.selectedPredictionId = "";
+}
+
+function getGooglePlacesApiKey() {
+  return (
+    window.VITE_GOOGLE_MAPS_API_KEY
+    || window.__ENV__?.VITE_GOOGLE_MAPS_API_KEY
+    || window.PARTYRADAR_GOOGLE_PLACES_KEY
+    || window.PARTYRADAR_GOOGLE_MAPS_KEY
+    || document.querySelector('meta[name="vite-google-maps-api-key"]')?.getAttribute("content")
+    || document.querySelector('meta[name="partyradar-google-places-key"]')?.getAttribute("content")
+    || ""
+  ).toString().trim();
+}
+
+function buildLocationInputSearchText() {
+  const locationName = String(dom.formLocationName?.value || "").trim();
+  const address = String(dom.formAddress?.value || "").trim();
+  const city = String(dom.formCity?.value || "").trim();
+  const country = String(dom.formCountry?.value || "").trim();
+  return [locationName, address, city, country].filter(Boolean).join(" ").trim();
+}
+
+function getTextFromSuggestionText(textValue) {
+  if (!textValue) return "";
+  if (typeof textValue === "string") return textValue.trim();
+  if (typeof textValue?.text === "string") return textValue.text.trim();
+  return "";
+}
+
+function normalizeGooglePlaceId(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  return raw.startsWith("places/") ? raw.slice("places/".length) : raw;
+}
+
+function buildLocationSuggestions(predictions) {
+  return (Array.isArray(predictions) ? predictions : [])
+    .map((prediction) => {
+      const suggestionText = getTextFromSuggestionText(prediction.text || prediction.structuredFormat?.mainText) ||
+        String(prediction.description || "").trim();
+      const secondaryText = getTextFromSuggestionText(prediction.structuredFormat?.secondaryText);
+      const placeId = normalizeGooglePlaceId(prediction.placeId || prediction.place);
+      if (!suggestionText || !placeId) return null;
+      return {
+        placeId,
+        suggestionText,
+        secondaryText
+      };
+    })
+    .filter(Boolean);
+}
+
+async function selectLocationAutocompleteOption(placeId, pointerEvent = null) {
+  if (!placeId) return;
+  if (pointerEvent) {
+    pointerEvent.preventDefault();
+    pointerEvent.stopPropagation();
+  }
+  locationAutocompleteState.isPointerDownOnSuggestions = true;
+  renderLocationAutocompleteStatus("Loading location details...");
+  await handleLocationSuggestionSelection(placeId);
+}
+
+function renderLocationSuggestions(items) {
+  if (!dom.formLocationSuggestionList) return;
+  locationAutocompleteState.suggestionsByPlaceId.clear();
+  dom.formLocationSuggestionList.innerHTML = "";
+  if (!items.length) {
+    dom.formLocationSuggestionList.hidden = true;
+    dom.formLocationSuggestionList.dataset.state = "hidden";
+    if (dom.formLocationName) {
+      dom.formLocationName.setAttribute("aria-expanded", "false");
+    }
+    return;
+  }
+  const fragment = document.createDocumentFragment();
+  items.forEach((item) => {
+    locationAutocompleteState.suggestionsByPlaceId.set(item.placeId, {
+      placeId: item.placeId,
+      suggestionText: String(item.suggestionText || "").trim(),
+      secondaryText: String(item.secondaryText || "").trim()
+    });
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "location-autocomplete__item";
+    button.dataset.placeId = item.placeId;
+    button.setAttribute("role", "option");
+    const name = document.createElement("span");
+    name.className = "location-autocomplete__name";
+    name.textContent = item.suggestionText;
+    button.append(name);
+    if (item.secondaryText) {
+      const address = document.createElement("span");
+      address.className = "location-autocomplete__address";
+      address.textContent = item.secondaryText;
+      button.append(address);
+    }
+    button.style.pointerEvents = "auto";
+    button.addEventListener("pointerdown", (event) => {
+      selectLocationAutocompleteOption(item.placeId, event);
+    });
+    button.addEventListener("click", (event) => {
+      selectLocationAutocompleteOption(item.placeId, event);
+    });
+    fragment.append(button);
+  });
+  dom.formLocationSuggestionList.append(fragment);
+  dom.formLocationSuggestionList.hidden = false;
+  dom.formLocationSuggestionList.dataset.state = "open";
+  if (dom.formLocationName) {
+    dom.formLocationName.setAttribute("aria-expanded", "true");
+  }
+}
+
+function renderLocationAutocompleteStatus(message, tone = "info") {
+  if (!dom.formLocationSuggestionList && !dom.formLocationAutocompleteStatus) return;
+  const text = String(message || "").trim();
+  if (!text) {
+    clearLocationSuggestionList();
+    return;
+  }
+  if (dom.formLocationSuggestionList) {
+    dom.formLocationSuggestionList.innerHTML = "";
+    const status = document.createElement("div");
+    status.className = `location-autocomplete__status${tone === "error" ? " is-error" : ""}`;
+    status.textContent = text;
+    dom.formLocationSuggestionList.append(status);
+    dom.formLocationSuggestionList.hidden = false;
+    dom.formLocationSuggestionList.dataset.state = "status";
+  }
+  if (dom.formLocationAutocompleteStatus) {
+    dom.formLocationAutocompleteStatus.textContent = text;
+    dom.formLocationAutocompleteStatus.hidden = false;
+    dom.formLocationAutocompleteStatus.classList.toggle("is-error", tone === "error");
+  }
+  if (dom.formLocationName) {
+    dom.formLocationName.setAttribute("aria-expanded", "true");
+  }
+}
+
+async function fetchGooglePlacesAutocompletePredictions(searchInput) {
+  const apiKey = getGooglePlacesApiKey();
+  if (!apiKey) return [];
+  const endpoint = "https://places.googleapis.com/v1/places:autocomplete";
+  const sessionToken = ensureLocationSearchToken();
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Key": apiKey,
+      "X-Goog-FieldMask":
+        "suggestions.placePrediction.placeId,suggestions.placePrediction.place,suggestions.placePrediction.text,suggestions.placePrediction.structuredFormat"
+    },
+    body: JSON.stringify({
+      input: searchInput,
+      languageCode: "de",
+      regionCode: "ES",
+      sessionToken
+    })
+  });
+  if (!response.ok) {
+    throw new Error(`Places autocomplete HTTP ${response.status}`);
+  }
+  const data = await response.json();
+  return buildLocationSuggestions(data?.suggestions?.map((entry) => entry.placePrediction || entry) || []);
+}
+
+function handleAutocompleteFailure(error) {
+  const message = String(error?.message || "");
+  if (message.includes("HTTP 403")) {
+    renderLocationAutocompleteStatus(
+      "Google Places is blocked for this domain. Please verify API key website restrictions.",
+      "error"
+    );
+    setFormFeedback("Google Places is blocked for this domain. Please verify API key website restrictions.", "error");
+    return;
+  }
+  if (message.includes("HTTP 429")) {
+    renderLocationAutocompleteStatus("Google Places rate limit reached. Please try again shortly.", "error");
+    setFormFeedback("Google Places rate limit reached. Please try again shortly.", "error");
+    return;
+  }
+  renderLocationAutocompleteStatus("Location suggestions are currently unavailable. Please try again.", "error");
+}
+
+function extractAddressPart(addressComponents, type) {
+  const match = (Array.isArray(addressComponents) ? addressComponents : []).find((part) =>
+    Array.isArray(part?.types) && part.types.includes(type)
+  );
+  return String(match?.longText || match?.shortText || "").trim();
+}
+
+function resolveCityFromAddressComponents(addressComponents) {
+  return (
+    extractAddressPart(addressComponents, "locality")
+    || extractAddressPart(addressComponents, "postal_town")
+    || extractAddressPart(addressComponents, "administrative_area_level_2")
+    || extractAddressPart(addressComponents, "administrative_area_level_1")
+  );
+}
+
+function resolveProvinceFromAddressComponents(addressComponents) {
+  return (
+    extractAddressPart(addressComponents, "administrative_area_level_2")
+    || extractAddressPart(addressComponents, "administrative_area_level_1")
+  );
+}
+
+function resolveRegionFromAddressComponents(addressComponents) {
+  return extractAddressPart(addressComponents, "administrative_area_level_1");
+}
+
+function resolveStreetFromAddressComponents(addressComponents) {
+  const route = extractAddressPart(addressComponents, "route");
+  const streetNumber = extractAddressPart(addressComponents, "street_number");
+  const premise = extractAddressPart(addressComponents, "premise");
+  const subpremise = extractAddressPart(addressComponents, "subpremise");
+  const street = [route, streetNumber].filter(Boolean).join(" ").trim();
+  if (street) return street;
+  const venueStreet = [premise, subpremise].filter(Boolean).join(" ").trim();
+  return venueStreet;
+}
+
+function splitFormattedAddressParts(formattedAddress) {
+  return String(formattedAddress || "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function parsePostalCodeAndCityFromFormattedAddress(formattedAddress) {
+  const parts = splitFormattedAddressParts(formattedAddress);
+  if (!parts.length) return { postal_code: "", city: "" };
+  const candidates = [...parts].reverse();
+  const cityPart = candidates.find((part) => /\d/.test(part));
+  if (!cityPart) {
+    return { postal_code: "", city: parts[parts.length - 2] || "" };
+  }
+  const postalMatch = cityPart.match(/\b(?:\d{4,6}|[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b/i);
+  const postal_code = postalMatch ? postalMatch[0] : "";
+  const city = cityPart
+    .replace(postal_code, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  return {
+    postal_code,
+    city: city || parts[parts.length - 2] || ""
+  };
+}
+
+function resolveFallbackCountryFromFormattedAddress(formattedAddress) {
+  const parts = splitFormattedAddressParts(formattedAddress);
+  if (!parts.length) return "";
+  return parts[parts.length - 1] || "";
+}
+
+function resolveFallbackCityFromFormattedAddress(formattedAddress) {
+  const parsed = parsePostalCodeAndCityFromFormattedAddress(formattedAddress);
+  return parsed.city || "";
+}
+
+function normalizeCountryName(countryValue) {
+  const raw = String(countryValue || "").trim();
+  if (!raw) return "";
+  const aliases = {
+    espana: "Spain",
+    "españa": "Spain",
+    spain: "Spain",
+    mexico: "Mexico",
+    "méxico": "Mexico",
+    germany: "Germany",
+    deutschland: "Germany",
+    france: "France",
+    portugal: "Portugal",
+    italia: "Italy",
+    italy: "Italy",
+    uk: "United Kingdom",
+    "united kingdom": "United Kingdom",
+    usa: "United States",
+    "united states": "United States",
+    "ee. uu.": "United States",
+    osterreich: "Austria",
+    österreich: "Austria",
+    austria: "Austria",
+    suisse: "Switzerland",
+    schweiz: "Switzerland",
+    switzerland: "Switzerland",
+    nederland: "Netherlands",
+    netherlands: "Netherlands",
+    holland: "Netherlands"
+  };
+  const normalized = raw.toLowerCase();
+  return aliases[normalized] || raw;
+}
+
+function isLikelyCityToken(token) {
+  const value = String(token || "").trim();
+  if (!value) return false;
+  if (/\d{4,}/.test(value)) return false;
+  if (/^\d/.test(value)) return false;
+  if (/\b(?:calle|carrera|avenida|av\.?|road|street|st\.?|accesso|acceso|playa|beach|restaurant|restaurante|club|hotel)\b/i.test(value)) {
+    return false;
+  }
+  return true;
+}
+
+function resolveCityFromSecondaryText(secondaryText) {
+  const parts = String(secondaryText || "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (!parts.length) return "";
+  for (let index = parts.length - 1; index >= 0; index -= 1) {
+    const candidate = parts[index];
+    if (!candidate) continue;
+    if (normalizeCountryName(candidate) !== candidate) continue;
+    const withoutPostal = candidate.replace(/\b\d{4,6}\b/g, "").replace(/\s{2,}/g, " ").trim();
+    if (isLikelyCityToken(withoutPostal)) return withoutPostal;
+  }
+  const fallback = parts.length >= 2 ? parts[parts.length - 2] : parts[0];
+  return String(fallback || "").replace(/\b\d{4,6}\b/g, "").trim();
+}
+
+function resolveCountryFromSecondaryText(secondaryText) {
+  const parts = String(secondaryText || "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (!parts.length) return "";
+  for (let index = parts.length - 1; index >= 0; index -= 1) {
+    const mapped = normalizeCountryName(parts[index]);
+    if (mapped !== parts[index]) return mapped;
+  }
+  const candidate = parts[parts.length - 1] || "";
+  if (!candidate || isLikelyCityToken(candidate)) {
+    return "";
+  }
+  return normalizeCountryName(candidate);
+}
+
+async function fetchAddressDetailsWithNominatim(queryText) {
+  const query = String(queryText || "").trim();
+  if (!query) return null;
+  const endpoint = new URL("https://nominatim.openstreetmap.org/search");
+  endpoint.searchParams.set("format", "jsonv2");
+  endpoint.searchParams.set("limit", "1");
+  endpoint.searchParams.set("addressdetails", "1");
+  endpoint.searchParams.set("q", query);
+  const response = await fetch(endpoint.toString(), {
+    headers: {
+      Accept: "application/json",
+      "Accept-Language": "de,en,es"
+    }
+  });
+  if (!response.ok) return null;
+  const data = await response.json();
+  const first = Array.isArray(data) ? data[0] : null;
+  if (!first || typeof first !== "object") return null;
+  const address = first.address || {};
+  const postalCode = String(address.postcode || "").trim();
+  const country = normalizeCountryName(String(address.country || "").trim());
+  const city = String(
+    address.city
+    || address.town
+    || address.village
+    || address.municipality
+    || address.county
+    || ""
+  ).trim();
+  const street = String(
+    address.road
+    || address.pedestrian
+    || address.footway
+    || address.cycleway
+    || address.path
+    || ""
+  ).trim();
+  return {
+    postal_code: postalCode,
+    country,
+    city,
+    street
+  };
+}
+
+async function enrichPlaceDataWithFallbackAddressDetails(placeData) {
+  if (!placeData || typeof placeData !== "object") return placeData;
+  const missingPostal = !String(placeData.postal_code || "").trim();
+  const missingCountry = !String(placeData.country || "").trim();
+  const missingCity = !String(placeData.city || "").trim();
+  if (!missingPostal && !missingCountry && !missingCity) return placeData;
+  const query = [
+    placeData.formatted_address,
+    placeData.location_name,
+    placeData.street
+  ].filter(Boolean).join(", ");
+  if (!query) return placeData;
+  try {
+    const fallbackDetails = await fetchAddressDetailsWithNominatim(query);
+    if (!fallbackDetails) return placeData;
+    return {
+      ...placeData,
+      postal_code: placeData.postal_code || fallbackDetails.postal_code || "",
+      country: placeData.country || fallbackDetails.country || "",
+      city: placeData.city || fallbackDetails.city || "",
+      street: placeData.street || fallbackDetails.street || ""
+    };
+  } catch (_error) {
+    return placeData;
+  }
+}
+
+function buildFallbackPlaceDataFromSuggestion(placeId) {
+  const suggestion = locationAutocompleteState.suggestionsByPlaceId.get(placeId);
+  if (!suggestion) return null;
+  const primary = String(suggestion.suggestionText || "").trim();
+  const secondary = String(suggestion.secondaryText || "").trim();
+  const primaryParts = primary.split(",").map((part) => part.trim()).filter(Boolean);
+  const venueName = primaryParts[0] || primary;
+  const streetFromPrimary = primaryParts.slice(1).join(", ").trim();
+  const formattedAddress = [primary, secondary].filter(Boolean).join(", ");
+  const parsed = parsePostalCodeAndCityFromFormattedAddress(secondary || formattedAddress);
+  const cityFromSecondary = resolveCityFromSecondaryText(secondary);
+  const cityFromParsed = parsed.city || "";
+  const city =
+    (cityFromSecondary && cityFromSecondary.length > 1 ? cityFromSecondary : "")
+    || (cityFromParsed && cityFromParsed.length > 1 ? cityFromParsed : "");
+  const country = resolveCountryFromSecondaryText(secondary) || resolveFallbackCountryFromFormattedAddress(formattedAddress);
+  const street =
+    streetFromPrimary
+    || (city && primary.includes(city) ? primary.replace(city, "").replace(/,\s*$/, "").trim() : "")
+    || primary;
+  return {
+    place_id: String(placeId || "").trim(),
+    location_name: venueName,
+    formatted_address: formattedAddress,
+    street,
+    city,
+    postal_code: parsed.postal_code || "",
+    province: "",
+    region: "",
+    country,
     lat: null,
     lng: null
   };
+}
+
+async function fetchGooglePlaceDetails(placeId) {
+  const apiKey = getGooglePlacesApiKey();
+  if (!apiKey) throw new Error("Google Places API key missing");
+  const normalizedPlaceId = normalizeGooglePlaceId(placeId);
+  if (!normalizedPlaceId) throw new Error("Google place id missing");
+  const endpoint = new URL(`https://places.googleapis.com/v1/places/${encodeURIComponent(normalizedPlaceId)}`);
+  endpoint.searchParams.set("key", apiKey);
+  // Use query params for details call to minimize cross-browser
+  // preflight/header variability in strict CORS environments.
+  endpoint.searchParams.set("fields", "id,displayName,formattedAddress,addressComponents,location");
+  const response = await fetch(endpoint.toString(), {
+    headers: {
+      Accept: "application/json"
+    }
+  });
+  if (!response.ok) {
+    throw new Error(`Place details HTTP ${response.status}`);
+  }
+  const place = await response.json();
+  const lat = Number(place?.location?.latitude);
+  const lng = Number(place?.location?.longitude);
+  const addressComponents = place?.addressComponents || [];
+  const street = resolveStreetFromAddressComponents(addressComponents);
+  const formattedAddress = String(place?.formattedAddress || "").trim();
+  const fallbackPostalCity = parsePostalCodeAndCityFromFormattedAddress(formattedAddress);
+  const cityFromComponents = resolveCityFromAddressComponents(addressComponents);
+  const countryFromComponents = extractAddressPart(addressComponents, "country");
+  return {
+    place_id: normalizeGooglePlaceId(place?.id || normalizedPlaceId),
+    location_name: String(place?.displayName?.text || "").trim(),
+    formatted_address: formattedAddress,
+    street,
+    city: cityFromComponents || resolveFallbackCityFromFormattedAddress(formattedAddress),
+    postal_code: extractAddressPart(addressComponents, "postal_code") || fallbackPostalCity.postal_code,
+    province: resolveProvinceFromAddressComponents(addressComponents),
+    region: resolveRegionFromAddressComponents(addressComponents),
+    country: countryFromComponents || resolveFallbackCountryFromFormattedAddress(formattedAddress),
+    lat: Number.isFinite(lat) ? lat : null,
+    lng: Number.isFinite(lng) ? lng : null
+  };
+}
+
+function applySelectedPlaceToForm(placeData) {
+  if (dom.formLocationName && placeData.location_name) {
+    dom.formLocationName.value = placeData.location_name;
+  }
+  if (dom.formAddress && (placeData.street || placeData.formatted_address)) {
+    dom.formAddress.value = placeData.street || placeData.formatted_address;
+  }
+  if (dom.formCity && placeData.city) {
+    dom.formCity.value = placeData.city;
+  }
+  if (dom.formPostalCode && placeData.postal_code) {
+    dom.formPostalCode.value = placeData.postal_code;
+  }
+  if (dom.formCountry && placeData.country) {
+    dom.formCountry.value = placeData.country;
+  }
+  locationAutocompleteState.selectedPlace = placeData;
+}
+
+async function handleLocationSuggestionSelection(placeId) {
+  if (!placeId) return;
+  try {
+    const placeData = await fetchGooglePlaceDetails(placeId);
+    const enrichedPlaceData = await enrichPlaceDataWithFallbackAddressDetails(placeData);
+    locationAutocompleteState.suppressNextInputSearch = true;
+    applySelectedPlaceToForm(enrichedPlaceData);
+    hideLocationSuggestionList();
+    resetLocationSearchToken();
+    setFormFeedback("", "info");
+  } catch (error) {
+    if (INSTALL_UI_DEBUG) {
+      console.warn("[Marcha Debug] Place details fetch failed:", error);
+    }
+    const detailMessage = String(error?.message || "");
+    const fallbackPlaceData = buildFallbackPlaceDataFromSuggestion(placeId);
+    if (fallbackPlaceData) {
+      const enrichedFallbackData = await enrichPlaceDataWithFallbackAddressDetails(fallbackPlaceData);
+      locationAutocompleteState.suppressNextInputSearch = true;
+      applySelectedPlaceToForm(enrichedFallbackData);
+      hideLocationSuggestionList();
+      resetLocationSearchToken();
+      renderLocationAutocompleteStatus(
+        "Location selected. Missing details were auto-completed when available.",
+        "info"
+      );
+      return;
+    }
+    if (detailMessage.includes("HTTP 403") || detailMessage.toLowerCase().includes("failed to fetch")) {
+      renderLocationAutocompleteStatus(
+        "Google Place details blocked for this domain. Please verify website restrictions.",
+        "error"
+      );
+      setFormFeedback(t("form_error_places_details_cors"), "error");
+    } else {
+      setFormFeedback(t("form_error_geocoding_failed"), "error");
+    }
+  } finally {
+    locationAutocompleteState.isPointerDownOnSuggestions = false;
+  }
+}
+
+const runLocationAutocompleteSearch = debounce(async () => {
+  if (!locationAutocompleteState.enabled) return;
+  const searchText = buildLocationInputSearchText();
+  if (searchText.length < GOOGLE_PLACES_AUTOCOMPLETE_MIN_CHARS) {
+    resetLocationSearchToken();
+    hideLocationSuggestionList();
+    return;
+  }
+
+  if (!locationAutocompleteState.lastSearchText) {
+    // Start a fresh billing/session context for each new user search.
+    resetLocationSearchToken();
+  }
+
+  const requestId = ++locationAutocompleteState.searchCounter;
+  locationAutocompleteState.activeRequestCounter = requestId;
+  try {
+    const suggestions = await fetchGooglePlacesAutocompletePredictions(searchText);
+    if (requestId !== locationAutocompleteState.activeRequestCounter) return;
+    locationAutocompleteState.lastSearchText = searchText;
+    if (!suggestions.length) {
+      renderLocationAutocompleteStatus("No matching places found. Try a more specific query.");
+      return;
+    }
+    renderLocationSuggestions(suggestions);
+  } catch (error) {
+    if (requestId !== locationAutocompleteState.activeRequestCounter) return;
+    console.warn("[Marcha Debug] Place autocomplete failed:", error);
+    handleAutocompleteFailure(error);
+  }
+}, GOOGLE_PLACES_AUTOCOMPLETE_DEBOUNCE_MS);
+
+function extractSecondaryTextFromSuggestionButton(option) {
+  if (!(option instanceof Element)) return "";
+  const secondaryNode = option.querySelector(".location-autocomplete__address");
+  return String(secondaryNode?.textContent || "").trim();
+}
+
+function applyFallbackLocationFieldsFromSuggestion(option) {
+  const secondaryText = extractSecondaryTextFromSuggestionButton(option);
+  if (!secondaryText) return;
+  if (dom.formCity && !String(dom.formCity.value || "").trim()) {
+    const city = resolveCityFromSecondaryText(secondaryText);
+    if (city) dom.formCity.value = city;
+  }
+  if (dom.formCountry && !String(dom.formCountry.value || "").trim()) {
+    const country = resolveCountryFromSecondaryText(secondaryText);
+    if (country) dom.formCountry.value = country;
+  }
+}
+
+function setupEventLocationAutocomplete() {
+  if (
+    !dom.formLocationName
+    || !dom.formLocationSuggestionList
+  ) {
+    locationAutocompleteState.enabled = false;
+    hideLocationSuggestionList();
+    return;
+  }
+  const apiKey = getGooglePlacesApiKey();
+  if (!apiKey) {
+    console.warn("[Marcha Debug] Google Places key not present at setup; waiting for runtime key.");
+    renderLocationAutocompleteStatus("Waiting for Google Places key...", "info");
+  }
+  locationAutocompleteState.enabled = true;
+  dom.formLocationName.setAttribute("aria-expanded", "false");
+  const locationInputs = [dom.formLocationName, dom.formAddress, dom.formCity, dom.formCountry].filter(Boolean);
+  locationInputs.forEach((input) => {
+    input.addEventListener("input", () => {
+      if (locationAutocompleteState.suppressNextInputSearch) {
+        locationAutocompleteState.suppressNextInputSearch = false;
+        return;
+      }
+      resetLocationSelection();
+      runLocationAutocompleteSearch();
+    });
+    input.addEventListener("focus", () => {
+      if (!dom.formLocationSuggestionList.hidden) return;
+      runLocationAutocompleteSearch();
+    });
+  });
+  [dom.formAddress, dom.formCity, dom.formPostalCode, dom.formCountry]
+    .filter(Boolean)
+    .forEach((input) => {
+      input.addEventListener("input", () => {
+        resetLocationSelection();
+      });
+    });
+  dom.formLocationName.addEventListener("blur", () => {
+    window.setTimeout(() => {
+      if (locationAutocompleteState.isPointerDownOnSuggestions) return;
+      const activeElement = document.activeElement;
+      if (!(activeElement instanceof Element) || !activeElement.closest(".location-suggestions")) {
+        hideLocationSuggestionList();
+      }
+    }, 100);
+  });
+  dom.formLocationName.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== "Tab") return;
+    if (!dom.formLocationSuggestionList || dom.formLocationSuggestionList.hidden) return;
+    const firstOption = dom.formLocationSuggestionList.querySelector(".location-autocomplete__item");
+    if (!(firstOption instanceof HTMLButtonElement)) return;
+    const placeId = String(firstOption.dataset.placeId || "").trim();
+    if (!placeId) return;
+    event.preventDefault();
+    selectLocationAutocompleteOption(placeId).then(() => {
+      dom.formAddress?.focus();
+    });
+  });
+
+  dom.formLocationSuggestionList.addEventListener("click", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    const option = target?.closest(".location-autocomplete__item");
+    if (!option) return;
+    const placeId = String(option.dataset.placeId || "").trim();
+    if (!placeId) return;
+    applyFallbackLocationFieldsFromSuggestion(option);
+    selectLocationAutocompleteOption(placeId, event);
+  });
+  dom.formLocationSuggestionList.addEventListener("pointerdown", () => {
+    locationAutocompleteState.isPointerDownOnSuggestions = true;
+  });
+  dom.formLocationSuggestionList.addEventListener("pointerup", () => {
+    window.setTimeout(() => {
+      locationAutocompleteState.isPointerDownOnSuggestions = false;
+    }, 0);
+  });
+  dom.formLocationSuggestionList.addEventListener("mouseup", () => {
+    locationAutocompleteState.isPointerDownOnSuggestions = false;
+  });
+  dom.formLocationSuggestionList.addEventListener("pointercancel", () => {
+    locationAutocompleteState.isPointerDownOnSuggestions = false;
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!dom.formLocationSuggestionList || dom.formLocationSuggestionList.hidden) return;
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target) return;
+    const insideAutocomplete = target.closest(".location-autocomplete-field");
+    const insideSuggestion = target.closest(".location-suggestions");
+    if (insideSuggestion) return;
+    if (insideAutocomplete) return;
+    hideLocationSuggestionList();
+  });
 }
 
 function validateFormPayload(payload) {
@@ -1522,6 +2968,9 @@ async function hasRecurrenceColumns(client) {
 function clearEventForm() {
   if (!dom.eventForm) return;
   dom.eventForm.reset();
+  resetLocationSelection();
+  resetLocationSearchToken();
+  hideLocationSuggestionList();
   if (dom.formMainImage) dom.formMainImage.value = "";
   if (dom.formRecurrenceType) {
     dom.formRecurrenceType.value = RECURRENCE_TYPE_NONE;
@@ -1579,50 +3028,101 @@ function persistSubmitterProfile(payload) {
 
 function buildInsertPayload(payload) {
   // Address is collected now; geocoding can later resolve this into coordinates.
-  const geocoding_query = buildGeocodingQuery(payload);
-  const recurrenceType = normalizeRecurrenceType(payload.recurrence_type);
+  const normalizedPayload = normalizeDescriptionColumnVariants(payload);
+  const geocoding_query = payload.formatted_address || buildGeocodingQuery(payload);
+  const recurrenceType = normalizeRecurrenceType(normalizedPayload.recurrence_type);
   const isRecurring = recurrenceType !== RECURRENCE_TYPE_NONE;
   const currentYear = new Date().getFullYear();
   const recurrenceStartDate = isRecurring
-    ? normalizeDateWithFallbackYear(String(payload.recurrence_start_date || "").trim(), currentYear) || null
+    ? normalizeDateWithFallbackYear(String(normalizedPayload.recurrence_start_date || "").trim(), currentYear) || null
     : null;
   const recurrenceEndDate = isRecurring
-    ? normalizeDateWithFallbackYear(String(payload.recurrence_end_date || "").trim(), currentYear) || null
+    ? normalizeDateWithFallbackYear(String(normalizedPayload.recurrence_end_date || "").trim(), currentYear) || null
     : null;
-  const recurrenceWeekday = recurrenceType === RECURRENCE_TYPE_WEEKLY ? normalizeWeekday(payload.recurrence_weekday) : null;
+  const recurrenceWeekday =
+    recurrenceType === RECURRENCE_TYPE_WEEKLY ? normalizeWeekday(normalizedPayload.recurrence_weekday) : null;
   const recurrenceDayOfMonth =
-    recurrenceType === RECURRENCE_TYPE_MONTHLY ? normalizeDayOfMonth(payload.recurrence_day_of_month) : null;
+    recurrenceType === RECURRENCE_TYPE_MONTHLY ? normalizeDayOfMonth(normalizedPayload.recurrence_day_of_month) : null;
   const eventDate = isRecurring
     ? recurrenceStartDate
-    : normalizeDateWithFallbackYear(String(payload.event_date || "").trim(), currentYear);
+    : normalizeDateWithFallbackYear(String(normalizedPayload.event_date || "").trim(), currentYear);
+  const activeLanguageCode = resolveLocalizedFieldLanguage(state.lang);
+  const titleBase = String(normalizedPayload.title || normalizedPayload.name || "").trim();
+  const descriptionBase = String(normalizedPayload.description || "").trim();
+  const artistBioBase = String(
+    normalizedPayload.artist_bio || normalizedPayload.artist_biography || normalizedPayload.bio || ""
+  ).trim();
+  const titleByCode = {
+    de: String(normalizedPayload.title_de || "").trim(),
+    en: String(normalizedPayload.title_en || "").trim(),
+    es: String(normalizedPayload.title_es || "").trim()
+  };
+  const descriptionByCode = {
+    de: String(normalizedPayload.description_de || "").trim(),
+    en: String(normalizedPayload.description_en || "").trim(),
+    es: String(normalizedPayload.description_es || "").trim()
+  };
+  const artistBioByCode = {
+    de: String(normalizedPayload.artist_bio_de || "").trim(),
+    en: String(normalizedPayload.artist_bio_en || "").trim(),
+    es: String(normalizedPayload.artist_bio_es || "").trim()
+  };
+  if (!titleByCode[activeLanguageCode] && titleBase) {
+    titleByCode[activeLanguageCode] = titleBase;
+  }
+  if (!descriptionByCode[activeLanguageCode] && descriptionBase) {
+    descriptionByCode[activeLanguageCode] = descriptionBase;
+  }
+  if (!artistBioByCode[activeLanguageCode] && artistBioBase) {
+    artistBioByCode[activeLanguageCode] = artistBioBase;
+  }
 
   return {
-    name: payload.name,
-    location_name: payload.location_name,
-    address: payload.address || null,
-    postal_code: payload.postal_code || null,
-    city: payload.city,
-    country: payload.country || null,
+    name: normalizedPayload.name,
+    title: titleBase || null,
+    location_name: normalizedPayload.location_name,
+    street: normalizedPayload.street || normalizedPayload.address || null,
+    address: normalizedPayload.address || null,
+    postal_code: normalizedPayload.postal_code || null,
+    city: normalizedPayload.city,
+    province: normalizedPayload.province || null,
+    region: normalizedPayload.region || null,
+    country: normalizedPayload.country || null,
     event_date: eventDate,
-    event_time: payload.event_time || null,
+    event_time: normalizedPayload.event_time || null,
     recurrence_type: recurrenceType,
     recurrence_start_date: recurrenceStartDate,
     recurrence_end_date: recurrenceEndDate,
     recurrence_weekday: recurrenceWeekday,
     recurrence_day_of_month: recurrenceDayOfMonth,
-    genre: payload.genre,
-    artist_name: payload.artist_name,
-    additional_artists: payload.additional_artists || null,
-    price_text: payload.price_text || null,
-    description: payload.description || null,
-    image_url: payload.image_url || null,
-    contact_email: payload.contact_email,
-    submitted_by: payload.submitted_by,
+    genre: normalizedPayload.genre,
+    artist_name: normalizedPayload.artist_name,
+    additional_artists: normalizedPayload.additional_artists || null,
+    price_text: normalizedPayload.price_text || null,
+    description: descriptionBase || null,
+    artist_bio: artistBioBase || null,
+    title_de: titleByCode.de || null,
+    title_en: titleByCode.en || null,
+    title_es: titleByCode.es || null,
+    description_de: descriptionByCode.de || null,
+    description_en: descriptionByCode.en || null,
+    description_es: descriptionByCode.es || null,
+    descrption_de: descriptionByCode.de || null,
+    descrption_en: descriptionByCode.en || null,
+    descrption_es: descriptionByCode.es || null,
+    artist_bio_de: artistBioByCode.de || null,
+    artist_bio_en: artistBioByCode.en || null,
+    artist_bio_es: artistBioByCode.es || null,
+    image_url: normalizedPayload.image_url || null,
+    contact_email: normalizedPayload.contact_email,
+    submitted_by: normalizedPayload.submitted_by,
     status: "pending",
     verification_notes: null,
     geocoding_query: geocoding_query || null,
-    lat: payload.lat,
-    lng: payload.lng
+    lat: normalizedPayload.lat || null,
+    lng: normalizedPayload.lng || null,
+    place_id: normalizedPayload.place_id || null,
+    formatted_address: normalizedPayload.formatted_address || null
   };
 }
 
@@ -1919,6 +3419,15 @@ async function geocodeWithRetry(provider, query) {
 
 async function resolveCoordinatesForPayload(payload) {
   if (!ENABLE_AUTO_GEOCODING) return payload;
+  const knownLat = Number(payload?.lat);
+  const knownLng = Number(payload?.lng);
+  if (Number.isFinite(knownLat) && Number.isFinite(knownLng)) {
+    return {
+      ...payload,
+      lat: knownLat,
+      lng: knownLng
+    };
+  }
   const queries = buildGeocodingQueries(payload);
   if (!queries.length) {
     throw new Error("Missing geocoding address fields");
@@ -1989,6 +3498,11 @@ async function insertEventWithSchemaFallback(client, payload) {
   const fallbackPayload = { ...payload };
   const removedColumns = new Set();
   const schemaFallbackPriority = [
+    "street",
+    "province",
+    "region",
+    "formatted_address",
+    "place_id",
     "address",
     "postal_code",
     "geocoding_query",
@@ -2035,13 +3549,404 @@ async function insertEventWithSchemaFallback(client, payload) {
   return lastResult || { data: null, error: { message: "Insert failed" } };
 }
 
+async function translateText(text, targetLang) {
+  const sourceText = String(text || "").trim();
+  const targetLanguage = String(targetLang || "").trim();
+  if (!sourceText || !targetLanguage) return "";
+  // TODO: Re-enable JWT verification for smart-action before production release.
+  const response = await fetch(SMART_ACTION_ENDPOINT, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`
+    },
+    body: JSON.stringify({
+      text: sourceText,
+      targetLang: targetLanguage
+    })
+  });
+  if (!response.ok) {
+    throw new Error(`Translation HTTP ${response.status}`);
+  }
+  const data = await response.json();
+  const translated = String(data?.translated || "").trim();
+  if (!translated) {
+    throw new Error("Translation response missing translated text.");
+  }
+  return translated;
+}
+
+function normalizeTranslationOutput(translatedText, sourceText = "") {
+  const raw = String(translatedText || "").trim();
+  if (!raw) return "";
+  const source = String(sourceText || "").trim();
+  const lowerRaw = raw.toLowerCase();
+  const normalizedLowerRaw = lowerRaw
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "");
+  const lowerSource = source.toLowerCase();
+
+  const stripWrappingQuotes = (value) => {
+    const text = String(value || "").trim();
+    if (!text) return "";
+    return text.replace(/^["“”'`]+|["“”'`]+$/g, "").trim();
+  };
+
+  const commonPrefixes = [
+    "sure!",
+    "here's",
+    "here is",
+    "translation:",
+    "translated text:",
+    "natural translation:",
+    "claro, aqui tienes",
+    "aqui tienes",
+    "aqui tienes la traduccion",
+    "aqui tienes la traduccion natural",
+    "traduccion:",
+    "texto traducido:"
+  ];
+  if (commonPrefixes.some((prefix) => normalizedLowerRaw.startsWith(prefix))) {
+    const firstQuoted = raw.match(/["“](.+?)["”]/);
+    if (firstQuoted?.[1]) {
+      return stripWrappingQuotes(firstQuoted[1]);
+    }
+    const lines = raw
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const candidateLine = lines.find((line) => !line.endsWith(":")) || lines[0] || raw;
+    return stripWrappingQuotes(candidateLine.replace(/^[-*]\s*/, "").trim());
+  }
+
+  // If model echoes mostly source text (common on fallback), treat as invalid translation.
+  if (lowerSource && (lowerRaw === lowerSource || lowerRaw.includes(lowerSource))) {
+    return "";
+  }
+
+  return stripWrappingQuotes(raw);
+}
+
+function languageMarkerScore(text, languageCode) {
+  const tokens = new Set(tokenizeLanguageQuality(text));
+  const markersByLanguage = {
+    en: ["the", "and", "for", "with", "event", "description", "this", "is", "are", "to", "an", "of"],
+    es: ["el", "la", "los", "las", "y", "para", "con", "evento", "descripcion", "es", "de", "una", "un"],
+    de: ["der", "die", "das", "und", "mit", "fuer", "für", "veranstaltung", "beschreibung", "ist", "zu", "ein"]
+  };
+  const markers = markersByLanguage[languageCode] || [];
+  return markers.reduce((count, marker) => count + (tokens.has(marker) ? 1 : 0), 0);
+}
+
+function tokenizeLanguageQuality(text) {
+  return String(text || "")
+    .toLowerCase()
+    .replace(/[^a-zA-ZÀ-ÿ0-9\s]/g, " ")
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+}
+
+function hasLanguageQuality(translatedText, languageCode) {
+  const tokens = tokenizeLanguageQuality(translatedText);
+  if (!tokens.length) return false;
+  const targetScore = languageMarkerScore(translatedText, languageCode);
+  if (targetScore < 1) return false;
+  const competitorScores = ["de", "en", "es"]
+    .filter((code) => code !== languageCode)
+    .map((code) => languageMarkerScore(translatedText, code));
+  const strongestCompetitor = Math.max(0, ...competitorScores);
+  if (targetScore < strongestCompetitor) return false;
+  if (targetScore === strongestCompetitor && targetScore < 2) return false;
+  return true;
+}
+
+function buildStrictTranslationPrompt(sourceText, languageCode) {
+  const cleanSource = String(sourceText || "").trim();
+  if (!cleanSource) return "";
+  const targetLanguageName = TRANSLATION_TARGET_LANGUAGE_BY_CODE[languageCode] || languageCode;
+  return [
+    `Translate the following text into ${targetLanguageName}.`,
+    "Return only the translated text in the target language.",
+    "Do not include explanations, labels, or prefixes.",
+    "",
+    cleanSource
+  ].join("\n");
+}
+
+async function translateTextByLanguageCode(text, languageCode) {
+  const aliases = TRANSLATION_TARGET_ALIASES_BY_CODE[languageCode] || [];
+  const fallbackTarget = TRANSLATION_TARGET_LANGUAGE_BY_CODE[languageCode];
+  const targets = [...new Set([...aliases, fallbackTarget].filter(Boolean))];
+  let lastError = null;
+  for (const target of targets) {
+    try {
+      const translated = await translateText(text, target);
+      const normalized = normalizeTranslationOutput(translated, text);
+      if (!normalized) continue;
+      if (!hasLanguageQuality(normalized, languageCode)) continue;
+      return normalized;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  // Last attempt with an explicit instruction prompt to reduce mixed-language outputs.
+  const strictPrompt = buildStrictTranslationPrompt(text, languageCode);
+  if (strictPrompt) {
+    for (const target of targets) {
+      try {
+        const translated = await translateText(strictPrompt, target);
+        const normalized = normalizeTranslationOutput(translated, text);
+        if (!normalized) continue;
+        if (!hasLanguageQuality(normalized, languageCode)) continue;
+        return normalized;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+  }
+  throw lastError || new Error(`No translation target resolved for ${languageCode}`);
+}
+
+function readFirstNonEmptyValue(payload, fieldNames = []) {
+  for (const fieldName of fieldNames) {
+    const value = String(payload?.[fieldName] || "").trim();
+    if (value) return value;
+  }
+  return "";
+}
+
+function resolveTranslationGroupSource(payload, group) {
+  const languageCodesByPriority = ["es", "de", "en"];
+  for (const languageCode of languageCodesByPriority) {
+    const fieldName = group.languageFieldByCode?.[languageCode];
+    const languageAliasFields = (group.sourceCandidates || []).map((candidate) => `${candidate}_${languageCode}`);
+    const sourceText = readFirstNonEmptyValue(payload, [fieldName, ...languageAliasFields]);
+    if (sourceText) {
+      return {
+        sourceText,
+        sourceLanguageCode: languageCode
+      };
+    }
+  }
+
+  const genericSourceText = readFirstNonEmptyValue(payload, group.sourceCandidates || []);
+  if (!genericSourceText) {
+    return {
+      sourceText: "",
+      sourceLanguageCode: ""
+    };
+  }
+
+  return {
+    sourceText: genericSourceText,
+    sourceLanguageCode: resolveLocalizedFieldLanguage(state.lang)
+  };
+}
+
+function fillMissingLocalizedFieldsWithSource(payload) {
+  const workingPayload = ensureActiveLanguageSeed(normalizeDescriptionColumnVariants({ ...(payload || {}) }));
+  const targetLanguageCodes = ["de", "en", "es"];
+  for (const group of AUTO_TRANSLATABLE_FIELD_GROUPS) {
+    const { sourceText } = resolveTranslationGroupSource(workingPayload, group);
+    if (!sourceText) continue;
+    for (const languageCode of targetLanguageCodes) {
+      const fieldName = group.languageFieldByCode?.[languageCode];
+      if (!fieldName) continue;
+      if (!String(workingPayload[fieldName] || "").trim()) {
+        workingPayload[fieldName] = sourceText;
+      }
+    }
+    if (!String(workingPayload[group.key] || "").trim()) {
+      workingPayload[group.key] = sourceText;
+    }
+  }
+  return normalizeDescriptionColumnVariants(workingPayload);
+}
+
+async function generateMissingEventTranslations(eventPayload) {
+  const payload = ensureActiveLanguageSeed(normalizeDescriptionColumnVariants({ ...(eventPayload || {}) }));
+  const targetLanguageCodes = ["de", "en", "es"];
+  const failedTargets = [];
+
+  for (const group of AUTO_TRANSLATABLE_FIELD_GROUPS) {
+    for (const languageCode of targetLanguageCodes) {
+      const fieldName = group.languageFieldByCode?.[languageCode];
+      if (!fieldName) continue;
+      const existingValue = String(payload[fieldName] || "").trim();
+      if (existingValue) payload[fieldName] = existingValue;
+    }
+
+    const { sourceText, sourceLanguageCode } = resolveTranslationGroupSource(payload, group);
+    if (!sourceText) continue;
+
+    for (const languageCode of targetLanguageCodes) {
+      const fieldName = group.languageFieldByCode?.[languageCode];
+      if (!fieldName) continue;
+      if (String(payload[fieldName] || "").trim()) continue;
+      if (languageCode === sourceLanguageCode) {
+        payload[fieldName] = sourceText;
+        continue;
+      }
+
+      const targetLanguage = TRANSLATION_TARGET_LANGUAGE_BY_CODE[languageCode];
+      if (!targetLanguage) continue;
+
+      try {
+        const translated = await translateTextByLanguageCode(sourceText, languageCode);
+        if (translated) {
+          payload[fieldName] = translated;
+        } else {
+          failedTargets.push(fieldName);
+          payload[fieldName] = sourceText;
+        }
+      } catch (error) {
+        failedTargets.push(fieldName);
+        payload[fieldName] = sourceText;
+        console.warn(
+          `[Marcha Debug] Translation failed for ${fieldName} (${targetLanguage}): ${error?.message || error}`
+        );
+      }
+    }
+
+    const baseFieldName = group.key;
+    if (!String(payload[baseFieldName] || "").trim()) {
+      payload[baseFieldName] = sourceText;
+    }
+  }
+
+  return {
+    payload: normalizeDescriptionColumnVariants(payload),
+    warning: failedTargets.length > 0,
+    failedTargets
+  };
+}
+
 function splitGenres(value) {
   if (!value) return [];
-  if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
-  return String(value)
-    .split(/[,/|;]+/)
+  if (Array.isArray(value)) {
+    return [...new Set(
+      value
+        .flatMap((item) => normalizedGenresFromRaw(item))
+        .filter(Boolean)
+    )];
+  }
+  const normalized = normalizedGenresFromRaw(value);
+  if (normalized.length) return normalized;
+  return [String(value).trim()].filter(Boolean);
+}
+
+const GENRE_NORMALIZATION_RULES = [
+  {
+    canonical: "Salsa",
+    patterns: [/\bsalsa\b/i, /\bslasa\b/i, /\bsalza\b/i, /\bsalssa\b/i]
+  },
+  {
+    canonical: "Bachata",
+    patterns: [/\bbachata\b/i, /\bbachatta\b/i, /\bbacchata\b/i]
+  },
+  {
+    canonical: "Latin",
+    patterns: [/\blatin\b/i, /\blatino\b/i, /\blatina\b/i, /\blatina?o?s?\b/i, /\bmusica latina\b/i, /\bmusica latin\b/i, /\bmúsica latina\b/i]
+  },
+  {
+    canonical: "Reggaeton",
+    patterns: [/\breggaeton\b/i, /\bregueton\b/i]
+  },
+  {
+    canonical: "DJ Set",
+    patterns: [/\bdj\s*set\b/i, /\bdjset\b/i]
+  },
+  {
+    canonical: "DJ",
+    patterns: [/\bdj\b/i]
+  },
+  {
+    canonical: "Live Band",
+    patterns: [/\blive\s*band\b/i]
+  },
+  {
+    canonical: "Live Music",
+    patterns: [/\blive\s*music\b/i, /\bmusica\s+en\s+vivo\b/i, /\bmúsica\s+en\s+vivo\b/i]
+  },
+  {
+    canonical: "House",
+    patterns: [/\bhouse\b/i, /\btech\s*house\b/i, /\bdeep\s*house\b/i]
+  },
+  {
+    canonical: "Techno",
+    patterns: [/\btechno\b/i]
+  },
+  {
+    canonical: "Electro",
+    patterns: [/\belectro\b/i]
+  },
+  {
+    canonical: "Rock",
+    patterns: [/\brock\b/i]
+  },
+  {
+    canonical: "Jazz",
+    patterns: [/\bjazz\b/i]
+  },
+  {
+    canonical: "Flamenco",
+    patterns: [/\bflamenco\b/i]
+  },
+  {
+    canonical: "Pop",
+    patterns: [/\bpop\b/i]
+  },
+  {
+    canonical: "Hip-Hop",
+    patterns: [/\bhip[\s-]?hop\b/i]
+  },
+  {
+    canonical: "R&B",
+    patterns: [/\br&b\b/i]
+  }
+];
+
+function normalizeGenreToken(rawToken) {
+  const token = String(rawToken || "").trim();
+  if (!token) return "";
+  const matchedRule = GENRE_NORMALIZATION_RULES.find((rule) => rule.patterns.some((pattern) => pattern.test(token)));
+  if (matchedRule) return matchedRule.canonical;
+  const normalized = token
+    .replace(/\b(y|and|&|con|mas|más|etc\.?)\b/gi, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  if (!normalized) return "";
+  if (normalized.length <= 2) return "";
+  return normalized
+    .split(" ")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function normalizedGenresFromRaw(value) {
+  const text = String(value || "").trim();
+  if (!text) return [];
+  const rawParts = text
+    .split(/[,/|;]+|\s+\+\s+|\s+-\s+|\s+y\s+|\s+and\s+|\s+con\s+|\s+mas\s+|\s+más\s+/i)
     .map((part) => part.trim())
     .filter(Boolean);
+  if (!rawParts.length) rawParts.push(text);
+  const normalized = rawParts
+    .map((part) => normalizeGenreToken(part))
+    .filter(Boolean);
+
+  // If only a single broad token was recognized but source text implies "mixed latin",
+  // include the most common dance subgenres so users can find it via Salsa/Bachata chips.
+  if (normalized.length <= 1 && /\bbachata\b/i.test(text) && /\bsalsa\b|\bslasa\b|\bsalza\b/i.test(text)) {
+    normalized.push("Bachata", "Salsa");
+  }
+  if (normalized.length <= 1 && /\blatin|latino|latina|musica latina|música latina\b/i.test(text)) {
+    normalized.push("Latin");
+  }
+
+  return [...new Set(normalized)];
 }
 
 function loadFavoriteEventIds() {
@@ -2072,10 +3977,79 @@ function isAndroidDevice() {
   return /android/i.test(window.navigator.userAgent || "");
 }
 
-function isStandaloneMode() {
-  const isIosStandalone = window.navigator.standalone === true;
+function isAppInstalled() {
   const isDisplayModeStandalone = window.matchMedia?.("(display-mode: standalone)")?.matches === true;
-  return isIosStandalone || isDisplayModeStandalone;
+  const isIosStandalone = window.navigator.standalone === true;
+  return isDisplayModeStandalone || isIosStandalone;
+}
+
+function isRunningStandalone() {
+  return isAppInstalled();
+}
+
+function isStandaloneMode() {
+  return isRunningStandalone();
+}
+
+function applyRuntimeEnvironmentState() {
+  if (!document.body) return;
+  const standalone = isRunningStandalone();
+  const iosDevice = isIosDevice();
+  document.body.classList.toggle("is-standalone-app", standalone);
+  document.body.classList.toggle("is-ios-device", iosDevice);
+}
+
+function registerServiceWorker() {
+  if (!("serviceWorker" in navigator)) return Promise.resolve(null);
+  if (serviceWorkerRegistrationPromise) return serviceWorkerRegistrationPromise;
+
+  serviceWorkerRegistrationPromise = new Promise((resolve) => {
+    const setupServiceWorkerUpdateHandling = (registration) => {
+      if (!registration) return;
+
+      // Trigger update check after first registration.
+      registration.update().catch(() => {});
+
+      registration.addEventListener("updatefound", () => {
+        const installingWorker = registration.installing;
+        if (!installingWorker) return;
+        installingWorker.addEventListener("statechange", () => {
+          if (installingWorker.state === "installed" && navigator.serviceWorker.controller) {
+            console.log("[Marcha PWA] New version installed, waiting for activation.");
+          }
+        });
+      });
+    };
+
+    const handleControllerChange = () => {
+      if (serviceWorkerHasRefreshed) return;
+      serviceWorkerHasRefreshed = true;
+      console.log("[Marcha PWA] Controller changed, reloading app for latest assets.");
+      window.location.reload();
+    };
+    navigator.serviceWorker.addEventListener("controllerchange", handleControllerChange);
+
+    const registerNow = () => {
+      navigator.serviceWorker.register("/service-worker.js", { updateViaCache: "none" })
+        .then((registration) => {
+          setupServiceWorkerUpdateHandling(registration);
+          console.log("[Marcha PWA] Service worker registered:", registration.scope);
+          resolve(registration);
+        })
+        .catch((error) => {
+          console.warn("[Marcha PWA] Service worker registration failed:", error);
+          resolve(null);
+        });
+    };
+
+    if (document.readyState === "complete") {
+      registerNow();
+      return;
+    }
+    window.addEventListener("load", registerNow, { once: true });
+  });
+
+  return serviceWorkerRegistrationPromise;
 }
 
 function persistInstallBannerTimestamp(key, days) {
@@ -2099,13 +4073,66 @@ function isInstallBannerSuppressed(key) {
   }
 }
 
+function isInstallSuppressed(dismissStorageKey) {
+  if (isRunningStandalone()) return true;
+  if (isInstallBannerSuppressed(INSTALL_BANNER_INSTALLED_STORAGE_KEY)) return true;
+  if (dismissStorageKey && isInstallBannerSuppressed(dismissStorageKey)) return true;
+  return false;
+}
+
+function getInstallDebugSnapshot() {
+  const standalone = isRunningStandalone();
+  const installedSuppressed = isInstallBannerSuppressed(INSTALL_BANNER_INSTALLED_STORAGE_KEY);
+  const bannerDismissed = isInstallBannerSuppressed(INSTALL_BANNER_DISMISS_STORAGE_KEY);
+  const mobileDismissed = isInstallBannerSuppressed(MOBILE_INSTALL_CTA_DISMISS_STORAGE_KEY);
+  const hasDeferredPrompt = Boolean(deferredInstallPromptEvent);
+  const mobileEntryVisible = Boolean(dom.mobileInstallEntry && !dom.mobileInstallEntry.hidden);
+  const bannerVisible = Boolean(dom.installBanner && !dom.installBanner.hidden);
+  const relevantSurface = isInstallSurfaceRelevant();
+  const mobileViewport = window.matchMedia?.("(max-width: 780px)")?.matches === true;
+  return {
+    standalone,
+    installedSuppressed,
+    bannerDismissed,
+    mobileDismissed,
+    legacyBannerEnabled: ENABLE_LEGACY_INSTALL_BANNER,
+    hasDeferredPrompt,
+    relevantSurface,
+    mobileViewport,
+    mobileEntryVisible,
+    bannerVisible
+  };
+}
+
+function logInstallUiState(reason, extra = {}) {
+  if (!INSTALL_UI_DEBUG) return;
+  const snapshot = getInstallDebugSnapshot();
+  console.log("[Marcha Install Debug]", reason, { ...snapshot, ...extra });
+}
+
+function isInstallSurfaceRelevant() {
+  return isIosDevice() || isAndroidDevice();
+}
+
+function syncInstalledStateFromStandalone() {
+  if (!isRunningStandalone()) return;
+  // Keep persisted installed state as backup for future sessions.
+  persistInstallBannerTimestamp(INSTALL_BANNER_INSTALLED_STORAGE_KEY, INSTALL_BANNER_INSTALLED_DAYS);
+}
+
 function hideInstallBanner() {
   if (!dom.installBanner) return;
+  if (installBannerShowTimer) {
+    window.clearTimeout(installBannerShowTimer);
+    installBannerShowTimer = null;
+  }
   dom.installBanner.classList.remove("is-visible");
   dom.installBanner.hidden = true;
 }
 
 function showInstallBanner() {
+  if (!ENABLE_LEGACY_INSTALL_BANNER) return;
+  if (isRunningStandalone()) return;
   if (!dom.installBanner) return;
   dom.installBanner.hidden = false;
   window.requestAnimationFrame(() => dom.installBanner?.classList.add("is-visible"));
@@ -2129,46 +4156,163 @@ function updateInstallBannerContent() {
 
 function canShowInstallBanner() {
   if (!dom.installBanner) return false;
-  if (isStandaloneMode()) return false;
-  if (!isIosDevice() && !isAndroidDevice()) return false;
-  if (isInstallBannerSuppressed(INSTALL_BANNER_DISMISS_STORAGE_KEY)) return false;
-  if (isInstallBannerSuppressed(INSTALL_BANNER_INSTALLED_STORAGE_KEY)) return false;
+  if (!ENABLE_LEGACY_INSTALL_BANNER) return false;
+  if (!isInstallSurfaceRelevant()) return false;
+  if (dom.mobileInstallEntry) return false;
+  if (isInstallSuppressed(INSTALL_BANNER_DISMISS_STORAGE_KEY)) return false;
   return true;
 }
 
 function setupInstallBanner() {
-  if (!dom.installBanner) return;
+  updateInstallUiVisibility();
+}
+
+function hideMobileInstallEntry() {
+  if (!dom.mobileInstallEntry) return;
+  // Force-hide to avoid any responsive CSS overrides leaking visibility.
+  dom.mobileInstallEntry.style.display = "none";
+  dom.mobileInstallEntry.classList.remove("is-visible");
+  dom.mobileInstallEntry.hidden = true;
+  if (dom.mobileInstallEntryHelper) dom.mobileInstallEntryHelper.hidden = true;
+  if (dom.mobileInstallEntryCta) dom.mobileInstallEntryCta.setAttribute("aria-expanded", "false");
+}
+
+function showMobileInstallEntry() {
+  if (!dom.mobileInstallEntry) return;
+  dom.mobileInstallEntry.style.removeProperty("display");
+  dom.mobileInstallEntry.hidden = false;
+  window.requestAnimationFrame(() => dom.mobileInstallEntry?.classList.add("is-visible"));
+}
+
+function suppressInstallUiOnAppLoad() {
+  if (!isAppInstalled()) return;
+  syncInstalledStateFromStandalone();
+  hideInstallBanner();
+  hideMobileInstallEntry();
+  logInstallUiState("load:installed-hide-install-ui");
+}
+
+function updateMobileInstallEntryContent() {
+  if (!dom.mobileInstallEntryHint || !dom.mobileInstallEntryCta || !dom.mobileInstallEntryHelper) return;
+  const isIos = isIosDevice();
+  const canPromptAndroid = isAndroidDevice() && Boolean(deferredInstallPromptEvent);
+  dom.mobileInstallEntryHint.textContent = isIos ? t("install_mobile_hint_ios") : t("install_mobile_hint_android");
+  dom.mobileInstallEntryCta.textContent = t("install_mobile_cta");
+  dom.mobileInstallEntryCta.dataset.installMode = isIos ? "ios" : "android";
+  dom.mobileInstallEntryCta.disabled = !isIos && !canPromptAndroid;
+  dom.mobileInstallEntryCta.setAttribute("aria-disabled", dom.mobileInstallEntryCta.disabled ? "true" : "false");
+  dom.mobileInstallEntryHelper.textContent = isIos ? t("install_mobile_ios_helper") : t("install_mobile_android_helper");
+  dom.mobileInstallEntryHelper.hidden = true;
+}
+
+function canShowMobileInstallEntry() {
+  if (!dom.mobileInstallEntry) return false;
+  if (window.matchMedia?.("(max-width: 780px)")?.matches !== true) return false;
+  if (!isInstallSurfaceRelevant()) return false;
+  if (isInstallSuppressed(MOBILE_INSTALL_CTA_DISMISS_STORAGE_KEY)) return false;
+  return true;
+}
+
+function setupMobileInstallEntry() {
+  updateInstallUiVisibility();
+}
+
+function updateInstallUiVisibility() {
+  applyRuntimeEnvironmentState();
+  syncInstalledStateFromStandalone();
+  logInstallUiState("recompute:start");
 
   if (installBannerShowTimer) {
     window.clearTimeout(installBannerShowTimer);
     installBannerShowTimer = null;
   }
 
-  if (!canShowInstallBanner()) {
+  if (isRunningStandalone()) {
     hideInstallBanner();
+    hideMobileInstallEntry();
+    logInstallUiState("recompute:standalone-hide-all");
     return;
   }
 
   updateInstallBannerContent();
+  updateMobileInstallEntryContent();
+
+  if (canShowMobileInstallEntry()) {
+    hideInstallBanner();
+    showMobileInstallEntry();
+    logInstallUiState("recompute:show-mobile-entry");
+    return;
+  }
+  hideMobileInstallEntry();
+
+  if (!canShowInstallBanner()) {
+    hideInstallBanner();
+    logInstallUiState("recompute:hide-all-no-surface");
+    return;
+  }
+
   installBannerShowTimer = window.setTimeout(() => {
-    if (canShowInstallBanner()) showInstallBanner();
+    if (isRunningStandalone()) {
+      hideInstallBanner();
+      logInstallUiState("banner-timer:cancel-standalone");
+      return;
+    }
+    if (canShowInstallBanner()) {
+      showInstallBanner();
+      logInstallUiState("banner-timer:show-banner");
+    } else {
+      logInstallUiState("banner-timer:skip-banner");
+    }
   }, INSTALL_BANNER_SHOW_DELAY_MS);
 }
 
-async function handleInstallBannerPrimaryAction() {
+async function handleMobileInstallEntryAction() {
+  if (isRunningStandalone()) {
+    updateInstallUiVisibility();
+    return;
+  }
+  if (isIosDevice()) {
+    if (dom.mobileInstallEntryHelper) {
+      const isOpen = !dom.mobileInstallEntryHelper.hidden;
+      dom.mobileInstallEntryHelper.hidden = isOpen;
+      dom.mobileInstallEntryCta?.setAttribute("aria-expanded", isOpen ? "false" : "true");
+    }
+    return;
+  }
   if (!deferredInstallPromptEvent) return;
   try {
     await deferredInstallPromptEvent.prompt();
     const choice = await deferredInstallPromptEvent.userChoice;
     if (choice?.outcome === "accepted") {
       persistInstallBannerTimestamp(INSTALL_BANNER_INSTALLED_STORAGE_KEY, INSTALL_BANNER_INSTALLED_DAYS);
-      hideInstallBanner();
+      updateInstallUiVisibility();
+    }
+  } catch (_error) {
+    // Keep CTA visible so users can retry.
+  } finally {
+    deferredInstallPromptEvent = null;
+    updateInstallUiVisibility();
+  }
+}
+
+async function handleInstallBannerPrimaryAction() {
+  if (isRunningStandalone()) {
+    updateInstallUiVisibility();
+    return;
+  }
+  if (!deferredInstallPromptEvent) return;
+  try {
+    await deferredInstallPromptEvent.prompt();
+    const choice = await deferredInstallPromptEvent.userChoice;
+    if (choice?.outcome === "accepted") {
+      persistInstallBannerTimestamp(INSTALL_BANNER_INSTALLED_STORAGE_KEY, INSTALL_BANNER_INSTALLED_DAYS);
+      updateInstallUiVisibility();
     }
   } catch (_error) {
     // Keep banner visible so users can retry.
   } finally {
     deferredInstallPromptEvent = null;
-    updateInstallBannerContent();
+    updateInstallUiVisibility();
   }
 }
 
@@ -2238,19 +4382,110 @@ function formatPrice(priceText) {
 }
 
 function formatEventPlace(event) {
-  const parts = [event.location_name, event.address, event.city].filter(Boolean);
+  const venue = getEventVenue(event);
+  const address = getEventAddress(event);
+  const parts = [venue, address, event.city].filter(Boolean);
   return parts.length ? parts.join(", ") : "-";
 }
 
+function resolveRecurringLanguage(lang) {
+  const requested = String(lang || "").trim().toLowerCase();
+  if (WEEKDAYS[requested] && RECURRING_LABELS[requested]) return requested;
+  if (WEEKDAYS[state.lang] && RECURRING_LABELS[state.lang]) return state.lang;
+  return "de";
+}
+
+function normalizeWeekdayName(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "");
+}
+
+function resolveWeekdayIndex(rawValue) {
+  const fromNumber = normalizeWeekday(rawValue);
+  if (fromNumber !== null) return fromNumber;
+  const normalizedName = normalizeWeekdayName(rawValue);
+  if (!normalizedName) return null;
+  return Number.isInteger(WEEKDAY_NAME_TO_INDEX[normalizedName]) ? WEEKDAY_NAME_TO_INDEX[normalizedName] : null;
+}
+
+function formatEnglishOrdinal(dayOfMonth) {
+  const day = Number(dayOfMonth);
+  if (!Number.isInteger(day)) return "";
+  const mod100 = day % 100;
+  if (mod100 >= 11 && mod100 <= 13) return `${day}th`;
+  const mod10 = day % 10;
+  if (mod10 === 1) return `${day}st`;
+  if (mod10 === 2) return `${day}nd`;
+  if (mod10 === 3) return `${day}rd`;
+  return `${day}th`;
+}
+
+function getRecurringText(event, lang = state.lang) {
+  const recurrenceType = normalizeRecurrenceType(event?.recurrence_type || RECURRENCE_TYPE_NONE);
+  const isRecurring = Boolean(event?.is_recurring) || recurrenceType !== RECURRENCE_TYPE_NONE;
+  if (!isRecurring) return "";
+
+  const activeLang = resolveRecurringLanguage(lang);
+  const recurrenceInterval = Math.max(1, Number.parseInt(String(event?.recurrence_interval || "1"), 10) || 1);
+  const labels = RECURRING_LABELS[activeLang];
+  const fallbacks = RECURRING_FALLBACK_LABELS[activeLang];
+  const weekdays = WEEKDAYS[activeLang];
+  const recurrenceDays = Array.isArray(event?.recurrence_days)
+    ? event.recurrence_days
+    : String(event?.recurrence_days || "")
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean);
+  const weekdayFromList = recurrenceDays
+    .map((value) => resolveWeekdayIndex(value))
+    .find((value) => value !== null);
+  const weekdayIndex = weekdayFromList ?? resolveWeekdayIndex(event?.recurrence_weekday);
+  const weekdayText = weekdayIndex === null ? "" : weekdays[weekdayIndex] || "";
+
+  let recurringText = "";
+  if (recurrenceType === RECURRENCE_TYPE_WEEKLY && weekdayText) {
+    recurringText = recurrenceInterval > 1
+      ? `${labels.weekly} ${recurrenceInterval}. ${weekdayText}`
+      : `${labels.weekly} ${weekdayText}`;
+  } else if (recurrenceType === RECURRENCE_TYPE_MONTHLY) {
+    const dayOfMonth = normalizeDayOfMonth(event?.recurrence_day_of_month);
+    if (!dayOfMonth) {
+      recurringText = fallbacks.monthly;
+    } else if (activeLang === "en") {
+      recurringText = `${labels.monthly} ${formatEnglishOrdinal(dayOfMonth)}`;
+    } else if (activeLang === "es") {
+      recurringText = `${labels.monthly} día ${dayOfMonth}`;
+    } else {
+      recurringText = `${labels.monthly} ${dayOfMonth}.`;
+    }
+  } else if (recurrenceType === RECURRENCE_TYPE_WEEKLY) {
+    recurringText = recurrenceInterval > 1
+      ? `${labels.weekly} ${recurrenceInterval}.`
+      : fallbacks.weekly;
+  } else {
+    recurringText = fallbacks.generic;
+  }
+
+  const recurrenceEndDate = parseIsoDate(event?.recurrence_end_date || "");
+  if (recurrenceEndDate) {
+    recurringText += ` • ${fallbacks.until} ${formatDate(formatIsoDate(recurrenceEndDate), false)}`;
+  }
+  return recurringText;
+}
+
 function buildNavigationAddressQuery(event) {
-  const strictAddressQuery = [event.address, event.city, event.country]
+  const address = eventDisplayAddress(event);
+  const strictAddressQuery = [event.formatted_address, address, event.city, event.country]
     .map((value) => String(value || "").trim())
     .filter(Boolean)
     .join(", ");
   if (strictAddressQuery) return strictAddressQuery;
 
   // Fallback for legacy records where only geocoding_query/postal data exists.
-  return [event.geocoding_query, event.address, event.postal_code, event.city, event.country, event.location_name]
+  return [event.geocoding_query, address, event.postal_code, event.city, event.country, eventDisplayVenue(event)]
     .map((value) => String(value || "").trim())
     .filter(Boolean)
     .join(", ");
@@ -2274,17 +4509,31 @@ function resolveNavigationDestination(event) {
   };
 }
 
-function buildNavigationUrl(event, providerName = DEFAULT_NAVIGATION_PROVIDER) {
-  const destination = resolveNavigationDestination(event);
-  if (!destination) return "";
+function buildNavigationUrl(event) {
+  if (Number.isFinite(event?.lat) && Number.isFinite(event?.lng)) {
+    return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${event.lat},${event.lng}`)}`;
+  }
 
-  const provider = NAVIGATION_URL_BUILDERS[providerName] || NAVIGATION_URL_BUILDERS.google;
-  if (destination.type === "coordinates") return provider.byCoordinates(destination);
-  return provider.byAddress(destination.query);
+  const addressQuery = [event?.formatted_address, eventDisplayAddress(event), event?.city]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .join(" ");
+
+  if (addressQuery) {
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addressQuery)}`;
+  }
+
+  const fallbackQuery = [eventDisplayVenue(event), event?.city, event?.country]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .join(" ");
+
+  if (!fallbackQuery) return "";
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fallbackQuery)}`;
 }
 
-function openNavigationForEvent(event, providerName = DEFAULT_NAVIGATION_PROVIDER) {
-  const url = buildNavigationUrl(event, providerName);
+function openRoute(event) {
+  const url = buildNavigationUrl(event);
   if (!url) {
     setStatus(t("navigation_unavailable"), "warning");
     return;
@@ -2296,22 +4545,184 @@ function openNavigationForEvent(event, providerName = DEFAULT_NAVIGATION_PROVIDE
   }
 }
 
+function openNavigationForEvent(event) {
+  openRoute(event);
+}
+
+function buildEventSharePayload(event) {
+  if (!event) return null;
+  const title = getEventTitle(event) || "GoMarcha Event";
+  const dateLine = [formatDate(event.event_date, true), event.event_time || t("details_time_fallback")]
+    .filter(Boolean)
+    .join(" • ");
+  const locationLine = [getEventVenue(event), event.city, event.country]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .join(" · ");
+  const text = [title, dateLine, locationLine].filter(Boolean).join("\n");
+  return {
+    title,
+    text,
+    url: buildNavigationUrl(event) || window.location.href
+  };
+}
+
+function buildWhatsappShareUrl(event) {
+  const payload = buildEventSharePayload(event);
+  if (!payload) return "";
+  const shareText = [payload.title, payload.text, payload.url].filter(Boolean).join("\n");
+  if (!shareText) return "";
+  return `https://wa.me/?text=${encodeURIComponent(shareText)}`;
+}
+
+function formatEventCalendarDateStamp(dateValue, allDay = false) {
+  const year = dateValue.getUTCFullYear();
+  const month = String(dateValue.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(dateValue.getUTCDate()).padStart(2, "0");
+  if (allDay) return `${year}${month}${day}`;
+  const hours = String(dateValue.getUTCHours()).padStart(2, "0");
+  const minutes = String(dateValue.getUTCMinutes()).padStart(2, "0");
+  const seconds = String(dateValue.getUTCSeconds()).padStart(2, "0");
+  return `${year}${month}${day}T${hours}${minutes}${seconds}Z`;
+}
+
+function escapeIcsText(value) {
+  return String(value || "")
+    .replace(/\\/g, "\\\\")
+    .replace(/\n/g, "\\n")
+    .replace(/,/g, "\\,")
+    .replace(/;/g, "\\;");
+}
+
+function buildEventCalendarData(event) {
+  if (!event) return null;
+  const dateRaw = String(event.event_date || "").trim();
+  if (!dateRaw) return null;
+
+  const startTime = String(event.event_time || "").trim();
+  const hasTime = /^\d{1,2}:\d{2}/.test(startTime);
+  const allDay = !hasTime;
+  const startDate = hasTime
+    ? new Date(`${dateRaw}T${startTime.length === 5 ? `${startTime}:00` : startTime}`)
+    : new Date(`${dateRaw}T00:00:00`);
+  if (Number.isNaN(startDate.getTime())) return null;
+
+  let endDate;
+  if (allDay) {
+    endDate = new Date(startDate);
+    endDate.setDate(endDate.getDate() + 1);
+  } else {
+    endDate = new Date(startDate.getTime() + 2 * 60 * 60 * 1000);
+  }
+
+  const title = getEventTitle(event) || "GoMarcha Event";
+  const description = getEventDescription(event) || "";
+  const location = [getEventVenue(event), getEventAddress(event), event.city, event.country]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .join(", ");
+  const uid = `${String(event.id || `${dateRaw}-${title}`)}@gomarcha.app`;
+  const generatedAt = new Date();
+  const stamp = formatEventCalendarDateStamp(generatedAt, false);
+  const startStamp = formatEventCalendarDateStamp(startDate, allDay);
+  const endStamp = formatEventCalendarDateStamp(endDate, allDay);
+
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//GoMarcha//Events//DE",
+    "CALSCALE:GREGORIAN",
+    "METHOD:PUBLISH",
+    "BEGIN:VEVENT",
+    `UID:${escapeIcsText(uid)}`,
+    `DTSTAMP:${stamp}`,
+    allDay ? `DTSTART;VALUE=DATE:${startStamp}` : `DTSTART:${startStamp}`,
+    allDay ? `DTEND;VALUE=DATE:${endStamp}` : `DTEND:${endStamp}`,
+    `SUMMARY:${escapeIcsText(title)}`,
+    `DESCRIPTION:${escapeIcsText(description)}`,
+    `LOCATION:${escapeIcsText(location)}`,
+    "END:VEVENT",
+    "END:VCALENDAR"
+  ];
+
+  return {
+    fileName: `gomarcha-${String(event.id || "event")}.ics`,
+    content: `${lines.join("\r\n")}\r\n`
+  };
+}
+
+function addEventToCalendar(event) {
+  const calendarData = buildEventCalendarData(event);
+  if (!calendarData) {
+    setStatus(t("details_calendar_error"), "warning");
+    return;
+  }
+  const blob = new Blob([calendarData.content], { type: "text/calendar;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = calendarData.fileName;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1200);
+  setStatus(t("details_calendar_success"), "ok");
+}
+
+async function shareEventFromDetails(event) {
+  const whatsappUrl = buildWhatsappShareUrl(event);
+  if (whatsappUrl) {
+    const openedWindow = window.open(whatsappUrl, "_blank", "noopener,noreferrer");
+    if (openedWindow) return;
+    window.location.href = whatsappUrl;
+    return;
+  }
+  const payload = buildEventSharePayload(event);
+  if (!payload) return;
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(payload.url);
+      setStatus(t("details_share_copy_success"), "ok");
+      return;
+    } catch (_error) {
+      // Fallback warning below.
+    }
+  }
+  setStatus(t("details_share_not_supported"), "warning");
+}
+
 function normalizeFilterText(value) {
   return String(value || "")
     .trim()
     .toLowerCase();
 }
 
+function currentSearchQuery() {
+  return normalizeFilterText(
+    dom.heroSearchInput?.value
+    || dom.searchInput?.value
+    || ""
+  );
+}
+
 function eventSearchText(event) {
   // Unified search: name, artist, location and city are core dimensions.
+  const eventTitle = getEventTitle(event);
+  const eventArtist = getEventArtist(event);
+  const eventVenue = getEventVenue(event);
+  const eventAddress = getEventAddress(event);
+  const eventCategory = getEventCategory(event);
+  const eventDescription = getEventDescription(event);
+  const normalizedGenreText = splitGenres(eventCategory).join(" ");
   return [
-    event.name,
-    event.artist_name,
-    event.location_name,
+    eventTitle,
+    eventArtist,
+    eventVenue,
     event.city,
-    event.address,
-    event.genre,
-    event.description
+    eventAddress,
+    eventCategory,
+    normalizedGenreText,
+    eventDescription
   ]
     .join(" ")
     .toLowerCase();
@@ -2342,6 +4753,214 @@ function normalizeRequestedGenres(rawGenres) {
   return [...new Set(selected)];
 }
 
+function normalizeDatePresetId(value) {
+  const preset = String(value || "").trim().toLowerCase();
+  const knownPresets = new Set(Object.values(DATE_PRESET_IDS));
+  return knownPresets.has(preset) ? preset : "";
+}
+
+function cloneDateAtStartOfDay(dateValue) {
+  const cloned = new Date(dateValue);
+  cloned.setHours(0, 0, 0, 0);
+  return cloned;
+}
+
+function cloneDateAtEndOfDay(dateValue) {
+  const cloned = new Date(dateValue);
+  cloned.setHours(23, 59, 59, 999);
+  return cloned;
+}
+
+function normalizeDateRange(range) {
+  if (!range?.start || !range?.end) {
+    return { start: null, end: null };
+  }
+  const parsedStart = cloneDateAtStartOfDay(range.start);
+  const parsedEnd = cloneDateAtEndOfDay(range.end);
+  if (Number.isNaN(parsedStart.getTime()) || Number.isNaN(parsedEnd.getTime())) {
+    return { start: null, end: null };
+  }
+  if (parsedStart <= parsedEnd) {
+    return { start: parsedStart, end: parsedEnd };
+  }
+  return {
+    start: cloneDateAtStartOfDay(parsedEnd),
+    end: cloneDateAtEndOfDay(parsedStart)
+  };
+}
+
+function cloneDateRange(range) {
+  return normalizeDateRange(range);
+}
+
+function getTodayRange(referenceDate = new Date()) {
+  const today = cloneDateAtStartOfDay(referenceDate);
+  return {
+    start: cloneDateAtStartOfDay(today),
+    end: cloneDateAtEndOfDay(today)
+  };
+}
+
+function getTomorrowRange(referenceDate = new Date()) {
+  const tomorrow = cloneDateAtStartOfDay(referenceDate);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  return {
+    start: cloneDateAtStartOfDay(tomorrow),
+    end: cloneDateAtEndOfDay(tomorrow)
+  };
+}
+
+function getWeekendRange(referenceDate = new Date()) {
+  const date = cloneDateAtStartOfDay(referenceDate);
+  const day = date.getDay();
+  let fridayOffset = 5 - day;
+  if (day === 6) fridayOffset = -1;
+  if (day === 0) fridayOffset = -2;
+
+  const friday = cloneDateAtStartOfDay(date);
+  friday.setDate(friday.getDate() + fridayOffset);
+  const sunday = cloneDateAtStartOfDay(friday);
+  sunday.setDate(friday.getDate() + 2);
+
+  return {
+    start: cloneDateAtStartOfDay(friday),
+    end: cloneDateAtEndOfDay(sunday)
+  };
+}
+
+function getNextWeekendRange(referenceDate = new Date()) {
+  const thisWeekend = getWeekendRange(referenceDate);
+  const nextFriday = cloneDateAtStartOfDay(thisWeekend.start);
+  nextFriday.setDate(nextFriday.getDate() + 7);
+
+  const nextSunday = cloneDateAtStartOfDay(nextFriday);
+  nextSunday.setDate(nextFriday.getDate() + 2);
+
+  return {
+    start: cloneDateAtStartOfDay(nextFriday),
+    end: cloneDateAtEndOfDay(nextSunday)
+  };
+}
+
+function resolveDateRangeForPreset(presetId) {
+  if (presetId === DATE_PRESET_IDS.TODAY) return getTodayRange();
+  if (presetId === DATE_PRESET_IDS.TOMORROW) return getTomorrowRange();
+  if (presetId === DATE_PRESET_IDS.THIS_WEEKEND) return getWeekendRange();
+  if (presetId === DATE_PRESET_IDS.NEXT_WEEKEND) return getNextWeekendRange();
+  return { start: null, end: null };
+}
+
+function sameDayRange(range) {
+  if (!range?.start || !range?.end) return false;
+  return formatIsoDate(range.start) === formatIsoDate(range.end);
+}
+
+function rangesAreEqual(rangeA, rangeB) {
+  if (!rangeA?.start || !rangeA?.end || !rangeB?.start || !rangeB?.end) return false;
+  return (
+    formatIsoDate(rangeA.start) === formatIsoDate(rangeB.start) &&
+    formatIsoDate(rangeA.end) === formatIsoDate(rangeB.end)
+  );
+}
+
+function inferPresetFromDateRange(range, referenceDate = new Date()) {
+  const normalizedRange = normalizeDateRange(range);
+  if (!normalizedRange.start || !normalizedRange.end) return "";
+
+  if (rangesAreEqual(normalizedRange, getTodayRange(referenceDate))) return DATE_PRESET_IDS.TODAY;
+  if (rangesAreEqual(normalizedRange, getTomorrowRange(referenceDate))) return DATE_PRESET_IDS.TOMORROW;
+  if (rangesAreEqual(normalizedRange, getWeekendRange(referenceDate))) return DATE_PRESET_IDS.THIS_WEEKEND;
+  if (rangesAreEqual(normalizedRange, getNextWeekendRange(referenceDate))) return DATE_PRESET_IDS.NEXT_WEEKEND;
+  return "";
+}
+
+function syncLegacyDateFilterValue() {
+  if (!dom.dateFilter) return;
+  const currentRange = state.dateRange;
+  if (sameDayRange(currentRange)) {
+    dom.dateFilter.value = formatIsoDate(currentRange.start);
+    return;
+  }
+  dom.dateFilter.value = "";
+}
+
+function renderTimePresetButtons() {
+  if (!dom.timePresetGroup) return;
+  const activePreset = normalizeDatePresetId(state.activeDatePreset);
+  dom.timePresetGroup.querySelectorAll("button[data-date-preset]").forEach((button) => {
+    const preset = normalizeDatePresetId(button.dataset.datePreset);
+    const isActive = Boolean(activePreset && preset === activePreset);
+    button.classList.toggle("is-active", isActive);
+    button.setAttribute("aria-pressed", String(isActive));
+  });
+}
+
+function updateCustomDateRangeVisibility() {
+  if (!dom.customDateRange) return;
+  const isCustom = state.activeDatePreset === DATE_PRESET_IDS.CUSTOM;
+  dom.customDateRange.hidden = !isCustom;
+  dom.customDateRange.setAttribute("aria-hidden", String(!isCustom));
+}
+
+function setDateRangeState(range, presetId = "", options = { syncInputs: true }) {
+  const normalizedRange = normalizeDateRange(range);
+  const normalizedPreset = normalizeDatePresetId(presetId);
+  state.dateRange = normalizedRange;
+  state.activeDatePreset = normalizedPreset || inferPresetFromDateRange(normalizedRange);
+  renderTimePresetButtons();
+  updateCustomDateRangeVisibility();
+  syncLegacyDateFilterValue();
+
+  if (options.syncInputs) {
+    if (state.activeDatePreset === DATE_PRESET_IDS.CUSTOM) {
+      if (dom.dateRangeStart) dom.dateRangeStart.value = normalizedRange.start ? formatIsoDate(normalizedRange.start) : "";
+      if (dom.dateRangeEnd) dom.dateRangeEnd.value = normalizedRange.end ? formatIsoDate(normalizedRange.end) : "";
+    } else {
+      if (dom.dateRangeStart) dom.dateRangeStart.value = "";
+      if (dom.dateRangeEnd) dom.dateRangeEnd.value = "";
+    }
+  }
+}
+
+function applyDatePreset(presetId) {
+  const normalizedPreset = normalizeDatePresetId(presetId);
+  if (!normalizedPreset) return;
+
+  if (normalizedPreset === DATE_PRESET_IDS.CUSTOM) {
+    setDateRangeState({ start: null, end: null }, DATE_PRESET_IDS.CUSTOM);
+    applyFilters();
+    return;
+  }
+
+  setDateRangeState(resolveDateRangeForPreset(normalizedPreset), normalizedPreset);
+  applyFilters();
+}
+
+function parseCustomDateRangeInputs() {
+  const start = parseIsoDate(dom.dateRangeStart?.value || "");
+  const end = parseIsoDate(dom.dateRangeEnd?.value || "");
+  if (!start || !end) return { start: null, end: null };
+  return { start, end };
+}
+
+function handleCustomDateRangeInputChange() {
+  const parsedRange = parseCustomDateRangeInputs();
+  setDateRangeState(parsedRange, DATE_PRESET_IDS.CUSTOM, { syncInputs: false });
+  applyFilters();
+}
+
+function handleLegacyDateFilterChange() {
+  const selectedDate = parseIsoDate(dom.dateFilter?.value || "");
+  if (selectedDate) {
+    setDateRangeState({ start: selectedDate, end: selectedDate }, "");
+  } else {
+    setDateRangeState({ start: null, end: null }, "");
+  }
+  syncHeroControlsFromSidebar();
+  syncMapSheetControlsFromSidebar();
+  debouncedApplyFilters();
+}
+
 function readQueryParams() {
   const params = new URLSearchParams(window.location.search);
   return {
@@ -2349,6 +4968,11 @@ function readQueryParams() {
     q: params.get("q") || "",
     city: params.get("city") || "",
     date: params.get("date") || "",
+    dateStart: params.get("date_start") || "",
+    dateEnd: params.get("date_end") || "",
+    datePreset: params.get("date_preset") || "",
+    nearby: params.get("nearby") || "",
+    radius: params.get("radius") || "",
     admin: params.get("admin") || "",
     genres: (params.get("genres") || "")
       .split(",")
@@ -2365,13 +4989,23 @@ function updateUrlFromFilters() {
   const params = new URLSearchParams();
   const search = dom.searchInput.value.trim();
   const city = dom.cityFilter.value;
-  const date = dom.dateFilter.value;
+  const dateRange = cloneDateRange(state.dateRange);
+  const activeDatePreset = normalizeDatePresetId(state.activeDatePreset);
 
   if (state.lang !== "de") params.set("lang", state.lang);
   if (state.isAdminMode) params.set("admin", "1");
   if (search) params.set("q", search);
   if (city) params.set("city", city);
-  if (date) params.set("date", date);
+  if (activeDatePreset) params.set("date_preset", activeDatePreset);
+  if (state.nearbyOnly) {
+    params.set("nearby", "1");
+    params.set("radius", String(state.radiusKm));
+  }
+  if (dateRange.start && dateRange.end) {
+    params.set("date_start", formatIsoDate(dateRange.start));
+    params.set("date_end", formatIsoDate(dateRange.end));
+    if (sameDayRange(dateRange)) params.set("date", formatIsoDate(dateRange.start));
+  }
   if (state.activeGenres.size) params.set("genres", [...state.activeGenres].join(","));
 
   const queryString = params.toString();
@@ -2549,6 +5183,7 @@ function updateFilterOptions() {
   state.activeGenres.forEach((genre) => {
     if (!state.availableGenres.includes(genre)) state.activeGenres.delete(genre);
   });
+  renderQuickCategories();
   renderGenreFilter();
   syncHeroFilterOptions();
   syncMapSheetFilterOptions();
@@ -2560,9 +5195,31 @@ function applyFiltersFromQuery() {
   if (query.city && [...dom.cityFilter.options].some((option) => option.value === query.city)) {
     dom.cityFilter.value = query.city;
   }
-  if (query.date && [...dom.dateFilter.options].some((option) => option.value === query.date)) {
-    dom.dateFilter.value = query.date;
+  const presetFromQuery = normalizeDatePresetId(query.datePreset);
+  const rangeStart = parseIsoDate(query.dateStart || "");
+  const rangeEnd = parseIsoDate(query.dateEnd || "");
+  const singleDay = parseIsoDate(query.date || "");
+  if (rangeStart && rangeEnd) {
+    setDateRangeState(
+      { start: rangeStart, end: rangeEnd },
+      presetFromQuery
+    );
+  } else if (presetFromQuery && presetFromQuery !== DATE_PRESET_IDS.CUSTOM) {
+    setDateRangeState(resolveDateRangeForPreset(presetFromQuery), presetFromQuery);
+  } else if (singleDay) {
+    setDateRangeState({ start: singleDay, end: singleDay }, "");
+  } else if (presetFromQuery === DATE_PRESET_IDS.CUSTOM) {
+    setDateRangeState({ start: null, end: null }, DATE_PRESET_IDS.CUSTOM, { syncInputs: false });
+  } else {
+    setDateRangeState({ start: null, end: null }, "");
   }
+  const requestedNearby = String(query.nearby || "").trim().toLowerCase();
+  const wantsNearby = requestedNearby === "1" || requestedNearby === "true";
+  setNearbyFilterState({
+    nearbyOnly: wantsNearby && hasUserLocation(),
+    radiusKm: query.radius,
+    showHint: wantsNearby && !hasUserLocation()
+  });
   state.activeGenres = new Set(normalizeRequestedGenres(query.genres));
   renderGenreFilter();
   syncHeroControlsFromSidebar();
@@ -2571,13 +5228,29 @@ function applyFiltersFromQuery() {
 
 function getActiveFilters() {
   const activeQuickCategory = quickCategoryById(state.activeQuickCategoryId);
+  const hasUserCoordinates = hasUserLocation();
   return {
-    search: normalizeFilterText(dom.searchInput.value),
+    search: currentSearchQuery(),
     city: dom.cityFilter.value,
-    date: dom.dateFilter.value,
+    dateRange: cloneDateRange(state.dateRange),
     genres: new Set([...state.activeGenres].map((genre) => genre.toLowerCase())),
-    quickKeywords: activeQuickCategory.keywords.map((keyword) => keyword.toLowerCase())
+    quickKeywords: activeQuickCategory.keywords.map((keyword) => keyword.toLowerCase()),
+    nearbyOnly: state.nearbyOnly && hasUserCoordinates,
+    radiusKm: normalizeRadiusKm(state.radiusKm)
   };
+}
+
+function hasActiveDiscoveryFilters(filters) {
+  if (!filters) return false;
+  const hasDateRange = Boolean(filters.dateRange?.start && filters.dateRange?.end);
+  return Boolean(
+    filters.search
+    || filters.city
+    || hasDateRange
+    || filters.nearbyOnly
+    || (filters.genres instanceof Set && filters.genres.size > 0)
+    || (Array.isArray(filters.quickKeywords) && filters.quickKeywords.length > 0)
+  );
 }
 
 function syncHeroFilterOptions() {
@@ -2627,29 +5300,467 @@ function updateLocationChipLabel() {
   dom.locationChipLabel.textContent = selectedCity || t("hero_location_label");
 }
 
+function hasUserLocation() {
+  return hasValidUserCoordinates(state.userLocation, { enforceRegion: true });
+}
+
+function hasValidEventCoordinates(event) {
+  const lat = parseCoordinateValue(
+    event?.lat
+    ?? event?.latitude
+    ?? event?.event_lat
+    ?? event?.location_lat
+    ?? event?.lat_decimal
+    ?? null
+  );
+  const lng = parseCoordinateValue(
+    event?.lng
+    ?? event?.longitude
+    ?? event?.event_lng
+    ?? event?.location_lng
+    ?? event?.lng_decimal
+    ?? null
+  );
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return false;
+  return true;
+}
+
+function hasAnyRenderableEventCard() {
+  return state.filteredEvents.length > 0 || state.allEvents.length > 0;
+}
+
+function computeMapFitPadding() {
+  const mobile = mapSheetIsMobileViewport();
+  const safeBottom = mobile ? 34 : 0;
+  const safeTop = mobile ? 20 : 0;
+  const sheetPeekHeight = mobile ? 236 : 110;
+  return {
+    topLeft: [22 + safeTop, 18],
+    bottomRight: [sheetPeekHeight + safeBottom + 24, 20]
+  };
+}
+
+function clampMapCenterToFallbackIfInvalid() {
+  if (!map) return;
+  const center = map.getCenter();
+  if (isCoordinateWithinBounds(center.lat, center.lng)) return;
+  mapDebugLog("[Marcha Debug] Map center outside expected region, resetting fallback.", {
+    center: { lat: center.lat, lng: center.lng },
+    fallback: { lat: DEFAULT_CENTER[0], lng: DEFAULT_CENTER[1], zoom: DEFAULT_ZOOM }
+  });
+  map.setView(DEFAULT_CENTER, DEFAULT_ZOOM, { animate: false });
+}
+
+function getMappableEvents(events) {
+  const source = Array.isArray(events) ? events : [];
+  return source
+    .map((event) => {
+      const coordinateMeta = resolveEventCoordinates(event);
+      const normalizedEvent = {
+        ...event,
+        lat: coordinateMeta.lat,
+        lng: coordinateMeta.lng
+      };
+      mapDebugLog("[Marcha Debug] Map event coordinate candidate", {
+        id: normalizedEvent.id,
+        title: normalizedEvent.name || normalizedEvent.title || "",
+        lat: normalizedEvent.lat,
+        lng: normalizedEvent.lng,
+        rawLat: coordinateMeta.rawLat,
+        rawLng: coordinateMeta.rawLng,
+        parsedLat: coordinateMeta.lat,
+        parsedLng: coordinateMeta.lng,
+        latField: coordinateMeta.latField,
+        lngField: coordinateMeta.lngField,
+        valid: coordinateMeta.valid
+      });
+      return normalizedEvent;
+    })
+    .filter((event) => hasValidEventCoordinates(event));
+}
+
+function normalizeEventMapCoordinates(event) {
+  const coordinateMeta = resolveEventCoordinates(event);
+  return {
+    ...event,
+    lat: coordinateMeta.lat,
+    lng: coordinateMeta.lng
+  };
+}
+
+const mapCoordinateEnrichmentState = {
+  attemptedIds: new Set(),
+  inFlightById: new Map()
+};
+
+function eventGeocodingQuery(event) {
+  const direct = String(event?.formatted_address || event?.geocoding_query || "").trim();
+  if (direct) return direct;
+  return [
+    event?.address,
+    event?.postal_code,
+    event?.city,
+    event?.country,
+    event?.location_name
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .join(", ");
+}
+
+function patchEventCoordinatesById(eventId, coordinates) {
+  const normalizedId = String(eventId || "").trim();
+  if (!normalizedId) return false;
+  const lat = Number(coordinates?.lat);
+  const lng = Number(coordinates?.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  let updated = false;
+  state.allEvents.forEach((event) => {
+    if (String(event?.id || "") !== normalizedId) return;
+    event.lat = lat;
+    event.lng = lng;
+    updated = true;
+  });
+  if (updated) {
+    state.allEvents = applyDistanceData(state.allEvents);
+  }
+  return updated;
+}
+
+async function geocodeMissingMapCoordinates(event) {
+  if (!event || hasValidEventCoordinates(event)) return null;
+  const eventId = String(event.id || "").trim();
+  if (!eventId) return null;
+  if (mapCoordinateEnrichmentState.inFlightById.has(eventId)) {
+    return mapCoordinateEnrichmentState.inFlightById.get(eventId);
+  }
+
+  const query = eventGeocodingQuery(event);
+  if (!query) {
+    mapCoordinateEnrichmentState.attemptedIds.add(eventId);
+    return null;
+  }
+
+  const provider = GEOCODING_PROVIDERS[GEOCODING_PROVIDER] || geocodeAddressWithNominatim;
+  const inFlightPromise = (async () => {
+    try {
+      const coordinates = await geocodeWithRetry(provider, query);
+      if (!coordinates) return null;
+      const lat = Number(coordinates.lat);
+      const lng = Number(coordinates.lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+      return {
+        lat,
+        lng
+      };
+    } catch (_error) {
+      return null;
+    } finally {
+      mapCoordinateEnrichmentState.attemptedIds.add(eventId);
+      mapCoordinateEnrichmentState.inFlightById.delete(eventId);
+    }
+  })();
+
+  mapCoordinateEnrichmentState.inFlightById.set(eventId, inFlightPromise);
+  return inFlightPromise;
+}
+
+function enqueueMapCoordinateEnrichment(events) {
+  const candidates = (Array.isArray(events) ? events : [])
+    .filter((event) => {
+      const eventId = String(event?.id || "").trim();
+      if (!eventId) return false;
+      if (hasValidEventCoordinates(event)) return false;
+      if (mapCoordinateEnrichmentState.attemptedIds.has(eventId)) return false;
+      if (mapCoordinateEnrichmentState.inFlightById.has(eventId)) return false;
+      return Boolean(eventGeocodingQuery(event));
+    })
+    .slice(0, 6);
+
+  if (!candidates.length) return;
+
+  candidates.forEach((event) => {
+    geocodeMissingMapCoordinates(event).then((coordinates) => {
+      if (!coordinates) return;
+      const updated = patchEventCoordinatesById(event.id, coordinates);
+      if (!updated) return;
+      applyFilters();
+    });
+  });
+}
+
+function loadStoredUserLocation() {
+  try {
+    const raw = window.localStorage.getItem(USER_LOCATION_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    const lat = Number(parsed?.lat);
+    const lng = Number(parsed?.lng);
+    const timestamp = Number(parsed?.timestamp || 0);
+    if (timestamp > 0 && Date.now() - timestamp > USER_LOCATION_CACHE_TTL_MS) {
+      window.localStorage.removeItem(USER_LOCATION_STORAGE_KEY);
+      return null;
+    }
+    if (!hasValidUserCoordinates({ lat, lng }, { enforceRegion: true })) return null;
+    return { lat, lng };
+  } catch (_error) {
+    return null;
+  }
+}
+
+function persistUserLocation(location) {
+  if (!hasValidUserCoordinates(location, { enforceRegion: true })) return;
+  try {
+    window.localStorage.setItem(
+      USER_LOCATION_STORAGE_KEY,
+      JSON.stringify({
+        lat: Number(location.lat),
+        lng: Number(location.lng),
+        timestamp: Date.now()
+      })
+    );
+  } catch (_error) {
+    // Ignore storage errors to keep UX non-blocking.
+  }
+}
+
+function setUserLocation(nextLocation) {
+  if (!hasValidUserCoordinates(nextLocation, { enforceRegion: true })) return;
+  state.userLocation = {
+    lat: Number(nextLocation.lat),
+    lng: Number(nextLocation.lng)
+  };
+  persistUserLocation(state.userLocation);
+}
+
+function readGeolocationPermissionState() {
+  if (!navigator?.permissions?.query) return Promise.resolve("unsupported");
+  return navigator.permissions
+    .query({ name: "geolocation" })
+    .then((status) => status?.state || "unsupported")
+    .catch(() => "unsupported");
+}
+
+function syncLocationPermissionFromNavigator() {
+  return readGeolocationPermissionState().then((permissionState) => {
+    state.locationPermissionState = permissionState;
+    return permissionState;
+  });
+}
+
+function normalizeRadiusKm(value) {
+  const radius = Number(value);
+  if (!Number.isFinite(radius)) return DEFAULT_NEARBY_RADIUS_KM;
+  if (!NEARBY_RADIUS_OPTIONS.includes(radius)) return DEFAULT_NEARBY_RADIUS_KM;
+  return radius;
+}
+
+function renderNearbyRadiusButtons() {
+  if (!dom.nearbyRadiusGroup) return;
+  dom.nearbyRadiusGroup.querySelectorAll("button[data-radius-km]").forEach((button) => {
+    const radiusKm = normalizeRadiusKm(button.dataset.radiusKm || "");
+    const isActive = radiusKm === state.radiusKm;
+    button.classList.toggle("is-active", isActive);
+    button.setAttribute("aria-pressed", String(isActive));
+  });
+}
+
+function renderNearbyFilterControls() {
+  const hasLocation = hasUserLocation();
+  if (dom.nearbyToggle) {
+    const isActive = state.nearbyOnly && hasLocation;
+    dom.nearbyToggle.classList.toggle("is-active", isActive);
+    dom.nearbyToggle.classList.toggle("is-pending-location", !hasLocation);
+    dom.nearbyToggle.setAttribute("aria-pressed", String(isActive));
+  }
+  const showRadiusControls = state.nearbyOnly && hasLocation;
+  if (dom.nearbyRadiusWrap) {
+    dom.nearbyRadiusWrap.hidden = !showRadiusControls;
+    dom.nearbyRadiusWrap.setAttribute("aria-hidden", String(!showRadiusControls));
+  }
+  if (dom.nearbyHint) {
+    const showHint = !hasLocation && state.nearbyHintVisible;
+    dom.nearbyHint.hidden = !showHint;
+    dom.nearbyHint.setAttribute("aria-hidden", String(!showHint));
+  }
+  renderNearbyRadiusButtons();
+}
+
+function setNearbyFilterState({ nearbyOnly = state.nearbyOnly, radiusKm = state.radiusKm, showHint = state.nearbyHintVisible } = {}) {
+  state.nearbyOnly = Boolean(nearbyOnly);
+  state.radiusKm = normalizeRadiusKm(radiusKm);
+  state.nearbyHintVisible = Boolean(showHint);
+  renderNearbyFilterControls();
+}
+
+function toRadians(value) {
+  return (value * Math.PI) / 180;
+}
+
+function getDistanceKm(lat1, lng1, lat2, lng2) {
+  const points = [lat1, lng1, lat2, lng2].map((value) => Number(value));
+  if (points.some((value) => !Number.isFinite(value))) return null;
+  const [safeLat1, safeLng1, safeLat2, safeLng2] = points;
+  const dLat = toRadians(safeLat2 - safeLat1);
+  const dLng = toRadians(safeLng2 - safeLng1);
+  const a = Math.sin(dLat / 2) ** 2
+    + Math.cos(toRadians(safeLat1)) * Math.cos(toRadians(safeLat2)) * Math.sin(dLng / 2) ** 2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return EARTH_RADIUS_KM * c;
+}
+
+function formatDistanceLabel(distanceKm) {
+  if (!Number.isFinite(distanceKm)) return "";
+  if (distanceKm < 1) return `📍 ${t("distance_under_1km")}`;
+  return `📍 ${t("distance_km_away", { distance: distanceKm.toFixed(1) })}`;
+}
+
+function formatDistanceLabelShort(distanceKm) {
+  if (!Number.isFinite(distanceKm)) return "";
+  if (distanceKm < 1) return t("distance_under_1km");
+  return t("distance_km_away", { distance: distanceKm.toFixed(1) });
+}
+
+function withDistanceForEvent(event) {
+  const hasEventCoordinates = Number.isFinite(event?.lat) && Number.isFinite(event?.lng);
+  const hasUserCoordinates = Number.isFinite(state.userLocation?.lat) && Number.isFinite(state.userLocation?.lng);
+  if (!hasEventCoordinates || !hasUserCoordinates) {
+    return {
+      ...event,
+      distance_km: null
+    };
+  }
+  return {
+    ...event,
+    distance_km: getDistanceKm(state.userLocation.lat, state.userLocation.lng, event.lat, event.lng)
+  };
+}
+
+function applyDistanceData(events) {
+  return events.map((event) => withDistanceForEvent(event));
+}
+
+async function ensureUserLocation() {
+  if (hasUserLocation()) return true;
+  const nextLocation = await requestUserLocation();
+  if (!nextLocation) return false;
+  setUserLocation(nextLocation);
+  state.allEvents = applyDistanceData(state.allEvents);
+  return true;
+}
+
+function requestUserLocation() {
+  if (locationRequestInFlightPromise) return locationRequestInFlightPromise;
+  locationRequestInFlightPromise = syncLocationPermissionFromNavigator()
+    .then((permissionState) => {
+      if (permissionState === "denied") return null;
+      if (permissionState === "granted") {
+        // Reuse persisted coordinates instead of triggering a new lookup.
+        return loadStoredUserLocation();
+      }
+      if (permissionState !== "prompt" && permissionState !== "unsupported") {
+        return null;
+      }
+      if (!navigator?.geolocation?.getCurrentPosition) return null;
+      return new Promise((resolve) => {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            const lat = Number(position?.coords?.latitude);
+            const lng = Number(position?.coords?.longitude);
+            if (!hasValidUserCoordinates({ lat, lng }, { enforceRegion: true })) {
+              resolve(null);
+              return;
+            }
+            resolve({ lat, lng });
+          },
+          () => resolve(null),
+          {
+            enableHighAccuracy: false,
+            timeout: 8000,
+            maximumAge: 300000
+          }
+        );
+      });
+    })
+    .then((location) => {
+      if (location) setUserLocation(location);
+      return location;
+    })
+    .finally(() => {
+      locationRequestInFlightPromise = null;
+    });
+  return locationRequestInFlightPromise;
+}
+
+async function primeUserLocationOnAppLoad() {
+  const storedLocation = loadStoredUserLocation();
+  if (storedLocation) {
+    state.userLocation = storedLocation;
+  }
+
+  // Keep permission state in sync, but avoid requesting geolocation on startup.
+  await syncLocationPermissionFromNavigator();
+}
+
+function enrichDistanceSlots() {
+  if (!dom.eventDetails) return;
+  const hasUserLocation = Number.isFinite(state.userLocation?.lat) && Number.isFinite(state.userLocation?.lng);
+  dom.eventDetails.querySelectorAll("[data-distance-slot]").forEach((slot) => {
+    const lat = Number(slot.getAttribute("data-lat"));
+    const lng = Number(slot.getAttribute("data-lng"));
+    if (!hasUserLocation || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+      slot.textContent = "";
+      return;
+    }
+    const distanceKm = getDistanceKm(state.userLocation.lat, state.userLocation.lng, lat, lng);
+    slot.textContent = distanceKm === null ? "" : formatDistanceLabel(distanceKm);
+  });
+}
+
 function eventMatchesGenres(event, activeGenresLower) {
   if (!activeGenresLower.size) return true;
   const eventGenresLower = splitGenres(event.genre).map((genre) => genre.toLowerCase());
   return eventGenresLower.some((genre) => activeGenresLower.has(genre));
 }
 
+function compareEventDateOrder(a, b) {
+  const timestampA = eventTimestamp(a);
+  const timestampB = eventTimestamp(b);
+  const hasDateA = Number.isFinite(timestampA);
+  const hasDateB = Number.isFinite(timestampB);
+  if (hasDateA && !hasDateB) return -1;
+  if (!hasDateA && hasDateB) return 1;
+  if (!hasDateA && !hasDateB) return 0;
+  if (timestampA !== timestampB) return timestampA - timestampB;
+  return 0;
+}
+
+function compareDistanceOrder(a, b) {
+  const hasDistanceA = Number.isFinite(a?.distance_km);
+  const hasDistanceB = Number.isFinite(b?.distance_km);
+  if (hasDistanceA && hasDistanceB && a.distance_km !== b.distance_km) return a.distance_km - b.distance_km;
+  if (hasDistanceA && !hasDistanceB) return -1;
+  if (!hasDistanceA && hasDistanceB) return 1;
+  return 0;
+}
+
 function applyDiscoverySort(events) {
   const entries = [...events];
-  if (state.discoverySort === "nearby" && map) {
-    const center = map.getCenter();
+  const hasCoordinates = hasUserLocation();
+  if (state.nearbyOnly && hasCoordinates) {
     return entries.sort((a, b) => {
-      const hasGeoA = Number.isFinite(a?.lat) && Number.isFinite(a?.lng);
-      const hasGeoB = Number.isFinite(b?.lat) && Number.isFinite(b?.lng);
-      if (!hasGeoA && !hasGeoB) return eventTimestamp(a) - eventTimestamp(b);
-      if (!hasGeoA) return 1;
-      if (!hasGeoB) return -1;
-      const distanceA = center.distanceTo([a.lat, a.lng]);
-      const distanceB = center.distanceTo([b.lat, b.lng]);
-      if (distanceA !== distanceB) return distanceA - distanceB;
-      return eventTimestamp(a) - eventTimestamp(b);
+      const distanceOrder = compareDistanceOrder(a, b);
+      if (distanceOrder !== 0) return distanceOrder;
+      return compareEventDateOrder(a, b);
     });
   }
-  return entries.sort((a, b) => eventTimestamp(a) - eventTimestamp(b));
+  return entries.sort((a, b) => {
+    const dateOrder = compareEventDateOrder(a, b);
+    if (dateOrder !== 0) return dateOrder;
+    if (hasCoordinates) return compareDistanceOrder(a, b);
+    return 0;
+  });
 }
 
 function updateMapSheetSortControls() {
@@ -2663,16 +5774,26 @@ function updateMapSheetSortControls() {
 
 function applyFilters() {
   const filters = getActiveFilters();
+  enqueueMapCoordinateEnrichment(state.allEvents);
   const filtered = state.allEvents.filter((event) => {
     const haystack = eventSearchText(event);
+    const eventDate = parseIsoDate(event.event_date || "");
     if (filters.city && event.city !== filters.city) return false;
-    if (filters.date && event.event_date !== filters.date) return false;
+    if (filters.dateRange.start && filters.dateRange.end) {
+      if (!eventDate || eventDate < filters.dateRange.start || eventDate > filters.dateRange.end) {
+        return false;
+      }
+    }
     if (!eventMatchesGenres(event, filters.genres)) return false;
     if (filters.quickKeywords.length) {
       const hasQuickMatch = filters.quickKeywords.some((keyword) => haystack.includes(keyword));
       if (!hasQuickMatch) return false;
     }
     if (filters.search && !haystack.includes(filters.search)) return false;
+    if (filters.nearbyOnly) {
+      if (!Number.isFinite(event.distance_km)) return false;
+      if (event.distance_km > filters.radiusKm) return false;
+    }
     return true;
   });
   state.filteredEvents = applyDiscoverySort(filtered);
@@ -2693,8 +5814,19 @@ function applyFilters() {
   if (!state.filteredEvents.length && state.viewMode === "map") {
     renderMapSheetEmptyState();
   }
-  setStatus(t("result_count", { count: state.filteredEvents.length }), sourceTone());
+  const totalCount = state.allEvents.length;
+  if (totalCount === 0) {
+    setStatus(t("status_no_data"), "warning");
+  } else if (hasActiveDiscoveryFilters(filters) && state.filteredEvents.length < totalCount) {
+    setStatus(
+      t("status_filtered", { shown: state.filteredEvents.length, total: totalCount }),
+      state.filteredEvents.length ? sourceTone() : "warning"
+    );
+  } else {
+    setStatus(t("result_count", { count: state.filteredEvents.length }), sourceTone());
+  }
   updateLocationChipLabel();
+  enrichDistanceSlots();
   updateUrlFromFilters();
 }
 
@@ -2853,7 +5985,13 @@ function expandRecurringEvents(rawEvents) {
 }
 
 function pickFeaturedEvents() {
-  const source = state.filteredEvents.length ? state.filteredEvents : state.allEvents;
+  const searchQuery = currentSearchQuery();
+  let source = state.filteredEvents.length ? state.filteredEvents : state.allEvents;
+  if (searchQuery) {
+    const searchMatches = state.allEvents.filter((event) => eventSearchText(event).includes(searchQuery));
+    source = searchMatches.length ? searchMatches : source;
+  }
+  if (!source.length && state.allEvents.length) source = state.allEvents;
   return [...source]
     .sort((a, b) => {
       const imageWeightA = a.image_url ? 0 : 1;
@@ -2897,27 +6035,53 @@ function renderEventVibeBadges(event, className) {
   return badges.map((badge) => `<span class="${className}">${badge}</span>`).join("");
 }
 
+function formatHeroTodayCountLabel(count) {
+  const safeCount = Number.isFinite(Number(count)) ? Math.max(0, Number(count)) : 0;
+  const title = t("featured_title");
+  if (state.lang === "en") {
+    return `${title} ${safeCount} events`;
+  }
+  if (state.lang === "es") {
+    return `${title} ${safeCount} eventos`;
+  }
+  return `${title} ${safeCount} Events`;
+}
+
 function createFeaturedCard(event) {
   const card = document.createElement("article");
   card.className = "featured-card";
   const navigationUrl = buildNavigationUrl(event);
-  const genre = splitGenres(event.genre)[0] || event.genre || "-";
-  const artistName = String(event.artist_name || "").trim();
-  const featuredSubline = [artistName || null, event.city || event.location_name || "-"].filter(Boolean).join(" • ");
+  const eventTitle = getEventTitle(event);
+  const eventArtist = getEventArtist(event);
+  const eventVenue = getEventVenue(event);
+  const eventCategory = getEventCategory(event);
+  const genre = splitGenres(eventCategory)[0] || eventCategory || "-";
+  const locationLine = [eventVenue, event.city]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .join(" · ");
+  const dateTimeLine = [formatDate(event.event_date, true), event.event_time || t("details_time_fallback")]
+    .filter(Boolean)
+    .join(" • ");
+  const featuredArtistLine = eventArtist
+    ? `<p class="featured-card__artist">🎤 ${eventArtist}</p>`
+    : "";
   const vibeBadges = renderEventVibeBadges(event, "featured-card__micro-tag");
   card.innerHTML = `
     <div class="featured-card__media">
       ${
         event.image_url
-          ? `<img class="featured-card__image" src="${event.image_url}" alt="${event.name}" loading="lazy">`
+          ? `<img class="featured-card__image" src="${event.image_url}" alt="${eventTitle}" loading="lazy">`
           : `<div class="featured-card__image-fallback" aria-hidden="true"><span>${iconForGenre(genre)}</span></div>`
       }
       <div class="featured-card__shade"></div>
       ${vibeBadges ? `<div class="featured-card__micro-tags">${vibeBadges}</div>` : ""}
       <div class="featured-card__content">
         <span class="featured-card__badge">${genre}</span>
-        <h3>${event.name}</h3>
-        <p>${formatDateTime(event)} • ${featuredSubline}</p>
+        <h3>${eventTitle}</h3>
+        ${featuredArtistLine}
+        <p class="featured-card__meta">📍 ${locationLine || "-"}</p>
+        <p class="featured-card__meta">${dateTimeLine}</p>
         <div class="featured-card__actions">
           <button type="button" class="button-secondary button-secondary--primary" data-action="featured-open">${t("featured_open")}</button>
           <button type="button" class="button-secondary" data-action="featured-navigate" ${navigationUrl ? "" : "disabled"}>${t("details_navigate")}</button>
@@ -2949,21 +6113,9 @@ function createFeaturedCard(event) {
 }
 
 function renderFeaturedEvents() {
-  if (!dom.featuredCarousel || !dom.featuredCount) return;
+  if (!dom.heroTodayCountLabel) return;
   const featuredEvents = pickFeaturedEvents();
-  dom.featuredCount.textContent = String(featuredEvents.length);
-  dom.featuredCarousel.innerHTML = "";
-  if (!featuredEvents.length) {
-    const empty = document.createElement("div");
-    empty.className = "featured-empty";
-    empty.textContent = t("no_events_found");
-    dom.featuredCarousel.append(empty);
-    return;
-  }
-
-  featuredEvents.forEach((event) => {
-    dom.featuredCarousel.append(createFeaturedCard(event));
-  });
+  dom.heroTodayCountLabel.textContent = formatHeroTodayCountLabel(featuredEvents.length);
 }
 
 function mapSheetIsAvailable() {
@@ -2987,9 +6139,9 @@ function mapSheetStateIndex(sheetState) {
 }
 
 function mapSheetOffsetYByState(sheetState) {
-  if (sheetState === "peek") return -70;
+  if (sheetState === "peek") return -96;
   if (sheetState === "full") return 0;
-  return -120;
+  return -140;
 }
 
 function flyToEventWithMapSheetOffset(event, zoom = 13) {
@@ -3028,11 +6180,15 @@ function computeMapBottomSheetSnapHeights() {
   if (!mapSheetIsAvailable()) return;
   const viewportHeight = window.innerHeight || 844;
   const mapHeight = dom.mapSection.clientHeight || 430;
-  const safeTop = mapSheetIsMobileViewport() ? 47 : 0;
-  const safeBottom = mapSheetIsMobileViewport() ? 34 : 0;
-  const fullTop = safeTop + 12;
-  const halfTop = Math.round(viewportHeight * 0.46);
-  const peekTop = viewportHeight - (132 + 66 + safeBottom + 10);
+  const mobileViewport = mapSheetIsMobileViewport();
+  const safeTop = mobileViewport ? 47 : 0;
+  const safeBottom = mobileViewport ? 34 : 0;
+  const mobileBottomNavHeight = mobileViewport ? 66 : 0;
+  const shellBottomOffset = mobileViewport ? mobileBottomNavHeight + safeBottom + 10 : 10;
+  const fullTop = mobileViewport ? Math.max(safeTop + 6, Math.round(viewportHeight * 0.11)) : safeTop + 8;
+  const halfTop = mobileViewport ? Math.round(viewportHeight * 0.34) : Math.round(viewportHeight * 0.46);
+  const peekHeightTarget = mobileViewport ? 248 : 156;
+  const peekTop = Math.max(fullTop + 96, viewportHeight - (peekHeightTarget + shellBottomOffset));
 
   state.mapSheet.snapPx = {
     full: fullTop,
@@ -3041,7 +6197,7 @@ function computeMapBottomSheetSnapHeights() {
   };
 
   const topToSheetHeight = (topPx) =>
-    clampNumber(viewportHeight - topPx, 120, Math.max(120, mapHeight - 8));
+    clampNumber(viewportHeight - topPx, mobileViewport ? 180 : 120, Math.max(150, mapHeight - 8));
   const fullHeight = topToSheetHeight(fullTop);
   const halfHeight = topToSheetHeight(halfTop);
   const peekHeight = topToSheetHeight(peekTop);
@@ -3058,7 +6214,9 @@ function setMapBottomSheetState(nextState, { animate = true } = {}) {
   state.mapSheet.state = normalizedState;
   if (!animate) dom.mapBottomSheet.classList.add("is-dragging");
   dom.mapBottomSheet.dataset.sheetState = normalizedState;
+  dom.mapBottomSheet.setAttribute("aria-expanded", normalizedState === "full" ? "true" : "false");
   dom.mapBottomSheet.style.transform = "translateY(0)";
+  dom.mapBottomSheet.classList.toggle("is-detail-view", normalizedState === "full" && Boolean(state.selectedEventId));
   state.mapSheet.currentTop = state.mapSheet.snapPx[normalizedState] || state.mapSheet.snapPx.half || 0;
   if (previousState !== normalizedState && animate) {
     pulseHaptic(8);
@@ -3072,13 +6230,25 @@ function setMapBottomSheetState(nextState, { animate = true } = {}) {
   if (!animate) {
     window.requestAnimationFrame(() => dom.mapBottomSheet.classList.remove("is-dragging"));
   }
+  if (state.viewMode === "map") {
+    window.setTimeout(() => map?.invalidateSize(), animate ? 140 : 40);
+  }
+}
+
+function formatMapBottomSheetCountLabel() {
+  const total = Math.max(0, Number(state.filteredEvents.length) || 0);
+  const selected = state.selectedEventId ? 1 : 0;
+  if (selected) return t("sheet_count_selected", { count: selected });
+  if (total === 0) return t("sheet_count_total_zero");
+  return t("sheet_count_total", { count: total });
 }
 
 function updateMapBottomSheetMeta() {
   if (!dom.mapBottomSheetCount) return;
   dom.mapBottomSheetCount.classList.remove("is-updated");
   window.requestAnimationFrame(() => dom.mapBottomSheetCount.classList.add("is-updated"));
-  dom.mapBottomSheetCount.textContent = String(state.filteredEvents.length);
+  dom.mapBottomSheetCount.textContent = formatMapBottomSheetCountLabel();
+  dom.mapBottomSheetCount.dataset.scope = state.selectedEventId ? "selected" : "total";
 }
 
 function setMapSearchAreaCtaLoading(isLoading) {
@@ -3267,7 +6437,8 @@ function setViewMode(nextMode, { scroll = false } = {}) {
   if (dom.bottomNavDiscover) dom.bottomNavDiscover.classList.toggle("is-active", resolvedMode === "list");
   if (dom.bottomNavMap) dom.bottomNavMap.classList.toggle("is-active", resolvedMode === "map");
   if (mapSheetIsAvailable()) {
-    setMapBottomSheetState(resolvedMode === "map" ? "half" : "peek");
+    const nextSheetState = resolvedMode === "map" && mapSheetIsMobileViewport() ? "peek" : "half";
+    setMapBottomSheetState(resolvedMode === "map" ? nextSheetState : "peek");
   }
 
   if (resolvedMode === "map") {
@@ -3275,6 +6446,7 @@ function setViewMode(nextMode, { scroll = false } = {}) {
       if (map) map.invalidateSize();
       computeMapBottomSheetSnapHeights();
       setMapBottomSheetState(state.mapSheet.state, { animate: false });
+      renderMapMarkers();
     }, 220);
     if (scroll && dom.mapSection) dom.mapSection.scrollIntoView({ behavior: "smooth", block: "start" });
   } else if (scroll && dom.listSection) {
@@ -3287,14 +6459,24 @@ function createEventCard(event, index = 0) {
   card.className = "event-card";
   card.dataset.eventId = event.id;
   card.style.setProperty("--card-index", String(index));
-  const primaryGenre = splitGenres(event.genre)[0] || event.genre || "-";
+  const eventTitle = getEventTitle(event);
+  const eventArtist = getEventArtist(event);
+  const eventCategory = getEventCategory(event);
+  const primaryGenre = splitGenres(eventCategory)[0] || eventCategory || "-";
   const favoriteActive = isFavoriteEvent(event.id);
   const vibeBadges = renderEventVibeBadges(event, "event-card__micro-tag");
+  const recurrenceLineText = getRecurringText(event, state.lang);
+  const distanceLine = Number.isFinite(event.distance_km)
+    ? `<p class="event-card__line event-card__line--distance">${formatDistanceLabel(event.distance_km)}</p>`
+    : "";
+  const recurrenceLine = recurrenceLineText
+    ? `<p class="event-card__line event-card__line--recurrence">📅 ${recurrenceLineText}</p>`
+    : "";
   card.innerHTML = `
     <div class="event-card__media">
       ${
         event.image_url
-          ? `<img class="event-card__image" src="${event.image_url}" alt="${event.name}" loading="lazy">`
+          ? `<img class="event-card__image" src="${event.image_url}" alt="${eventTitle}" loading="lazy">`
           : `<div class="event-card__image-fallback" aria-hidden="true"><span>${iconForGenre(primaryGenre)}</span></div>`
       }
       ${vibeBadges ? `<div class="event-card__micro-tags">${vibeBadges}</div>` : ""}
@@ -3311,9 +6493,11 @@ function createEventCard(event, index = 0) {
     </div>
     <div class="event-card__body">
       <div class="event-card__header">
-        <h4 class="event-card__title">${event.name}</h4>
-        <div class="event-card_artist">${event.artist_name ? `Mit ${event.artist_name}` : ""}</div>
+        <h4 class="event-card__title">${eventTitle}</h4>
+        <div class="event-card_artist">${eventArtist ? `${t("details_artist")}: ${eventArtist}` : ""}</div>
       </div>
+      ${recurrenceLine}
+      ${distanceLine}
       <p class="event-card__line event-card__line--datetime">🗓 ${formatDateTime(event)}</p>
       <p class="event-card__line event-card__line--location">📍 ${formatEventPlace(event)}</p>
       <div class="event-card__chips">
@@ -3385,10 +6569,12 @@ function renderMapSheetEmptyState() {
       <button type="button" class="button-secondary button-secondary--primary" data-action="sheet-expand-search">${t("sheet_filter")}</button>
     </div>
   `;
+  updateMapBottomSheetMeta();
 }
 
 function createMarkerIcon(event, active = false) {
-  const primaryGenre = splitGenres(event.genre)[0] || "";
+  const eventCategory = getEventCategory(event);
+  const primaryGenre = splitGenres(eventCategory)[0] || "";
   return L.divIcon({
     className: "marker-pin-wrap",
     html: `<div class="marker-pin ${active ? "marker-pin--active" : ""}"><span>${iconForGenre(primaryGenre)}</span></div>`,
@@ -3398,20 +6584,58 @@ function createMarkerIcon(event, active = false) {
   });
 }
 
+function createMarker(event, active = false) {
+  const markerLat = parseCoordinateValue(event?.lat);
+  const markerLng = parseCoordinateValue(event?.lng);
+  if (!Number.isFinite(markerLat) || !Number.isFinite(markerLng)) return null;
+  const markerOptions = {
+    title: event?.name || "",
+    keyboard: true,
+    riseOnHover: true,
+    riseOffset: 280
+  };
+  try {
+    markerOptions.icon = createMarkerIcon(event, active);
+    return L.marker([markerLat, markerLng], markerOptions);
+  } catch (error) {
+    mapDebugLog("[Marcha Debug] Custom marker icon failed, using default marker.", {
+      eventId: event?.id,
+      name: event?.name,
+      reason: String(error?.message || error || "unknown")
+    });
+    return L.marker([markerLat, markerLng], markerOptions);
+  }
+}
+
 function syncActiveMarker(eventId) {
   if (activeMarkerId === eventId) return;
   if (activeMarkerId && markersByEventId.has(activeMarkerId)) {
     const previousMarker = markersByEventId.get(activeMarkerId);
     const previousEvent = markerEventsById.get(activeMarkerId);
     if (previousMarker && previousEvent) {
-      previousMarker.setIcon(createMarkerIcon(previousEvent, false));
+      try {
+        previousMarker.setIcon(createMarkerIcon(previousEvent, false));
+      } catch (error) {
+        mapDebugLog("[Marcha Debug] Failed to reset previous marker icon.", {
+          eventId: activeMarkerId,
+          reason: String(error?.message || error || "unknown")
+        });
+      }
     }
   }
   if (eventId && markersByEventId.has(eventId)) {
     const nextMarker = markersByEventId.get(eventId);
     const nextEvent = markerEventsById.get(eventId);
     if (nextMarker && nextEvent) {
-      nextMarker.setIcon(createMarkerIcon(nextEvent, true));
+      try {
+        nextMarker.setIcon(createMarkerIcon(nextEvent, true));
+      } catch (error) {
+        mapDebugLog("[Marcha Debug] Failed to set active marker icon.", {
+          eventId,
+          reason: String(error?.message || error || "unknown")
+        });
+        nextMarker.setZIndexOffset(900);
+      }
     }
   }
   activeMarkerId = eventId || null;
@@ -3430,101 +6654,135 @@ function initMap() {
 }
 
 function markerPopupHtml(event) {
-  const locationLine = [event.location_name, event.address, event.city].filter(Boolean).join(", ");
+  const eventTitle = getEventTitle(event);
+  const eventVenue = getEventVenue(event);
+  const eventAddress = getEventAddress(event);
+  const locationLine = [eventVenue, eventAddress, event.city].filter(Boolean).join(", ");
   const navigationUrl = buildNavigationUrl(event);
+  const recurringText = getRecurringText(event, state.lang);
+  const recurringLine = recurringText ? `<span>📅 ${recurringText}</span><br>` : "";
   const navigationLink = navigationUrl
     ? `<a class="popup__route-link" href="${navigationUrl}" target="_blank" rel="noopener noreferrer">${t("details_navigate")}</a>`
     : "";
   return `
     <div class="popup">
-      <strong>${event.name}</strong><br>
+      <strong>${eventTitle}</strong><br>
       <span>${locationLine || "-"}</span><br>
       <span>${formatDateTime(event)}</span><br>
-      <span>${event.genre || "-"} - ${formatPrice(event.price_text)}</span>
+      ${recurringLine}
+      <span>${getEventCategory(event) || "-"} - ${formatPrice(event.price_text)}</span>
       ${navigationLink}
     </div>
   `;
 }
 
 function renderMapMarkers() {
-  if (!map) return;
+  if (!map || !markersLayer) return;
+  if (!state.eventsLoaded && !state.allEvents.length) return;
+
   markersLayer.clearLayers();
   markersByEventId.clear();
   markerEventsById.clear();
   activeMarkerId = null;
   const bounds = [];
+  const boundsLatLng = [];
 
-  state.filteredEvents.forEach((event) => {
-    if (event.lat === null || event.lng === null) return;
-    const marker = L.marker([event.lat, event.lng], {
-      title: event.name,
-      icon: createMarkerIcon(event, false)
-    })
-      .bindPopup(markerPopupHtml(event))
-      .on("click", () => selectEvent(event, "marker"));
+  const enrichmentCandidates = state.filteredEvents.length ? state.filteredEvents : state.allEvents;
+  enqueueMapCoordinateEnrichment(enrichmentCandidates);
 
-    markersLayer.addLayer(marker);
-    markersByEventId.set(event.id, marker);
-    markerEventsById.set(event.id, event);
-    bounds.push([event.lat, event.lng]);
+  const filteredMappableEvents = getMappableEvents(state.filteredEvents);
+  const allMappableEvents = getMappableEvents(state.allEvents);
+  const markerSource = filteredMappableEvents.length ? filteredMappableEvents : allMappableEvents;
+
+  mapDebugLog("[Marcha Debug] Map marker render:", {
+    mapReady: Boolean(map && markersLayer),
+    eventsLoaded: state.eventsLoaded,
+    filteredEvents: state.filteredEvents.length,
+    filteredMappableEvents: filteredMappableEvents.length,
+    allEvents: state.allEvents.length,
+    allMappableEvents: allMappableEvents.length,
+    markerSource: filteredMappableEvents.length ? "filtered" : "all-fallback"
   });
 
-  throttledFitMapToBounds(bounds);
+  if (!filteredMappableEvents.length && allMappableEvents.length) {
+    mapDebugLog("[Marcha Debug] Map marker fallback active (using all events).", {
+      filteredEvents: state.filteredEvents.length,
+      filteredMappableEvents: filteredMappableEvents.length,
+      allEvents: state.allEvents.length,
+      allMappableEvents: allMappableEvents.length
+    });
+  }
+
+  markerSource.forEach((event) => {
+    const normalizedEvent = normalizeEventMapCoordinates(event);
+    const marker = createMarker(normalizedEvent, false);
+    if (!marker) return;
+    marker.bindPopup(markerPopupHtml(normalizedEvent)).on("click", () => selectEvent(normalizedEvent, "marker"));
+
+    markersLayer.addLayer(marker);
+    markersByEventId.set(normalizedEvent.id, marker);
+    markerEventsById.set(normalizedEvent.id, normalizedEvent);
+    bounds.push([normalizedEvent.lat, normalizedEvent.lng]);
+    boundsLatLng.push(L.latLng(normalizedEvent.lat, normalizedEvent.lng));
+    mapDebugLog("[Marcha Debug] Marker coordinates:", {
+      id: normalizedEvent.id,
+      lat: normalizedEvent.lat,
+      lng: normalizedEvent.lng,
+      name: normalizedEvent.name
+    });
+  });
+
+  mapDebugLog("[Marcha Debug] Map event summary:", {
+    loadedEvents: state.allEvents.length,
+    validCoordinateEvents: markerSource.length,
+    hasRenderableCards: hasAnyRenderableEventCard()
+  });
+
+  if (!bounds.length) {
+    if (state.eventsLoaded) {
+      map.setView(DEFAULT_CENTER, DEFAULT_ZOOM, { animate: false });
+      clampMapCenterToFallbackIfInvalid();
+      mapDebugLog("[Marcha Debug] No valid marker coordinates, fallback applied.", {
+        center: map.getCenter(),
+        zoom: map.getZoom()
+      });
+    }
+  } else if (bounds.length === 1) {
+    const [singleLat, singleLng] = bounds[0];
+    map.setView([singleLat, singleLng], DEFAULT_SINGLE_MARKER_ZOOM, { animate: true });
+  } else {
+    const padding = computeMapFitPadding();
+    map.fitBounds(L.latLngBounds(boundsLatLng), {
+      paddingTopLeft: padding.topLeft,
+      paddingBottomRight: padding.bottomRight,
+      maxZoom: 14,
+      animate: true
+    });
+  }
 
   syncActiveMarker(state.selectedEventId);
+  if (!state.selectedEventId && markerSource.length) {
+    state.selectedEventId = markerSource[0].id;
+    state.activeEventId = markerSource[0].id;
+    state.activeEvent = markerSource[0];
+    renderEventDetails(markerSource[0]);
+    updateMapBottomSheetMeta();
+  } else {
+    updateMapBottomSheetMeta();
+  }
+
+  if (!bounds.length) clampMapCenterToFallbackIfInvalid();
+  mapDebugLog("[Marcha Debug] Map viewport after marker render:", {
+    center: map.getCenter(),
+    zoom: map.getZoom()
+  });
   if (state.viewMode === "map" && mapSheetIsAvailable()) {
     computeMapBottomSheetSnapHeights();
   }
 }
 
 function formatRecurringDetail(event) {
-  const recurrenceType = normalizeRecurrenceType(event.recurrence_type || RECURRENCE_TYPE_NONE);
-  const isRecurring = Boolean(event.is_recurring) || recurrenceType !== RECURRENCE_TYPE_NONE;
-  if (!isRecurring) return "";
-
-  const recurrenceInterval = Math.max(1, Number.parseInt(String(event.recurrence_interval || "1"), 10) || 1);
-  const weekdayLabelByNumber = ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"];
-  const weekdayLabelByName = {
-    monday: "Montag",
-    tuesday: "Dienstag",
-    wednesday: "Mittwoch",
-    thursday: "Donnerstag",
-    friday: "Freitag",
-    saturday: "Samstag",
-    sunday: "Sonntag"
-  };
-  const recurrenceDays = Array.isArray(event.recurrence_days)
-    ? event.recurrence_days
-    : String(event.recurrence_days || "")
-        .split(",")
-        .map((value) => value.trim())
-        .filter(Boolean);
-  const primaryDayFromList = recurrenceDays
-    .map((value) => weekdayLabelByName[String(value).toLowerCase()] || "")
-    .find(Boolean);
-  const fallbackWeekday = (() => {
-    const numeric = normalizeWeekday(event.recurrence_weekday);
-    return numeric === null ? "" : weekdayLabelByNumber[numeric];
-  })();
-  const primaryDay = primaryDayFromList || fallbackWeekday;
-
-  let recurringText = "";
-  if (primaryDay) {
-    recurringText = recurrenceInterval > 1 ? `Jeden ${recurrenceInterval}. ${primaryDay}` : `Jeden ${primaryDay}`;
-  } else if (recurrenceType === RECURRENCE_TYPE_MONTHLY) {
-    recurringText = recurrenceInterval > 1 ? `Jeden ${recurrenceInterval}. Monat` : "Jeden Monat";
-  } else if (recurrenceType === RECURRENCE_TYPE_WEEKLY) {
-    recurringText = recurrenceInterval > 1 ? `Jede ${recurrenceInterval}. Woche` : "Jede Woche";
-  } else {
-    recurringText = "Wiederkehrendes Event";
-  }
-
-  const recurrenceEndDate = parseIsoDate(event.recurrence_end_date || "");
-  if (recurrenceEndDate) {
-    recurringText += ` • bis ${formatDate(formatIsoDate(recurrenceEndDate), false)}`;
-  }
-
-  return recurringText;
+  return getRecurringText(event, state.lang);
 }
 
 function renderEventDetails(event) {
@@ -3538,16 +6796,21 @@ function renderEventDetails(event) {
   }
 
   dom.eventDetails.className = "event-details event-details--filled";
-  const locationName = String(event.location_name || "").trim();
-  const addressLine = [event.address, event.postal_code, event.city, event.country]
-    .map((value) => String(value || "").trim())
-    .filter(Boolean)
-    .join(", ");
-  const fallbackLocationLine = [locationName, event.address, event.city].filter(Boolean).join(", ");
+  const eventTitle = getEventTitle(event);
+  const eventDescription = getEventDescription(event);
+  const eventVenue = getEventVenue(event);
+  const eventAddress = getEventAddress(event);
+  const eventArtist = getEventArtist(event);
+  const eventCategory = getEventCategory(event) || "-";
+  const locationName = String(eventVenue || "").trim();
+  const venueCategory = String(event.venue_category || event.location_category || "").trim();
+  const fallbackLocationLine = [locationName, eventAddress, event.city].filter(Boolean).join(", ");
   const navigationUrl = buildNavigationUrl(event);
-  const mainArtist = String(event.artist_name || "").trim();
+  const mainArtist = String(eventArtist || "").trim();
   const additionalArtists = String(event.additional_artists || "").trim();
-  const artistLine = mainArtist ? `<p class="event-details__artist">Mit ${mainArtist}</p>` : "";
+  const artistLine = mainArtist
+    ? `<p class="event-details__artist">${t("details_artist")}: ${mainArtist}</p>`
+    : "";
   const additionalArtistsLine = additionalArtists
     ? `<p class="event-details__subtitle">${additionalArtists}</p>`
     : "";
@@ -3557,15 +6820,60 @@ function renderEventDetails(event) {
     : "";
   const dateText = formatDate(event.event_date, true);
   const timeText = event.event_time || t("details_time_fallback");
-  const genreText = event.genre || "-";
+  const dateTimeText = [dateText, timeText].filter(Boolean).join(" · ");
+  const genreText = eventCategory;
   const priceText = formatPrice(event.price_text);
+  const topGenreBadge = genreText && genreText !== "-"
+    ? `<span class="event-details__badge event-details__badge--genre">${genreText}</span>`
+    : "";
+  const topPriceBadge = priceText
+    ? `<span class="event-details__badge">${priceText}</span>`
+    : "";
+  const topBadgesMarkup = (topGenreBadge || topPriceBadge)
+    ? `<div class="event-details__badges">${topGenreBadge}${topPriceBadge}</div>`
+    : "";
   const locationLead = locationName || event.city || fallbackLocationLine || "-";
-  const addressDetail = addressLine || [event.city, event.country].filter(Boolean).join(", ") || "-";
-  const navigationCta = navigationUrl
+  const addressOnlyLine = [eventAddress, event.postal_code]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .join(", ");
+  const cityCountryLine = [event.city, event.country]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .join(", ");
+  const addressDetail = addressOnlyLine || cityCountryLine || "-";
+  const cityCountryMarkup = addressOnlyLine && cityCountryLine
+    ? `<p class="event-details__venue-detail">${cityCountryLine}</p>`
+    : "";
+  const locationExtraMarkup = venueCategory
+    ? `<p class="event-details__venue-detail event-details__location-extra">${venueCategory}</p>`
+    : "";
+  const hasCoordinates = Number.isFinite(event.lat) && Number.isFinite(event.lng);
+  const distancePlaceholder = hasCoordinates
+    ? `<p class="event-details__distance-slot" data-distance-slot data-lat="${event.lat}" data-lng="${event.lng}"></p>`
+    : "";
+  const descriptionText = String(eventDescription || t("details_no_description")).trim();
+  const descriptionMarkup = descriptionText
+    ? `<article class="event-details__section event-details__section--description">
+          <h5>${t("details_description")}</h5>
+          <p>${descriptionText}</p>
+       </article>`
+    : "";
+  const previewArtistLine = mainArtist || additionalArtists || "";
+  const previewLocationLine = [locationLead, addressDetail].filter(Boolean).join(" · ");
+  const galleryImageUrls = collectEventImageUrls(event);
+  const galleryMarkup = renderEventGalleryMarkup(galleryImageUrls, eventTitle, event.id);
+  const previewImageMarkup = event.image_url
+    ? `<img class="event-details__preview-image" src="${event.image_url}" alt="${eventTitle}" loading="lazy">`
+    : `<span class="event-details__preview-image-fallback" aria-hidden="true">🎵</span>`;
+  const previewArtistMarkup = previewArtistLine
+    ? `<span class="event-details__preview-artist">${previewArtistLine}</span>`
+    : "";
+  const routeButtonMarkup = navigationUrl
     ? `
       <button
         type="button"
-        class="button-secondary button-secondary--primary button-secondary--navigate event-details__navigate-cta"
+        class="button-secondary button-secondary--navigate event-details__action event-details__action--primary"
         data-action="details-navigate"
         data-event-id="${event.id}"
       >
@@ -3575,7 +6883,7 @@ function renderEventDetails(event) {
     : `
       <button
         type="button"
-        class="button-secondary button-secondary--primary button-secondary--navigate event-details__navigate-cta"
+        class="button-secondary button-secondary--navigate event-details__action event-details__action--primary"
         data-action="details-navigate"
         data-event-id="${event.id}"
         disabled
@@ -3583,49 +6891,97 @@ function renderEventDetails(event) {
         ${t("details_navigate")}
       </button>
       `;
+  const shareButtonMarkup = `
+    <button
+      type="button"
+      class="button-secondary event-details__action"
+      data-action="details-share"
+      data-event-id="${event.id}"
+    >
+      ${t("details_share")}
+    </button>
+  `;
+  const calendarButtonMarkup = `
+    <button
+      type="button"
+      class="button-secondary event-details__action"
+      data-action="details-calendar"
+      data-event-id="${event.id}"
+    >
+      ${t("details_calendar_add")}
+    </button>
+  `;
   dom.eventDetails.innerHTML = `
-    <div class="event-details__layout">
-      <div class="event-details__media">
-        ${
-          event.image_url
-            ? `<img class="event-details__image" src="${event.image_url}" alt="${event.name}" loading="lazy">`
-            : `<div class="event-details__image-fallback" aria-hidden="true"><span>🎵</span></div>`
-        }
+    <div class="event-details__preview">
+      <button
+        type="button"
+        class="event-details__preview-card"
+        data-action="details-preview"
+        data-event-id="${event.id}"
+      >
+        <span class="event-details__preview-media">
+          ${previewImageMarkup}
+        </span>
+        <span class="event-details__preview-main">
+          <span class="event-details__preview-title">${eventTitle}</span>
+          ${previewArtistMarkup}
+          <span class="event-details__preview-meta">${previewLocationLine || "-"}</span>
+          <span class="event-details__preview-meta">${dateTimeText}</span>
+        </span>
+        <span class="event-details__preview-cta">
+          <span>${t("details_view")}</span>
+          <span class="event-details__preview-cta-icon" aria-hidden="true">→</span>
+        </span>
+      </button>
+    </div>
+    <div class="event-details__full">
+      <div class="event-details__sheet-actions">
+        <button type="button" class="button-secondary event-details__back" data-action="details-collapse">
+          <span class="event-details__back-icon" aria-hidden="true">←</span>
+          <span>${t("details_close_short")}</span>
+        </button>
       </div>
-      <div class="event-details__content">
-        <div class="event-details__header">
-          <h4>${event.name}</h4>
-          ${artistLine}
-          ${additionalArtistsLine}
-          <p class="event-details__location-lead">📍 ${locationLead}</p>
-          ${recurringLine}
+      <div class="event-details__layout">
+        <div class="event-details__media">
+          ${galleryMarkup}
         </div>
-        <div class="event-details__grid event-details__meta-grid">
-          <article class="event-details__card">
-            <h5>${t("details_date")}</h5>
-            <p>${dateText}</p>
-            <p class="event-details__muted">${timeText}</p>
-          </article>
-          <article class="event-details__card">
-            <h5>${t("details_location")}</h5>
-            <p>${locationLead}</p>
-            <p class="event-details__muted">${addressDetail}</p>
-          </article>
-          <article class="event-details__card">
-            <h5>${t("details_genre")}</h5>
-            <p>${genreText}</p>
-          </article>
-          <article class="event-details__card">
-            <h5>${t("details_price")}</h5>
-            <p>${priceText}</p>
-          </article>
-        </div>
-        <article class="event-details__card event-details__card--description">
-          <h5>${t("form_label_description")}</h5>
-          <p>${event.description || t("details_no_description")}</p>
-        </article>
-        <div class="event-details__actions event-details__actions--bottom">
-          ${navigationCta}
+        <div class="event-details__content">
+          <div class="event-details__header">
+            <h4>${eventTitle}</h4>
+            ${artistLine}
+            ${additionalArtistsLine}
+            <p class="event-details__location-lead">📍 ${t("details_location")}: ${locationLead}</p>
+            <p class="event-details__venue-detail">${t("details_address")}: ${addressDetail}</p>
+            ${cityCountryMarkup}
+            ${locationExtraMarkup}
+            ${distancePlaceholder}
+            ${recurringLine}
+            ${topBadgesMarkup}
+          </div>
+          <div class="event-details__flow">
+            <article class="event-details__section">
+              <h5>${t("details_date")}</h5>
+              <p>${dateText}</p>
+            </article>
+            <article class="event-details__section">
+              <h5>${t("details_time")}</h5>
+              <p>${timeText}</p>
+            </article>
+            <article class="event-details__section">
+              <h5>${t("details_category")}</h5>
+              <p>${genreText}</p>
+            </article>
+            <article class="event-details__section">
+              <h5>${t("details_entry")}</h5>
+              <p>${priceText}</p>
+            </article>
+          </div>
+          <div class="event-details__full-actions">
+            ${routeButtonMarkup}
+            ${shareButtonMarkup}
+            ${calendarButtonMarkup}
+          </div>
+          ${descriptionMarkup}
         </div>
       </div>
     </div>
@@ -3634,7 +6990,8 @@ function renderEventDetails(event) {
   window.requestAnimationFrame(() => {
     dom.eventDetails.classList.add("event-details--animate-in");
   });
-  if (state.viewMode === "map" && mapSheetIsAvailable()) {
+  bindEventDetailsGalleryInteractions();
+  if (state.viewMode === "map" && mapSheetIsAvailable() && mapSheetIsMobileViewport()) {
     setMapBottomSheetState("half");
   }
 }
@@ -3660,21 +7017,22 @@ function resolveSelectEventOptions(source) {
       flyTo: Boolean(source.flyTo),
       openPopup: Boolean(source.openPopup),
       scrollIntoView: Boolean(source.scrollIntoView),
-      preferMapOnMobile: Boolean(source.preferMapOnMobile)
+      preferMapOnMobile: Boolean(source.preferMapOnMobile),
+      expandSheet: Boolean(source.expandSheet)
     };
   }
 
   const sourceKey = String(source || "list").toLowerCase();
   if (sourceKey === "featured") {
-    return { flyTo: true, openPopup: true, scrollIntoView: true, preferMapOnMobile: false };
+    return { flyTo: true, openPopup: true, scrollIntoView: true, preferMapOnMobile: false, expandSheet: true };
   }
   if (sourceKey === "marker") {
-    return { flyTo: false, openPopup: false, scrollIntoView: true, preferMapOnMobile: false };
+    return { flyTo: false, openPopup: false, scrollIntoView: true, preferMapOnMobile: false, expandSheet: true };
   }
   if (sourceKey === "list") {
-    return { flyTo: true, openPopup: true, scrollIntoView: false, preferMapOnMobile: true };
+    return { flyTo: true, openPopup: true, scrollIntoView: false, preferMapOnMobile: true, expandSheet: true };
   }
-  return { flyTo: false, openPopup: false, scrollIntoView: false, preferMapOnMobile: false };
+  return { flyTo: false, openPopup: false, scrollIntoView: false, preferMapOnMobile: false, expandSheet: false };
 }
 
 function renderActiveCard(options = { scrollIntoView: false }) {
@@ -3697,10 +7055,13 @@ function focusMapOnEvent(eventData, options = { flyTo: false, openPopup: false }
   if (options.openPopup && marker) marker.openPopup();
 }
 
-function openMapDetails() {
+function openMapDetails(options = {}) {
   if (!mapSheetIsAvailable()) return;
-  // Detail content should open from every selection entry point, even if desktop view mode is "list".
-  setMapBottomSheetState("half");
+  const shouldExpand = Boolean(options.expandSheet);
+  const nextState = mapSheetIsMobileViewport()
+    ? (shouldExpand ? "full" : "peek")
+    : "half";
+  setMapBottomSheetState(nextState);
 }
 
 function selectEvent(eventData, source = "list") {
@@ -3715,11 +7076,12 @@ function selectEvent(eventData, source = "list") {
   state.activeEventId = resolvedEvent.id;
   state.activeEvent = resolvedEvent;
   state.selectedEventId = resolvedEvent.id;
+  updateMapBottomSheetMeta();
 
   renderActiveCard({ scrollIntoView: options.scrollIntoView });
   renderEventDetails(resolvedEvent);
   focusMapOnEvent(resolvedEvent, options);
-  openMapDetails();
+  openMapDetails(options);
 }
 
 function clearGenreSelection() {
@@ -3731,7 +7093,8 @@ function clearGenreSelection() {
 function resetFilters() {
   dom.searchInput.value = "";
   dom.cityFilter.value = "";
-  dom.dateFilter.value = "";
+  setDateRangeState({ start: null, end: null }, "");
+  setNearbyFilterState({ nearbyOnly: false, radiusKm: DEFAULT_NEARBY_RADIUS_KM, showHint: false });
   syncHeroControlsFromSidebar();
   state.activeGenres.clear();
   renderGenreFilter();
@@ -3766,6 +7129,47 @@ async function reloadEventsAndRender() {
   applyFiltersFromQuery();
   applyFilters();
   renderModerationPanel();
+}
+
+async function applyMissingTranslationsBeforeSave(client, payload, feedbackTarget = "form") {
+  let workingPayload = payload;
+  let translationWarning = false;
+  if (feedbackTarget === "form") {
+    setFormFeedback(t("form_translation_loading"), "info");
+  } else {
+    setModerationFeedback(t("form_translation_loading"), "info");
+  }
+  try {
+    const translationResult = await generateMissingEventTranslations(payload);
+    workingPayload = preserveManualTitleFields(payload, translationResult.payload);
+    if (translationResult.warning) {
+      translationWarning = true;
+      console.warn(
+        `[Marcha Debug] Auto-translation partial fallback used for fields: ${translationResult.failedTargets.join(", ")}`
+      );
+      if (feedbackTarget === "form") {
+        setFormFeedback(t("form_translation_warning"), "info");
+      } else {
+        setModerationFeedback(t("form_translation_warning"), "info");
+      }
+    }
+  } catch (translationError) {
+    console.warn(
+      `[Marcha Debug] Auto-translation failed. Saving original payload. ${translationError?.message || translationError}`
+    );
+    // Absolute fallback: keep multilingual columns non-empty even when translation service is unavailable.
+    workingPayload = preserveManualTitleFields(payload, fillMissingLocalizedFieldsWithSource(payload));
+    translationWarning = true;
+    if (feedbackTarget === "form") {
+      setFormFeedback(t("form_translation_warning"), "info");
+    } else {
+      setModerationFeedback(t("form_translation_warning"), "info");
+    }
+  }
+  return {
+    payload: workingPayload,
+    warning: translationWarning
+  };
 }
 
 async function handleCreateEventSubmit(submitEvent) {
@@ -3814,7 +7218,16 @@ async function handleCreateEventSubmit(submitEvent) {
       }
     }
     const insertPayload = buildInsertPayload(payloadWithCoordinates);
-    const { data, error } = await insertEventWithSchemaFallback(client, insertPayload);
+    const translationResult = await applyMissingTranslationsBeforeSave(client, insertPayload, "form");
+    console.log("FINAL EVENT PAYLOAD TRANSLATIONS", {
+      description_de: translationResult.payload.description_de,
+      description_en: translationResult.payload.description_en,
+      description_es: translationResult.payload.description_es,
+      artist_bio_de: translationResult.payload.artist_bio_de,
+      artist_bio_en: translationResult.payload.artist_bio_en,
+      artist_bio_es: translationResult.payload.artist_bio_es
+    });
+    const { data, error } = await insertEventWithSchemaFallback(client, translationResult.payload);
 
     console.log("[Marcha Debug] Event insert data:", data);
     console.log("[Marcha Debug] Event insert error:", error);
@@ -3833,7 +7246,12 @@ async function handleCreateEventSubmit(submitEvent) {
 
     clearEventForm();
     persistSubmitterProfile(payload);
-    setFormFeedback(t("form_success"), "success");
+    setFormFeedback(
+      translationResult.warning
+        ? `${t("form_success")} ${t("form_translation_warning")}`
+        : t("form_success"),
+      translationResult.warning ? "info" : "success"
+    );
     await reloadEventsAndRender();
     window.setTimeout(closeSubmitModal, 1800);
   } catch (error) {
@@ -3888,6 +7306,7 @@ async function updateModerationStatus(eventId, nextStatus, verificationNotes) {
 function bindEvents() {
   attachTapFeedback();
   attachRecurrenceFieldListeners();
+  updateInstallUiVisibility();
   dom.filtersForm.addEventListener("submit", (event) => event.preventDefault());
   if (dom.heroSearchForm) {
     dom.heroSearchForm.addEventListener("submit", (event) => event.preventDefault());
@@ -3895,13 +7314,23 @@ function bindEvents() {
   window.addEventListener("beforeinstallprompt", (event) => {
     event.preventDefault();
     deferredInstallPromptEvent = event;
-    updateInstallBannerContent();
-    setupInstallBanner();
+    logInstallUiState("event:beforeinstallprompt");
+    updateInstallUiVisibility();
   });
   window.addEventListener("appinstalled", () => {
     deferredInstallPromptEvent = null;
     persistInstallBannerTimestamp(INSTALL_BANNER_INSTALLED_STORAGE_KEY, INSTALL_BANNER_INSTALLED_DAYS);
-    hideInstallBanner();
+    logInstallUiState("event:appinstalled");
+    updateInstallUiVisibility();
+  });
+  const standaloneDisplayQuery = window.matchMedia?.("(display-mode: standalone)");
+  standaloneDisplayQuery?.addEventListener?.("change", () => {
+    logInstallUiState("event:display-mode-change");
+    updateInstallUiVisibility();
+  });
+  window.addEventListener("pageshow", () => {
+    logInstallUiState("event:pageshow");
+    updateInstallUiVisibility();
   });
   dom.searchInput.addEventListener("input", () => {
     syncHeroControlsFromSidebar();
@@ -3913,16 +7342,60 @@ function bindEvents() {
     syncMapSheetControlsFromSidebar();
     debouncedApplyFilters();
   });
-  dom.dateFilter.addEventListener("change", () => {
-    syncHeroControlsFromSidebar();
-    syncMapSheetControlsFromSidebar();
-    debouncedApplyFilters();
-  });
+  dom.dateFilter.addEventListener("change", handleLegacyDateFilterChange);
+  if (dom.timePresetGroup) {
+    dom.timePresetGroup.addEventListener("click", (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      const button = target?.closest("button[data-date-preset]");
+      if (!button) return;
+      applyDatePreset(button.dataset.datePreset || "");
+    });
+  }
+  if (dom.dateRangeStart) {
+    dom.dateRangeStart.addEventListener("change", handleCustomDateRangeInputChange);
+  }
+  if (dom.dateRangeEnd) {
+    dom.dateRangeEnd.addEventListener("change", handleCustomDateRangeInputChange);
+  }
+  if (dom.nearbyToggle) {
+    dom.nearbyToggle.addEventListener("click", async () => {
+      if (state.nearbyOnly) {
+        setNearbyFilterState({ nearbyOnly: false, showHint: false });
+        applyFilters();
+        return;
+      }
+      const locationReady = await ensureUserLocation();
+      if (!locationReady) {
+        setNearbyFilterState({ nearbyOnly: false, showHint: true });
+        applyFilters();
+        return;
+      }
+      setNearbyFilterState({ nearbyOnly: true, showHint: false });
+      applyFilters();
+    });
+  }
+  if (dom.nearbyRadiusGroup) {
+    dom.nearbyRadiusGroup.addEventListener("click", (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      const button = target?.closest("button[data-radius-km]");
+      if (!button) return;
+      setNearbyFilterState({
+        nearbyOnly: state.nearbyOnly,
+        radiusKm: button.dataset.radiusKm || state.radiusKm,
+        showHint: state.nearbyHintVisible
+      });
+      if (state.nearbyOnly) applyFilters();
+    });
+  }
   if (dom.heroSearchInput) {
     dom.heroSearchInput.addEventListener("input", () => {
       syncSidebarFromHeroControls();
       syncMapSheetControlsFromSidebar();
-      debouncedApplyFilters();
+      if (currentSearchQuery() && state.activeQuickCategoryId !== "all") {
+        state.activeQuickCategoryId = "all";
+        renderQuickCategories();
+      }
+      applyFilters();
     });
   }
   if (dom.heroCityFilter) {
@@ -3936,7 +7409,7 @@ function bindEvents() {
     dom.heroDateFilter.addEventListener("change", () => {
       syncSidebarFromHeroControls();
       syncMapSheetControlsFromSidebar();
-      debouncedApplyFilters();
+      handleLegacyDateFilterChange();
     });
   }
   if (dom.mapSheetSearchInput) {
@@ -3957,7 +7430,7 @@ function bindEvents() {
     dom.mapSheetDateFilter.addEventListener("change", () => {
       syncSidebarFromMapSheetControls();
       syncHeroControlsFromSidebar();
-      debouncedApplyFilters();
+      handleLegacyDateFilterChange();
     });
   }
   if (dom.languageSwitch) {
@@ -3985,6 +7458,11 @@ function bindEvents() {
       openSubmitModal();
     });
   }
+  if (dom.heroFeedbackCta) {
+    dom.heroFeedbackCta.addEventListener("click", () => {
+      openBetaFeedback();
+    });
+  }
   if (dom.installBannerPrimary) {
     dom.installBannerPrimary.addEventListener("click", () => {
       handleInstallBannerPrimaryAction();
@@ -3993,7 +7471,18 @@ function bindEvents() {
   if (dom.installBannerDismiss) {
     dom.installBannerDismiss.addEventListener("click", () => {
       persistInstallBannerTimestamp(INSTALL_BANNER_DISMISS_STORAGE_KEY, INSTALL_BANNER_DISMISS_DAYS);
-      hideInstallBanner();
+      updateInstallUiVisibility();
+    });
+  }
+  if (dom.mobileInstallEntryCta) {
+    dom.mobileInstallEntryCta.addEventListener("click", () => {
+      handleMobileInstallEntryAction();
+    });
+  }
+  if (dom.mobileInstallEntryDismiss) {
+    dom.mobileInstallEntryDismiss.addEventListener("click", () => {
+      persistInstallBannerTimestamp(MOBILE_INSTALL_CTA_DISMISS_STORAGE_KEY, MOBILE_INSTALL_CTA_DISMISS_DAYS);
+      updateInstallUiVisibility();
     });
   }
   if (dom.bottomNavSubmit) {
@@ -4101,6 +7590,40 @@ function bindEvents() {
     dom.eventDetails.addEventListener("click", (event) => {
       const target = event.target instanceof Element ? event.target : null;
       if (!target) return;
+      const detailsPreviewButton = target.closest("button[data-action='details-preview']");
+      if (detailsPreviewButton) {
+        setMapBottomSheetState("full");
+        window.setTimeout(() => map?.invalidateSize(), 100);
+        return;
+      }
+      const detailsCollapseButton = target.closest("button[data-action='details-collapse']");
+      if (detailsCollapseButton) {
+        setMapBottomSheetState("peek");
+        window.setTimeout(() => map?.invalidateSize(), 100);
+        return;
+      }
+      const shareButton = target.closest("button[data-action='details-share']");
+      if (shareButton) {
+        const eventId = shareButton.dataset.eventId || state.selectedEventId;
+        const selectedEvent = findEventById(eventId) || state.activeEvent;
+        if (selectedEvent) {
+          shareEventFromDetails(selectedEvent);
+        } else {
+          setStatus(t("details_share_error"), "warning");
+        }
+        return;
+      }
+      const addCalendarButton = target.closest("button[data-action='details-calendar']");
+      if (addCalendarButton) {
+        const eventId = addCalendarButton.dataset.eventId || state.selectedEventId;
+        const selectedEvent = findEventById(eventId) || state.activeEvent;
+        if (selectedEvent) {
+          addEventToCalendar(selectedEvent);
+        } else {
+          setStatus(t("details_calendar_error"), "warning");
+        }
+        return;
+      }
       const navigateButton = target.closest("button[data-action='details-navigate']");
       if (navigateButton) {
         const eventId = navigateButton.dataset.eventId || state.selectedEventId;
@@ -4138,6 +7661,7 @@ function bindEvents() {
 
   window.addEventListener("resize", () => {
     updateMapBottomSheetLayout();
+    updateInstallUiVisibility();
     if (state.viewMode === "map") {
       window.setTimeout(() => map?.invalidateSize(), 140);
     }
@@ -4294,6 +7818,7 @@ async function fetchEventsFromSupabase() {
 
 async function loadEvents() {
   setStatus(t("status_loading"), "loading");
+  state.eventsLoaded = false;
   state.debug.hasError = false;
   state.debug.errorMessage = "";
   state.debug.fallbackReason = t("debug_note_pending");
@@ -4307,6 +7832,7 @@ async function loadEvents() {
     if (!data.length) {
       state.allEvents = [];
       state.moderationEvents = [];
+      state.eventsLoaded = true;
       state.sourceType = "supabase-empty";
       state.debug.fallbackReason = t("debug_note_no_data");
       setStatus(t("status_no_data"), "warning");
@@ -4315,7 +7841,8 @@ async function loadEvents() {
     }
 
     state.moderationEvents = isSessionAdmin(state.adminSession) ? data : [];
-    state.allEvents = expandRecurringEvents(data.filter(isApprovedEvent));
+    state.allEvents = applyDistanceData(expandRecurringEvents(data.filter(isApprovedEvent)));
+    state.eventsLoaded = true;
     state.sourceType = "supabase";
     state.debug.fallbackReason = t("debug_note_supabase");
     if (state.isAdminMode && isSessionAdmin(state.adminSession)) {
@@ -4328,6 +7855,7 @@ async function loadEvents() {
     console.error("Supabase Fehler:", error);
     state.allEvents = [];
     state.moderationEvents = [];
+    state.eventsLoaded = true;
     state.sourceType = "supabase-error";
     state.debug.hasError = true;
     state.debug.errorMessage = error.message;
@@ -4339,6 +7867,9 @@ async function loadEvents() {
 
 async function startApp() {
   state.favoriteEventIds = loadFavoriteEventIds();
+  applyRuntimeEnvironmentState();
+  suppressInstallUiOnAppLoad();
+  registerServiceWorker();
   const query = readQueryParams();
   const requestedLang = resolveLanguage(query.lang);
   state.lang = query.lang ? requestedLang : resolveLanguageFromBrowser(requestedLang);
@@ -4353,7 +7884,11 @@ async function startApp() {
   initMap();
   setViewMode("list");
   bindEvents();
+  setupEventLocationAutocomplete();
+  renderNearbyFilterControls();
   setupInstallBanner();
+  setupMobileInstallEntry();
+  await primeUserLocationOnAppLoad();
   await checkAdminSession();
   await loadEvents();
   updateFilterOptions();

@@ -12,16 +12,24 @@
   <meta name="apple-mobile-web-app-title" content="Marcha">
   <meta name="mobile-web-app-capable" content="yes">
   <link rel="manifest" href="/manifest.json">
-  <link rel="apple-touch-icon" href="/icons/icon-192.png">
-  <link rel="icon" type="image/png" href="./assets/marcha-logo-icon.png">
+  <link rel="apple-touch-icon" href="./assets/apple-touch-icon-v4.png">
+  <link rel="icon" type="image/png" href="./assets/favicon-v4.png">
   <title>Marcha | Live-Musik &amp; Events entdecken</title>
   <meta name="description" content="Entdecke mit Marcha Live-Musik, DJs, Clubs und Events auf einer interaktiven Karte — kuratiert und nah bei dir.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <script>
     (function () {
       var cacheBuster = String(Date.now());
+      window.VITE_GOOGLE_MAPS_API_KEY = "AIzaSyBpHWhtoziLp4d0fJhpessNyDyt-ZZRwdI";
       window.PARTYRADAR_BUILD = "live";
       window.PARTYRADAR_CACHE_BUSTER = cacheBuster;
+      window.PARTYRADAR_GOOGLE_PLACES_KEY =
+        window.PARTYRADAR_GOOGLE_PLACES_KEY
+        || window.VITE_GOOGLE_MAPS_API_KEY
+        || "";
       var stylesheet = document.createElement("link");
       stylesheet.rel = "stylesheet";
       stylesheet.href = "./style.css?v=" + encodeURIComponent(cacheBuster);
@@ -35,17 +43,16 @@
       <div class="hero__topbar">
         <div class="hero__brand" aria-label="Marcha">
           <img
-            class="brand-logo brand-logo--icon"
-            src="./assets/marcha-logo-icon.png"
-            alt=""
-            aria-hidden="true"
-            width="48"
-            height="48"
+            class="brand-logo--header"
+            src="/assets/logo-schrift.png"
+            alt="Marcha"
+            width="260"
+            height="60"
             decoding="async"
           >
-          <span class="brand-wordmark">Marcha</span>
         </div>
         <div class="hero__top-actions">
+          <span class="hero-beta-pill" data-i18n="hero_beta_label">Early Access</span>
           <div id="languageSwitch" class="language-switch" role="group" aria-label="Language switch">
             <button type="button" class="language-switch__button is-active" data-lang-switch="de">DE</button>
             <button type="button" class="language-switch__button" data-lang-switch="en">EN</button>
@@ -62,11 +69,52 @@
           </button>
           <button id="openSubmitModalHero" type="button" class="button-secondary" data-i18n="submit_cta">Event hinzufügen</button>
         </div>
+        <div id="mobileInstallEntry" class="mobile-install-entry" hidden aria-live="polite">
+          <div class="mobile-install-entry__text">
+            <strong data-i18n="install_mobile_title">Marcha installieren</strong>
+            <p id="mobileInstallEntryHint" data-i18n="install_mobile_hint_android">
+              Als App auf deinem Homescreen speichern.
+            </p>
+          </div>
+          <div class="mobile-install-entry__actions">
+            <button
+              id="mobileInstallEntryCta"
+              type="button"
+              class="button-secondary button-secondary--primary"
+              data-i18n="install_mobile_cta"
+              aria-controls="mobileInstallEntryHelper"
+              aria-expanded="false"
+            >
+              Installieren
+            </button>
+            <button id="mobileInstallEntryDismiss" type="button" class="button-link" data-i18n="install_mobile_dismiss">
+              Später
+            </button>
+          </div>
+          <p id="mobileInstallEntryHelper" class="mobile-install-entry__helper" hidden data-i18n="install_mobile_ios_helper">
+            Tippe auf Teilen und dann „Zum Home-Bildschirm“.
+          </p>
+        </div>
 
         <h1 data-i18n="hero_title">Erlebe die besten Events in deiner Nähe</h1>
         <p class="hero__subtitle" data-i18n="hero_subtitle">
           Live Musik, DJs und besondere Locations – alles an einem Ort.
         </p>
+        <div class="hero-first-open">
+          <p class="hero-first-open__text" data-i18n="hero_first_open_text">
+            Finde Events in deiner Nähe, entdecke sie auf der Karte und installiere Marcha für schnelleren Zugriff.
+          </p>
+          <div class="hero-first-open__actions">
+            <a
+              id="heroFeedbackCta"
+              class="button-link hero-feedback-link"
+              data-i18n="hero_feedback_cta"
+              href="mailto:support@gomarcha.com?subject=Marcha%20Beta%20Feedback&body=Hi%20Marcha%20Team,%0A%0Amy%20beta%20feedback:%0A"
+            >
+              Beta-Feedback senden
+            </a>
+          </div>
+        </div>
 
         <form id="heroSearchForm" class="hero-search" autocomplete="off">
           <label class="hero-search__main" for="heroSearchInput">
@@ -81,13 +129,9 @@
           </label>
         </form>
 
-        <section class="featured" aria-labelledby="featuredEventsTitle">
-          <div class="featured__head">
-            <h2 id="featuredEventsTitle" data-i18n="featured_title">Featured events</h2>
-            <span id="featuredCount" class="featured__count">0</span>
-          </div>
-          <div id="featuredCarousel" class="featured-carousel" aria-label="Featured events carousel"></div>
-        </section>
+        <div class="hero-statline" aria-live="polite">
+          <span id="heroTodayCountLabel" class="hero-statline__count">Heute 0 Events</span>
+        </div>
 
         <div class="quick-controls">
           <div id="quickCategoryRail" class="quick-category-rail" aria-label="Quick categories"></div>
@@ -182,14 +226,56 @@
                 <option value="" data-i18n="filter_city_all">Alle Städte</option>
               </select>
             </label>
-
-            <label class="field">
-              <span data-i18n="filter_date">Datum</span>
-              <select id="dateFilter">
-                <option value="" data-i18n="filter_date_all">Alle Daten</option>
-              </select>
-            </label>
           </div>
+
+          <div class="time-filter">
+            <span class="time-filter__label" data-i18n="filter_time">Zeitraum</span>
+            <div id="timePresetGroup" class="time-preset-group" role="group" aria-label="Time filter presets">
+              <button type="button" class="time-chip" data-date-preset="today" data-i18n="filter_time_today">Heute</button>
+              <button type="button" class="time-chip" data-date-preset="tomorrow" data-i18n="filter_time_tomorrow">Morgen</button>
+              <button type="button" class="time-chip" data-date-preset="this-weekend" data-i18n="filter_time_this_weekend">Dieses Wochenende</button>
+              <button type="button" class="time-chip" data-date-preset="next-weekend" data-i18n="filter_time_next_weekend">Nächstes Wochenende</button>
+              <button type="button" class="time-chip" data-date-preset="custom" data-i18n="filter_time_custom">Datum wählen</button>
+            </div>
+            <div id="customDateRange" class="custom-date-range" hidden>
+              <label class="field">
+                <span data-i18n="filter_time_custom_start">Von</span>
+                <input id="dateRangeStart" type="date">
+              </label>
+              <label class="field">
+                <span data-i18n="filter_time_custom_end">Bis</span>
+                <input id="dateRangeEnd" type="date">
+              </label>
+            </div>
+          </div>
+
+          <div class="nearby-filter">
+            <button
+              id="nearbyToggle"
+              type="button"
+              class="time-chip nearby-filter__toggle"
+              aria-pressed="false"
+              data-i18n="filter_nearby_toggle"
+            >
+              In meiner Nähe
+            </button>
+            <p id="nearbyHint" class="nearby-filter__hint" data-i18n="filter_nearby_hint" hidden>
+              Standortzugriff aktivieren, um Nähe-Filter zu nutzen.
+            </p>
+            <div id="nearbyRadiusWrap" class="nearby-filter__radius" hidden aria-hidden="true">
+              <span class="nearby-filter__radius-label" data-i18n="filter_nearby_radius">Radius</span>
+              <div id="nearbyRadiusGroup" class="nearby-filter__radius-group" role="group" aria-label="Nearby radius">
+                <button type="button" class="time-chip" data-radius-km="5">5 km</button>
+                <button type="button" class="time-chip" data-radius-km="10">10 km</button>
+                <button type="button" class="time-chip" data-radius-km="25">25 km</button>
+                <button type="button" class="time-chip" data-radius-km="50">50 km</button>
+              </div>
+            </div>
+          </div>
+
+          <select id="dateFilter" hidden aria-hidden="true" tabindex="-1">
+            <option value="" data-i18n="filter_date_all">Alle Daten</option>
+          </select>
 
           <div class="genre-filter">
             <div class="genre-filter__head">
@@ -309,10 +395,27 @@
               <span data-i18n="form_label_name">Event Name</span>
               <input name="name" id="formName" type="text" required>
             </label>
-            <label class="field">
+            <div class="field field--full location-autocomplete-field">
               <span data-i18n="form_label_location_name">Location</span>
-              <input name="location_name" id="formLocationName" type="text" required>
-            </label>
+              <input
+                name="location_name"
+                id="formLocationName"
+                type="text"
+                autocomplete="off"
+                aria-autocomplete="list"
+                aria-expanded="false"
+                aria-controls="formLocationSuggestions"
+                required
+              >
+              <div
+                id="formLocationSuggestions"
+                class="location-suggestions"
+                role="listbox"
+                hidden
+                aria-label="Location suggestions"
+              ></div>
+              <small id="formLocationAutocompleteStatus" class="location-autocomplete__status" hidden></small>
+            </div>
             <label class="field">
               <span data-i18n="form_label_address">Adresse</span>
               <input
@@ -469,6 +572,11 @@
   <script>
     window.PARTYRADAR_VERSION = "v2.2.0";
     window.PARTYRADAR_CACHE_BUSTER = Date.now();
+    window.VITE_GOOGLE_MAPS_API_KEY = window.VITE_GOOGLE_MAPS_API_KEY || "AIzaSyBpHWhtoziLp4d0fJhpessNyDyt-ZZRwdI";
+    window.PARTYRADAR_GOOGLE_PLACES_KEY =
+      window.PARTYRADAR_GOOGLE_PLACES_KEY
+      || window.VITE_GOOGLE_MAPS_API_KEY
+      || "";
     (function () {
       var script = document.createElement("script");
       script.src = "./app.js?v=" + encodeURIComponent(window.PARTYRADAR_CACHE_BUSTER);

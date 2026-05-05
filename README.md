@@ -1,4 +1,4 @@
-# PartyRadar
+# GoMarcha
 
 Platform for discovering local bands, live music events, DJs and venues.
 
@@ -42,12 +42,32 @@ Optional runtime config (set in `index.html` before loading `app.js`):
 
 ```html
 <script>
-  window.PARTYRADAR_GEOCODING_PROVIDER = "mapbox"; // "nominatim" | "mapbox"
-  window.PARTYRADAR_MAPBOX_TOKEN = "YOUR_MAPBOX_PUBLIC_TOKEN";
+  window.PARTYRADAR_GEOCODING_PROVIDER = "mapbox"; // Legacy alias kept for compatibility
+  window.PARTYRADAR_MAPBOX_TOKEN = "YOUR_MAPBOX_PUBLIC_TOKEN"; // Legacy alias kept for compatibility
 </script>
 ```
 
 If `mapbox` is selected but no token is configured, geocoding falls back gracefully (events are still stored as pending).
+
+## Google Places Autocomplete (event form only)
+
+Event location autocomplete uses the public runtime key exposed as:
+
+- `window.VITE_GOOGLE_MAPS_API_KEY`
+
+This mirrors the environment variable name used by Vite deployments:
+
+- `VITE_GOOGLE_MAPS_API_KEY`
+
+Configure it before `app.js` is loaded (for example via your hosting template injection):
+
+```html
+<script>
+  window.VITE_GOOGLE_MAPS_API_KEY = "YOUR_PUBLIC_GOOGLE_MAPS_KEY";
+</script>
+```
+
+The integration is scoped to event submission/editing forms only and is not used for global browsing search.
 
 ## Admin Dashboard
 
@@ -87,13 +107,27 @@ A separate moderation dashboard is now available at:
 3. Ensure moderator users have `app_metadata.role = 'admin'`
 4. If your table is older and missing columns like `status`, run the same script: it now bootstraps required columns before creating policies
 
+### Description column typo migration (`descrption_*` -> `description_*`)
+
+If your `events` table still uses legacy typo columns (`descrption_de`, `descrption_en`, `descrption_es`), run:
+
+1. Open Supabase SQL editor
+2. Paste and run `supabase-description-column-migration.sql`
+
+What it does:
+- creates canonical columns `description_de`, `description_en`, `description_es` if missing
+- backfills canonical columns from legacy typo columns
+- keeps legacy columns in sync with canonical values (one-time safety backfill)
+- includes a verification query you can run after migration
+- leaves `descrption_*` drop as a separate manual step (after verification)
+
 ### If event submit fails with RLS
 
 If you see `new row violates row-level security policy for table "events"`:
 
 - make sure the **insert policy** exists exactly as in `supabase-rls.sql`
 - then re-run the SQL script to refresh policies
-- in PartyRadar, event submit inserts as `status = 'pending'` and does not require reading back the inserted row
+- in GoMarcha, event submit inserts as `status = 'pending'` and does not require reading back the inserted row
 - if your DB has stricter ownership rules, also run the script section that explicitly allows `anon/authenticated` inserts with `status = 'pending'`
 
 ### Optional: Edge Function moderation endpoint
@@ -104,3 +138,14 @@ For even stronger isolation, add an Edge Function that performs moderation serve
 - update only `status` and `verification_notes`
 
 You can then route moderation updates through that endpoint instead of direct table updates from the browser.
+
+## Legacy runtime aliases
+
+GoMarcha currently keeps a few `PARTYRADAR_*` runtime variables as compatibility aliases so existing deployments do not break:
+
+- `window.PARTYRADAR_CACHE_BUSTER`
+- `window.PARTYRADAR_GEOCODING_PROVIDER`
+- `window.PARTYRADAR_MAPBOX_TOKEN`
+- `window.PARTYRADAR_GOOGLE_PLACES_KEY`
+
+These aliases remain supported while the public branding and docs use GoMarcha naming.
