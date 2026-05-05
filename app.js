@@ -142,23 +142,26 @@ const demoEvents = [
 ];
 
 const GENRE_ORDER = [
-  "Latin",
   "Salsa",
+  "Bachata",
+  "Reggaeton",
+  "Latin",
   "Rock",
   "Electro",
   "House",
-  "Techno",
-  "R&B",
-  "Flamenco",
+  "Jazz",
+  "Blues",
+  "Live Band",
+  "Acoustic",
+  "Chill",
+  "DJ Set",
   "DJ",
   "Live Music",
-  "Jazz",
-  "Pop",
-  "Bachata",
-  "Reggaeton",
+  "Techno",
   "Hip-Hop",
-  "Live Band",
-  "DJ Set"
+  "Pop",
+  "R&B",
+  "Flamenco"
 ];
 
 const GENRE_ICON_MAP = {
@@ -188,29 +191,44 @@ const QUICK_CATEGORY_DEFINITIONS = [
     keywords: []
   },
   {
-    id: "house",
-    labelKey: "quick_house",
-    keywords: ["house", "tech house", "deep house", "electro", "dj"]
+    id: "salsa",
+    labelKey: "quick_salsa",
+    keywords: ["salsa"]
   },
   {
-    id: "latino",
-    labelKey: "quick_latino",
-    keywords: ["latin", "salsa", "bachata", "reggaeton", "latino"]
+    id: "bachata",
+    labelKey: "quick_bachata",
+    keywords: ["bachata"]
+  },
+  {
+    id: "reggaeton-latin",
+    labelKey: "quick_reggaeton_latin",
+    keywords: ["reggaeton", "latin", "latino", "dembow"]
+  },
+  {
+    id: "rock",
+    labelKey: "quick_rock",
+    keywords: ["rock"]
+  },
+  {
+    id: "electro-house",
+    labelKey: "quick_electro_house",
+    keywords: ["electro", "house", "techno", "dj", "edm"]
+  },
+  {
+    id: "jazz-blues",
+    labelKey: "quick_jazz_blues",
+    keywords: ["jazz", "blues"]
   },
   {
     id: "live-band",
     labelKey: "quick_live_band",
-    keywords: ["live band", "live music", "band", "rock", "jazz", "flamenco", "acoustic"]
+    keywords: ["live band", "live music", "band"]
   },
   {
-    id: "beach",
-    labelKey: "quick_beach",
-    keywords: ["beach", "sunset", "coast", "seaside", "ocean", "pool"]
-  },
-  {
-    id: "dj",
-    labelKey: "quick_dj",
-    keywords: ["dj", "dj set", "techno", "electro", "afterhours"]
+    id: "acoustic-chill",
+    labelKey: "quick_acoustic_chill",
+    keywords: ["acoustic", "chill", "unplugged", "lounge"]
   }
 ];
 const QUICK_CATEGORY_DYNAMIC_MAX = 10;
@@ -320,8 +338,8 @@ const I18N = {
     hero_feedback_cta: "Beta-Feedback senden",
     hero_location_label: "In deiner Nähe",
     hero_chip_fallback: "Live-Momente entdecken",
-    hero_chip_vibe: "Live Music • Beach • Lifestyle",
-    featured_title: "Heute",
+    hero_chip_vibe: "Salsa • Sunset • Live Vibes",
+    featured_title: "Heute im Trend",
     view_list: "Liste",
     featured_open: "Mehr Infos",
     view_map: "Karte",
@@ -339,15 +357,18 @@ const I18N = {
     map_search_area: "In diesem Bereich suchen",
     map_search_loading: "Suche...",
     quick_all: "Alle",
-    quick_house: "House",
-    quick_latino: "Latino",
+    quick_salsa: "Salsa",
+    quick_bachata: "Bachata",
+    quick_reggaeton_latin: "Reggaeton / Latin",
+    quick_rock: "Rock",
+    quick_electro_house: "Electro / House",
+    quick_jazz_blues: "Jazz / Blues",
     quick_live_band: "Live Band",
-    quick_beach: "Beach",
-    quick_dj: "DJ",
+    quick_acoustic_chill: "Acoustic / Chill",
     hero_search_label: "Suche",
     hero_search_placeholder: "Events, Künstler, Locations suchen...",
-    discover_title: "Musik in deiner Nähe entdecken",
-    discover_subtitle: "Suche nach Events, Bands, DJs und Locations in deiner Nähe.",
+    discover_title: "Wo ist der beste Sound gerade?",
+    discover_subtitle: "Finde Salsa, Bachata, Live Bands und DJ-Sessions mit echter Marbella-Energie.",
     filter_search: "Suche",
     filter_search_placeholder: "Events, Künstler, Locations suchen...",
     filter_city: "Stadt",
@@ -397,20 +418,18 @@ const I18N = {
     details_price: "Eintritt",
     details_navigate: "Route öffnen",
     details_view: "Details ansehen",
-    details_back: "Zurück zur Vorschau",
     details_image_counter: "{current} / {total}",
     details_share: "Teilen",
-    details_share_whatsapp: "WhatsApp",
     details_calendar_add: "Zum Kalender",
-    details_save: "Favorit",
     details_close_short: "Zurück",
     details_share_copy_success: "Link kopiert.",
     details_share_not_supported: "Teilen wird auf diesem Gerät nicht unterstützt.",
     details_share_error: "Teilen ist gerade nicht möglich.",
     details_calendar_success: "Kalendereintrag heruntergeladen.",
     details_calendar_error: "Kalendereintrag konnte nicht erstellt werden.",
-    details_favorite_added: "Zu Favoriten hinzugefügt.",
-    details_favorite_removed: "Aus Favoriten entfernt.",
+    badge_tonight: "Heute Abend",
+    badge_now: "Jetzt",
+    badge_popular: "Beliebt",
     details_free: "Eintritt frei",
     details_no_description: "Keine Beschreibung vorhanden.",
     details_time_fallback: "Uhrzeit folgt",
@@ -575,8 +594,8 @@ const I18N = {
     hero_feedback_cta: "Send beta feedback",
     hero_location_label: "Near you",
     hero_chip_fallback: "Discover live moments",
-    hero_chip_vibe: "Live Music • Beach • Lifestyle",
-    featured_title: "Today",
+    hero_chip_vibe: "Salsa • Sunset • Live Vibes",
+    featured_title: "Trending tonight",
     view_list: "List",
     featured_open: "Details",
     view_map: "Map",
@@ -594,15 +613,18 @@ const I18N = {
     map_search_area: "Search this area",
     map_search_loading: "Searching...",
     quick_all: "All",
-    quick_house: "House",
-    quick_latino: "Latino",
+    quick_salsa: "Salsa",
+    quick_bachata: "Bachata",
+    quick_reggaeton_latin: "Reggaeton / Latin",
+    quick_rock: "Rock",
+    quick_electro_house: "Electro / House",
+    quick_jazz_blues: "Jazz / Blues",
     quick_live_band: "Live Band",
-    quick_beach: "Beach",
-    quick_dj: "DJ",
+    quick_acoustic_chill: "Acoustic / Chill",
     hero_search_label: "Search",
     hero_search_placeholder: "Search events, artists, locations...",
-    discover_title: "Discover music near you",
-    discover_subtitle: "Discover events, bands, DJs and venues near you.",
+    discover_title: "Where is the best vibe right now?",
+    discover_subtitle: "Find Salsa, Bachata, live bands and DJ sessions with authentic Marbella energy.",
     filter_search: "Search",
     filter_search_placeholder: "Search events, artists, locations...",
     filter_city: "City",
@@ -652,20 +674,18 @@ const I18N = {
     details_price: "Entry",
     details_navigate: "Open route",
     details_view: "View details",
-    details_back: "Back to preview",
     details_image_counter: "{current} / {total}",
     details_share: "Share",
-    details_share_whatsapp: "WhatsApp",
     details_calendar_add: "Add to calendar",
-    details_save: "Save",
     details_close_short: "Back",
     details_share_copy_success: "Link copied.",
     details_share_not_supported: "Sharing is not supported on this device.",
     details_share_error: "Unable to share right now.",
     details_calendar_success: "Calendar entry downloaded.",
     details_calendar_error: "Unable to create calendar entry.",
-    details_favorite_added: "Added to favorites.",
-    details_favorite_removed: "Removed from favorites.",
+    badge_tonight: "Tonight",
+    badge_now: "Now",
+    badge_popular: "Popular",
     details_free: "Free entry",
     details_no_description: "No description available.",
     details_time_fallback: "Time TBD",
@@ -830,8 +850,8 @@ const I18N = {
     hero_feedback_cta: "Enviar feedback beta",
     hero_location_label: "Cerca de ti",
     hero_chip_fallback: "Descubre momentos en vivo",
-    hero_chip_vibe: "Live Music • Beach • Lifestyle",
-    featured_title: "Hoy",
+    hero_chip_vibe: "Salsa • Sunset • Live Vibes",
+    featured_title: "Destacados de hoy",
     view_list: "Lista",
     featured_open: "Más info",
     view_map: "Mapa",
@@ -849,15 +869,18 @@ const I18N = {
     map_search_area: "Buscar en esta zona",
     map_search_loading: "Buscando...",
     quick_all: "Todo",
-    quick_house: "House",
-    quick_latino: "Latino",
+    quick_salsa: "Salsa",
+    quick_bachata: "Bachata",
+    quick_reggaeton_latin: "Reggaeton / Latin",
+    quick_rock: "Rock",
+    quick_electro_house: "Electro / House",
+    quick_jazz_blues: "Jazz / Blues",
     quick_live_band: "Live Band",
-    quick_beach: "Beach",
-    quick_dj: "DJ",
+    quick_acoustic_chill: "Acoustic / Chill",
     hero_search_label: "Buscar",
     hero_search_placeholder: "Busca eventos, artistas, ubicaciones...",
-    discover_title: "Descubre música cerca de ti",
-    discover_subtitle: "Descubre eventos, bandas, DJs y venues cerca de ti.",
+    discover_title: "¿Dónde está el mejor vibe ahora?",
+    discover_subtitle: "Encuentra Salsa, Bachata, Live Bands y sesiones DJ con auténtica energía de Marbella.",
     filter_search: "Buscar",
     filter_search_placeholder: "Busca eventos, artistas, ubicaciones...",
     filter_city: "Ciudad",
@@ -907,20 +930,18 @@ const I18N = {
     details_price: "Entrada",
     details_navigate: "Abrir ruta",
     details_view: "Ver detalles",
-    details_back: "Volver a la vista previa",
     details_image_counter: "{current} / {total}",
     details_share: "Compartir",
-    details_share_whatsapp: "WhatsApp",
-    details_calendar_add: "Anadir al calendario",
-    details_save: "Guardar",
+    details_calendar_add: "Añadir al calendario",
     details_close_short: "Volver",
     details_share_copy_success: "Enlace copiado.",
     details_share_not_supported: "Compartir no es compatible en este dispositivo.",
     details_share_error: "No se puede compartir ahora mismo.",
     details_calendar_success: "Entrada de calendario descargada.",
     details_calendar_error: "No se pudo crear la entrada de calendario.",
-    details_favorite_added: "Anadido a favoritos.",
-    details_favorite_removed: "Eliminado de favoritos.",
+    badge_tonight: "Esta noche",
+    badge_now: "Ahora",
+    badge_popular: "Popular",
     details_free: "Entrada gratuita",
     details_no_description: "No hay descripción disponible.",
     details_time_fallback: "Hora por confirmar",
@@ -1178,12 +1199,8 @@ const dom = {
   languageSwitch: document.getElementById("languageSwitch"),
   heroSearchForm: document.getElementById("heroSearchForm"),
   heroSearchInput: document.getElementById("heroSearchInput"),
-  heroCityFilter: document.getElementById("heroCityFilter"),
-  heroDateFilter: document.getElementById("heroDateFilter"),
-  heroDiscoverCta: document.getElementById("heroDiscoverCta"),
   heroFeedbackCta: document.getElementById("heroFeedbackCta"),
   submitModal: document.getElementById("submitModal"),
-  openSubmitModal: document.getElementById("openSubmitModal"),
   closeSubmitModal: document.getElementById("closeSubmitModal"),
   status: document.getElementById("status"),
   eventList: document.getElementById("eventList"),
@@ -1719,7 +1736,6 @@ function switchLanguage(nextLangCode) {
   updateMapBottomSheetMeta();
   renderQuickCategories();
   updateFilterOptions();
-  syncHeroFilterOptions();
   applyFiltersFromQuery();
   applyFilters();
   if (state.selectedEventId) {
@@ -1771,9 +1787,6 @@ function applyLegacyUiCleanupOverrides() {
     }
   }
 
-  if (dom.openSubmitModal && dom.sidebar?.contains(dom.openSubmitModal)) {
-    dom.openSubmitModal.hidden = true;
-  }
 }
 
 function setStatus(message, tone = "loading") {
@@ -5149,7 +5162,6 @@ function updateFilterOptions() {
   });
   renderQuickCategories();
   renderGenreFilter();
-  syncHeroFilterOptions();
   syncMapSheetFilterOptions();
 }
 
@@ -5217,15 +5229,6 @@ function hasActiveDiscoveryFilters(filters) {
   );
 }
 
-function syncHeroFilterOptions() {
-  if (!dom.heroCityFilter || !dom.heroDateFilter || !dom.cityFilter || !dom.dateFilter) return;
-
-  dom.heroCityFilter.innerHTML = dom.cityFilter.innerHTML;
-  dom.heroDateFilter.innerHTML = dom.dateFilter.innerHTML;
-  dom.heroCityFilter.value = dom.cityFilter.value;
-  dom.heroDateFilter.value = dom.dateFilter.value;
-}
-
 function syncMapSheetFilterOptions() {
   if (!dom.mapSheetCityFilter || !dom.mapSheetDateFilter || !dom.cityFilter || !dom.dateFilter) return;
   dom.mapSheetCityFilter.innerHTML = dom.cityFilter.innerHTML;
@@ -5236,14 +5239,10 @@ function syncMapSheetFilterOptions() {
 
 function syncHeroControlsFromSidebar() {
   if (dom.heroSearchInput && dom.searchInput) dom.heroSearchInput.value = dom.searchInput.value;
-  if (dom.heroCityFilter && dom.cityFilter) dom.heroCityFilter.value = dom.cityFilter.value;
-  if (dom.heroDateFilter && dom.dateFilter) dom.heroDateFilter.value = dom.dateFilter.value;
 }
 
 function syncSidebarFromHeroControls() {
   if (dom.heroSearchInput && dom.searchInput) dom.searchInput.value = dom.heroSearchInput.value;
-  if (dom.heroCityFilter && dom.cityFilter) dom.cityFilter.value = dom.heroCityFilter.value;
-  if (dom.heroDateFilter && dom.dateFilter) dom.dateFilter.value = dom.heroDateFilter.value;
 }
 
 function syncMapSheetControlsFromSidebar() {
@@ -5966,6 +5965,39 @@ function pickFeaturedEvents() {
     .slice(0, 6);
 }
 
+function getEventVibeBadges(event) {
+  const badges = [];
+  const eventDate = parseIsoDate(event?.event_date);
+  if (eventDate) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (eventDate.getTime() === today.getTime()) {
+      badges.push(t("badge_tonight"));
+    }
+  }
+
+  const timestamp = eventTimestamp(event);
+  if (Number.isFinite(timestamp)) {
+    const timeDistanceMs = Math.abs(timestamp - Date.now());
+    if (timeDistanceMs <= 2 * 60 * 60 * 1000) {
+      badges.unshift(t("badge_now"));
+    }
+  }
+
+  const popularitySignal = Boolean(event?.image_url) || splitGenres(event?.genre).length > 1;
+  if (popularitySignal) {
+    badges.push(t("badge_popular"));
+  }
+
+  return [...new Set(badges)].slice(0, 2);
+}
+
+function renderEventVibeBadges(event, className) {
+  const badges = getEventVibeBadges(event);
+  if (!badges.length) return "";
+  return badges.map((badge) => `<span class="${className}">${badge}</span>`).join("");
+}
+
 function formatHeroTodayCountLabel(count) {
   const safeCount = Number.isFinite(Number(count)) ? Math.max(0, Number(count)) : 0;
   const title = t("featured_title");
@@ -5997,6 +6029,7 @@ function createFeaturedCard(event) {
   const featuredArtistLine = eventArtist
     ? `<p class="featured-card__artist">🎤 ${eventArtist}</p>`
     : "";
+  const vibeBadges = renderEventVibeBadges(event, "featured-card__micro-tag");
   card.innerHTML = `
     <div class="featured-card__media">
       ${
@@ -6005,6 +6038,7 @@ function createFeaturedCard(event) {
           : `<div class="featured-card__image-fallback" aria-hidden="true"><span>${iconForGenre(genre)}</span></div>`
       }
       <div class="featured-card__shade"></div>
+      ${vibeBadges ? `<div class="featured-card__micro-tags">${vibeBadges}</div>` : ""}
       <div class="featured-card__content">
         <span class="featured-card__badge">${genre}</span>
         <h3>${eventTitle}</h3>
@@ -6393,6 +6427,7 @@ function createEventCard(event, index = 0) {
   const eventCategory = getEventCategory(event);
   const primaryGenre = splitGenres(eventCategory)[0] || eventCategory || "-";
   const favoriteActive = isFavoriteEvent(event.id);
+  const vibeBadges = renderEventVibeBadges(event, "event-card__micro-tag");
   const recurrenceLineText = getRecurringText(event, state.lang);
   const distanceLine = Number.isFinite(event.distance_km)
     ? `<p class="event-card__line event-card__line--distance">${formatDistanceLabel(event.distance_km)}</p>`
@@ -6407,6 +6442,7 @@ function createEventCard(event, index = 0) {
           ? `<img class="event-card__image" src="${event.image_url}" alt="${eventTitle}" loading="lazy">`
           : `<div class="event-card__image-fallback" aria-hidden="true"><span>${iconForGenre(primaryGenre)}</span></div>`
       }
+      ${vibeBadges ? `<div class="event-card__micro-tags">${vibeBadges}</div>` : ""}
       <span class="event-card__genre-badge">${primaryGenre}</span>
       <button
         type="button"
@@ -6421,7 +6457,7 @@ function createEventCard(event, index = 0) {
     <div class="event-card__body">
       <div class="event-card__header">
         <h4 class="event-card__title">${eventTitle}</h4>
-        <div class="event-card_artist">${eventArtist ? `${t("details_artist")}: ${eventArtist}` : ""}</div>
+        <div class="event-card__artist">${eventArtist ? `${t("details_artist")}: ${eventArtist}` : ""}</div>
       </div>
       ${recurrenceLine}
       ${distanceLine}
@@ -6708,10 +6744,6 @@ function renderMapMarkers() {
   }
 }
 
-function formatRecurringDetail(event) {
-  return getRecurringText(event, state.lang);
-}
-
 function renderEventDetails(event) {
   if (!event) {
     dom.eventDetails.className = "event-details event-details--empty";
@@ -6741,7 +6773,7 @@ function renderEventDetails(event) {
   const additionalArtistsLine = additionalArtists
     ? `<p class="event-details__subtitle">${additionalArtists}</p>`
     : "";
-  const recurringText = formatRecurringDetail(event);
+  const recurringText = getRecurringText(event, state.lang);
   const recurringLine = recurringText
     ? `<p class="event-details__recurrence">📅 ${recurringText}</p>`
     : "";
@@ -7325,20 +7357,6 @@ function bindEvents() {
       applyFilters();
     });
   }
-  if (dom.heroCityFilter) {
-    dom.heroCityFilter.addEventListener("change", () => {
-      syncSidebarFromHeroControls();
-      syncMapSheetControlsFromSidebar();
-      debouncedApplyFilters();
-    });
-  }
-  if (dom.heroDateFilter) {
-    dom.heroDateFilter.addEventListener("change", () => {
-      syncSidebarFromHeroControls();
-      syncMapSheetControlsFromSidebar();
-      handleLegacyDateFilterChange();
-    });
-  }
   if (dom.mapSheetSearchInput) {
     dom.mapSheetSearchInput.addEventListener("input", () => {
       syncSidebarFromMapSheetControls();
@@ -7371,12 +7389,6 @@ function bindEvents() {
     dom.locationChip.addEventListener("click", () => {
       setViewMode("list", { scroll: true });
       dom.heroSearchInput?.focus();
-    });
-  }
-  if (dom.openSubmitModal) {
-    dom.openSubmitModal.addEventListener("click", () => {
-      setFormFeedback("");
-      openSubmitModal();
     });
   }
   if (dom.openSubmitModalHero) {
