@@ -4578,9 +4578,10 @@ function openNavigationForEvent(event) {
 }
 
 function buildEventPublicLink(event) {
-  const currentUrl = new URL(window.location.href);
+  const currentUrl = new URL(window.location.pathname, window.location.origin);
   const eventId = String(event?.id || "").trim();
   if (eventId) currentUrl.searchParams.set("event_id", eventId);
+  if (state.lang && state.lang !== "de") currentUrl.searchParams.set("lang", state.lang);
   return currentUrl.toString();
 }
 
@@ -5105,6 +5106,7 @@ function readQueryParams() {
   const params = new URLSearchParams(window.location.search);
   return {
     lang: params.get("lang") || "",
+    eventId: params.get("event_id") || "",
     q: params.get("q") || "",
     city: params.get("city") || "",
     date: params.get("date") || "",
@@ -8155,6 +8157,18 @@ async function startApp() {
   applyFiltersFromQuery();
   syncHeroControlsFromSidebar();
   applyFilters();
+  if (query.eventId) {
+    const sharedEvent = findEventById(query.eventId);
+    if (sharedEvent) {
+      selectEvent(sharedEvent, {
+        flyTo: false,
+        openPopup: false,
+        scrollIntoView: true,
+        preferMapOnMobile: false,
+        expandSheet: false
+      });
+    }
+  }
   updateMapBottomSheetLayout();
   renderModerationPanel();
 }
