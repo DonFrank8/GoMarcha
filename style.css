@@ -2166,7 +2166,7 @@ body.is-standalone-app .hero-first-open__actions {
 
 .event-details__share-quick {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.32rem;
   margin-bottom: 0.44rem;
 }
@@ -2206,6 +2206,10 @@ body.is-standalone-app .hero-first-open__actions {
 
 .event-details__share-button--whatsapp {
   border-color: rgba(34, 197, 94, 0.6);
+}
+
+.event-details__share-button--facebook {
+  border-color: rgba(59, 130, 246, 0.62);
 }
 
 .event-details__action--primary {
