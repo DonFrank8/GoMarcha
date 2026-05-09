@@ -420,6 +420,13 @@ const I18N = {
     details_view: "Details ansehen",
     details_image_counter: "{current} / {total}",
     details_share: "Teilen",
+    details_share_copy_caption: "Caption kopieren",
+    details_share_copy_link: "Event-Link kopieren",
+    details_share_open_sheet: "Teilen öffnen",
+    details_share_caption_copy_success: "Caption kopiert.",
+    details_share_helper_social: "Für Instagram oder TikTok: Caption kopieren und über Teilen öffnen.",
+    details_share_social_caption:
+      "Heute Live-Musik auf Marcha: {title} – {location}, {dateTime}. Mehr Infos: {link}",
     details_calendar_add: "Zum Kalender",
     details_close_short: "Zurück",
     details_share_copy_success: "Link kopiert.",
@@ -676,6 +683,13 @@ const I18N = {
     details_view: "View details",
     details_image_counter: "{current} / {total}",
     details_share: "Share",
+    details_share_copy_caption: "Copy caption",
+    details_share_copy_link: "Copy event link",
+    details_share_open_sheet: "Open share sheet",
+    details_share_caption_copy_success: "Caption copied.",
+    details_share_helper_social: "For Instagram or TikTok: copy the caption and open the share sheet.",
+    details_share_social_caption:
+      "Live music on Marcha: {title} – {location}, {dateTime}. More info: {link}",
     details_calendar_add: "Add to calendar",
     details_close_short: "Back",
     details_share_copy_success: "Link copied.",
@@ -932,6 +946,13 @@ const I18N = {
     details_view: "Ver detalles",
     details_image_counter: "{current} / {total}",
     details_share: "Compartir",
+    details_share_copy_caption: "Copiar texto",
+    details_share_copy_link: "Copiar enlace del evento",
+    details_share_open_sheet: "Abrir menú compartir",
+    details_share_caption_copy_success: "Texto copiado.",
+    details_share_helper_social: "Para Instagram o TikTok: copia el texto y abre el menú de compartir.",
+    details_share_social_caption:
+      "Música en vivo en Marcha: {title} – {location}, {dateTime}. Más info: {link}",
     details_calendar_add: "Añadir al calendario",
     details_close_short: "Volver",
     details_share_copy_success: "Enlace copiado.",
@@ -4550,6 +4571,96 @@ function openNavigationForEvent(event) {
   openRoute(event);
 }
 
+function buildEventPublicLink(event) {
+  const currentUrl = new URL(window.location.href);
+  const eventId = String(event?.id || "").trim();
+  if (eventId) currentUrl.searchParams.set("event_id", eventId);
+  return currentUrl.toString();
+}
+
+function buildEventSocialCaption(event) {
+  if (!event) return "";
+  const title = getEventTitle(event) || "Marcha Event";
+  const location = [getEventVenue(event), event.city]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .join(", ");
+  const dateTime = [formatDate(event.event_date, true), event.event_time || t("details_time_fallback")]
+    .filter(Boolean)
+    .join(" / ");
+  const link = buildEventPublicLink(event);
+  return t("details_share_social_caption", {
+    title,
+    location: location || "-",
+    dateTime: dateTime || "-",
+    link
+  });
+}
+
+async function copyTextToClipboard(text) {
+  const value = String(text || "").trim();
+  if (!value) return false;
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return true;
+    } catch (_error) {
+      // Continue with legacy fallback for older devices.
+    }
+  }
+  try {
+    const helper = document.createElement("textarea");
+    helper.value = value;
+    helper.setAttribute("readonly", "true");
+    helper.style.position = "fixed";
+    helper.style.opacity = "0";
+    helper.style.pointerEvents = "none";
+    document.body.append(helper);
+    helper.select();
+    const copied = document.execCommand("copy");
+    helper.remove();
+    return Boolean(copied);
+  } catch (_error) {
+    return false;
+  }
+}
+
+async function openNativeSocialShareSheet(event) {
+  if (!event || typeof navigator.share !== "function") return false;
+  const payload = {
+    title: getEventTitle(event) || "Marcha Event",
+    text: buildEventSocialCaption(event),
+    url: buildEventPublicLink(event)
+  };
+  try {
+    await navigator.share(payload);
+    return true;
+  } catch (error) {
+    if (error?.name === "AbortError") return true;
+    return false;
+  }
+}
+
+async function copyEventSocialCaption(event) {
+  const copied = await copyTextToClipboard(buildEventSocialCaption(event));
+  if (copied) {
+    setStatus(t("details_share_caption_copy_success"), "ok");
+    return true;
+  }
+  setStatus(t("details_share_not_supported"), "warning");
+  return false;
+}
+
+async function copyEventSocialLink(event) {
+  const copied = await copyTextToClipboard(buildEventPublicLink(event));
+  if (copied) {
+    setStatus(t("details_share_copy_success"), "ok");
+    return true;
+  }
+  setStatus(t("details_share_not_supported"), "warning");
+  return false;
+}
+
 function buildEventSharePayload(event) {
   if (!event) return null;
   const title = getEventTitle(event) || "GoMarcha Event";
@@ -4680,14 +4791,10 @@ async function shareEventFromDetails(event) {
   }
   const payload = buildEventSharePayload(event);
   if (!payload) return;
-  if (navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(payload.url);
-      setStatus(t("details_share_copy_success"), "ok");
-      return;
-    } catch (_error) {
-      // Fallback warning below.
-    }
+  const copied = await copyTextToClipboard(payload.url);
+  if (copied) {
+    setStatus(t("details_share_copy_success"), "ok");
+    return;
   }
   setStatus(t("details_share_not_supported"), "warning");
 }
@@ -6894,6 +7001,77 @@ function renderEventDetails(event) {
       ${t("details_calendar_add")}
     </button>
   `;
+  const socialPrepMarkup = `
+    <section class="event-details__social-prep" aria-label="Instagram and TikTok share preparation">
+      <p class="event-details__social-helper">${t("details_share_helper_social")}</p>
+      <div class="event-details__social-grid">
+        <article class="event-details__social-card">
+          <h5>Instagram</h5>
+          <div class="event-details__social-actions">
+            <button
+              type="button"
+              class="button-secondary event-details__social-button"
+              data-action="details-social-open-sheet"
+              data-platform="instagram"
+              data-event-id="${event.id}"
+            >
+              ${t("details_share_open_sheet")}
+            </button>
+            <button
+              type="button"
+              class="button-secondary event-details__social-button"
+              data-action="details-social-copy-caption"
+              data-platform="instagram"
+              data-event-id="${event.id}"
+            >
+              ${t("details_share_copy_caption")}
+            </button>
+            <button
+              type="button"
+              class="button-secondary event-details__social-button"
+              data-action="details-social-copy-link"
+              data-platform="instagram"
+              data-event-id="${event.id}"
+            >
+              ${t("details_share_copy_link")}
+            </button>
+          </div>
+        </article>
+        <article class="event-details__social-card">
+          <h5>TikTok</h5>
+          <div class="event-details__social-actions">
+            <button
+              type="button"
+              class="button-secondary event-details__social-button"
+              data-action="details-social-open-sheet"
+              data-platform="tiktok"
+              data-event-id="${event.id}"
+            >
+              ${t("details_share_open_sheet")}
+            </button>
+            <button
+              type="button"
+              class="button-secondary event-details__social-button"
+              data-action="details-social-copy-caption"
+              data-platform="tiktok"
+              data-event-id="${event.id}"
+            >
+              ${t("details_share_copy_caption")}
+            </button>
+            <button
+              type="button"
+              class="button-secondary event-details__social-button"
+              data-action="details-social-copy-link"
+              data-platform="tiktok"
+              data-event-id="${event.id}"
+            >
+              ${t("details_share_copy_link")}
+            </button>
+          </div>
+        </article>
+      </div>
+    </section>
+  `;
   dom.eventDetails.innerHTML = `
     <div class="event-details__preview">
       <button
@@ -6964,6 +7142,7 @@ function renderEventDetails(event) {
             ${shareButtonMarkup}
             ${calendarButtonMarkup}
           </div>
+          ${socialPrepMarkup}
           ${descriptionMarkup}
         </div>
       </div>
@@ -7580,6 +7759,30 @@ function bindEvents() {
           setStatus(t("details_share_error"), "warning");
         }
         return;
+      }
+      const socialActionButton = target.closest("button[data-action^='details-social-']");
+      if (socialActionButton) {
+        const eventId = socialActionButton.dataset.eventId || state.selectedEventId;
+        const selectedEvent = findEventById(eventId) || state.activeEvent;
+        if (!selectedEvent) {
+          setStatus(t("details_share_error"), "warning");
+          return;
+        }
+        const action = socialActionButton.dataset.action || "";
+        if (action === "details-social-open-sheet") {
+          openNativeSocialShareSheet(selectedEvent).then((opened) => {
+            if (!opened) setStatus(t("details_share_not_supported"), "warning");
+          });
+          return;
+        }
+        if (action === "details-social-copy-caption") {
+          copyEventSocialCaption(selectedEvent);
+          return;
+        }
+        if (action === "details-social-copy-link") {
+          copyEventSocialLink(selectedEvent);
+          return;
+        }
       }
       const addCalendarButton = target.closest("button[data-action='details-calendar']");
       if (addCalendarButton) {
