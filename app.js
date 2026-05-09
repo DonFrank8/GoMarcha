@@ -3653,9 +3653,8 @@ function buildStrictTranslationPrompt(sourceText, languageCode) {
 }
 
 async function translateTextByLanguageCode(text, languageCode) {
-  const aliases = TRANSLATION_TARGET_ALIASES_BY_CODE[languageCode] || [];
-  const fallbackTarget = TRANSLATION_TARGET_LANGUAGE_BY_CODE[languageCode];
-  const targets = [...new Set([...aliases, fallbackTarget].filter(Boolean))];
+  const normalizedLanguageCode = String(languageCode || "").trim().toLowerCase();
+  const targets = normalizedLanguageCode ? [normalizedLanguageCode] : [];
   let lastError = null;
   for (const target of targets) {
     try {
@@ -3726,11 +3725,14 @@ function fillMissingLocalizedFieldsWithSource(payload) {
   const workingPayload = ensureActiveLanguageSeed(normalizeDescriptionColumnVariants({ ...(payload || {}) }));
   const targetLanguageCodes = ["de", "en", "es"];
   for (const group of AUTO_TRANSLATABLE_FIELD_GROUPS) {
-    const { sourceText } = resolveTranslationGroupSource(workingPayload, group);
+    const { sourceText, sourceLanguageCode } = resolveTranslationGroupSource(workingPayload, group);
     if (!sourceText) continue;
     for (const languageCode of targetLanguageCodes) {
       const fieldName = group.languageFieldByCode?.[languageCode];
       if (!fieldName) continue;
+      const avoidSourceFallbackForSpanishDescription =
+        group.key === "description" && languageCode === "es" && sourceLanguageCode !== "es";
+      if (avoidSourceFallbackForSpanishDescription) continue;
       if (!String(workingPayload[fieldName] || "").trim()) {
         workingPayload[fieldName] = sourceText;
       }
@@ -3771,16 +3773,38 @@ async function generateMissingEventTranslations(eventPayload) {
       if (!targetLanguage) continue;
 
       try {
-        const translated = await translateTextByLanguageCode(sourceText, languageCode);
-        if (translated) {
-          payload[fieldName] = translated;
+        if (group.key === "description" && languageCode === "en") {
+          console.log("Translating description to EN");
+        }
+        if (group.key === "description" && languageCode === "es") {
+          console.log("Translating description to ES");
+        }
+        const result = await translateTextByLanguageCode(sourceText, languageCode);
+        if (group.key === "description" && languageCode === "en") {
+          console.log("EN result:", result);
+        }
+        if (group.key === "description" && languageCode === "es") {
+          console.log("ES result:", result);
+        }
+        if (result) {
+          payload[fieldName] = result;
         } else {
           failedTargets.push(fieldName);
-          payload[fieldName] = sourceText;
+          const avoidSourceFallbackForSpanishDescription =
+            group.key === "description" && languageCode === "es" && sourceLanguageCode !== "es";
+          payload[fieldName] = avoidSourceFallbackForSpanishDescription ? null : sourceText;
         }
       } catch (error) {
+        if (group.key === "description" && languageCode === "en") {
+          console.log("EN result:", "");
+        }
+        if (group.key === "description" && languageCode === "es") {
+          console.log("ES result:", "");
+        }
         failedTargets.push(fieldName);
-        payload[fieldName] = sourceText;
+        const avoidSourceFallbackForSpanishDescription =
+          group.key === "description" && languageCode === "es" && sourceLanguageCode !== "es";
+        payload[fieldName] = avoidSourceFallbackForSpanishDescription ? null : sourceText;
         console.warn(
           `[Marcha Debug] Translation failed for ${fieldName} (${targetLanguage}): ${error?.message || error}`
         );
@@ -7185,6 +7209,11 @@ async function handleCreateEventSubmit(submitEvent) {
       artist_bio_de: translationResult.payload.artist_bio_de,
       artist_bio_en: translationResult.payload.artist_bio_en,
       artist_bio_es: translationResult.payload.artist_bio_es
+    });
+    console.log("[Marcha Debug] FINAL DESCRIPTION TRANSLATIONS BEFORE SAVE", {
+      description_de: translationResult.payload.description_de,
+      description_en: translationResult.payload.description_en,
+      description_es: translationResult.payload.description_es
     });
     const { data, error } = await insertEventWithSchemaFallback(client, translationResult.payload);
 
