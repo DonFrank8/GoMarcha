@@ -7774,12 +7774,14 @@ function bindEvents() {
       if (!target) return;
       const detailsPreviewButton = target.closest("button[data-action='details-preview']");
       if (detailsPreviewButton) {
+        setEventDetailsSharePanelVisibility(false);
         setMapBottomSheetState("full");
         window.setTimeout(() => map?.invalidateSize(), 100);
         return;
       }
       const detailsCollapseButton = target.closest("button[data-action='details-collapse']");
       if (detailsCollapseButton) {
+        setEventDetailsSharePanelVisibility(false);
         setMapBottomSheetState("peek");
         window.setTimeout(() => map?.invalidateSize(), 100);
         return;
@@ -7838,6 +7840,7 @@ function bindEvents() {
         const eventId = addCalendarButton.dataset.eventId || state.selectedEventId;
         const selectedEvent = findEventById(eventId) || state.activeEvent;
         if (selectedEvent) {
+          setEventDetailsSharePanelVisibility(false);
           addEventToCalendar(selectedEvent);
         } else {
           setStatus(t("details_calendar_error"), "warning");
@@ -7849,6 +7852,7 @@ function bindEvents() {
         const eventId = navigateButton.dataset.eventId || state.selectedEventId;
         const selectedEvent = findEventById(eventId) || state.activeEvent;
         if (selectedEvent) {
+          setEventDetailsSharePanelVisibility(false);
           openNavigationForEvent(selectedEvent);
         }
         return;
