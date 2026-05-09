@@ -421,6 +421,7 @@ const I18N = {
     details_image_counter: "{current} / {total}",
     details_share: "Teilen",
     details_share_whatsapp: "WhatsApp",
+    details_share_facebook: "Facebook",
     details_share_copy_caption: "Caption kopieren",
     details_share_copy_link: "Event-Link kopieren",
     details_share_open_sheet: "Teilen öffnen",
@@ -685,6 +686,7 @@ const I18N = {
     details_image_counter: "{current} / {total}",
     details_share: "Share",
     details_share_whatsapp: "WhatsApp",
+    details_share_facebook: "Facebook",
     details_share_copy_caption: "Copy caption",
     details_share_copy_link: "Copy event link",
     details_share_open_sheet: "Open share sheet",
@@ -949,6 +951,7 @@ const I18N = {
     details_image_counter: "{current} / {total}",
     details_share: "Compartir",
     details_share_whatsapp: "WhatsApp",
+    details_share_facebook: "Facebook",
     details_share_copy_caption: "Copiar texto",
     details_share_copy_link: "Copiar enlace del evento",
     details_share_open_sheet: "Abrir menú compartir",
@@ -4703,6 +4706,16 @@ function buildWhatsappShareUrl(event) {
   return `https://wa.me/?text=${encodeURIComponent(shareText)}`;
 }
 
+function buildFacebookShareUrl(event) {
+  const link = buildEventPublicLink(event);
+  if (!link) return "";
+  const caption = buildEventSocialCaption(event);
+  const params = new URLSearchParams();
+  params.set("u", link);
+  if (caption) params.set("quote", caption);
+  return `https://www.facebook.com/sharer/sharer.php?${params.toString()}`;
+}
+
 function formatEventCalendarDateStamp(dateValue, allDay = false) {
   const year = dateValue.getUTCFullYear();
   const month = String(dateValue.getUTCMonth() + 1).padStart(2, "0");
@@ -4797,12 +4810,15 @@ function addEventToCalendar(event) {
   setStatus(t("details_calendar_success"), "ok");
 }
 
-async function shareEventFromDetails(event) {
-  const whatsappUrl = buildWhatsappShareUrl(event);
-  if (whatsappUrl) {
-    const openedWindow = window.open(whatsappUrl, "_blank", "noopener,noreferrer");
+async function shareEventFromDetails(event, platform = "whatsapp") {
+  const normalizedPlatform = String(platform || "whatsapp").trim().toLowerCase();
+  const shareUrl = normalizedPlatform === "facebook"
+    ? buildFacebookShareUrl(event)
+    : buildWhatsappShareUrl(event);
+  if (shareUrl) {
+    const openedWindow = window.open(shareUrl, "_blank", "noopener,noreferrer");
     if (openedWindow) return;
-    window.location.href = whatsappUrl;
+    window.location.href = shareUrl;
     return;
   }
   const payload = buildEventSharePayload(event);
@@ -7038,6 +7054,14 @@ function renderEventDetails(event) {
         >
           ${t("details_share_whatsapp")}
         </button>
+        <button
+          type="button"
+          class="button-secondary event-details__share-button event-details__share-button--facebook"
+          data-action="details-share-facebook"
+          data-event-id="${event.id}"
+        >
+          ${t("details_share_facebook")}
+        </button>
       </div>
       <div class="event-details__share-platforms">
         <article class="event-details__share-platform">
@@ -7805,6 +7829,18 @@ function bindEvents() {
         const selectedEvent = findEventById(eventId) || state.activeEvent;
         if (selectedEvent) {
           shareEventFromDetails(selectedEvent);
+          setEventDetailsSharePanelVisibility(false);
+        } else {
+          setStatus(t("details_share_error"), "warning");
+        }
+        return;
+      }
+      const facebookShareButton = target.closest("button[data-action='details-share-facebook']");
+      if (facebookShareButton) {
+        const eventId = facebookShareButton.dataset.eventId || state.selectedEventId;
+        const selectedEvent = findEventById(eventId) || state.activeEvent;
+        if (selectedEvent) {
+          shareEventFromDetails(selectedEvent, "facebook");
           setEventDetailsSharePanelVisibility(false);
         } else {
           setStatus(t("details_share_error"), "warning");
