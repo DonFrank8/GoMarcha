@@ -7210,6 +7210,11 @@ async function handleCreateEventSubmit(submitEvent) {
       artist_bio_en: translationResult.payload.artist_bio_en,
       artist_bio_es: translationResult.payload.artist_bio_es
     });
+    console.log("[Marcha Debug] FINAL DESCRIPTION TRANSLATIONS BEFORE SAVE", {
+      description_de: translationResult.payload.description_de,
+      description_en: translationResult.payload.description_en,
+      description_es: translationResult.payload.description_es
+    });
     const { data, error } = await insertEventWithSchemaFallback(client, translationResult.payload);
 
     console.log("[Marcha Debug] Event insert data:", data);
