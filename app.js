@@ -420,6 +420,7 @@ const I18N = {
     details_view: "Details ansehen",
     details_image_counter: "{current} / {total}",
     details_share: "Teilen",
+    details_share_whatsapp: "WhatsApp",
     details_share_copy_caption: "Caption kopieren",
     details_share_copy_link: "Event-Link kopieren",
     details_share_open_sheet: "Teilen öffnen",
@@ -683,6 +684,7 @@ const I18N = {
     details_view: "View details",
     details_image_counter: "{current} / {total}",
     details_share: "Share",
+    details_share_whatsapp: "WhatsApp",
     details_share_copy_caption: "Copy caption",
     details_share_copy_link: "Copy event link",
     details_share_open_sheet: "Open share sheet",
@@ -946,6 +948,7 @@ const I18N = {
     details_view: "Ver detalles",
     details_image_counter: "{current} / {total}",
     details_share: "Compartir",
+    details_share_whatsapp: "WhatsApp",
     details_share_copy_caption: "Copiar texto",
     details_share_copy_link: "Copiar enlace del evento",
     details_share_open_sheet: "Abrir menú compartir",
@@ -4661,6 +4664,19 @@ async function copyEventSocialLink(event) {
   return false;
 }
 
+function setEventDetailsSharePanelVisibility(visible) {
+  if (!dom.eventDetails) return;
+  const panel = dom.eventDetails.querySelector("[data-share-panel]");
+  const shareButton = dom.eventDetails.querySelector("button[data-action='details-share']");
+  if (panel) {
+    panel.hidden = !visible;
+    panel.setAttribute("aria-hidden", String(!visible));
+  }
+  if (shareButton) {
+    shareButton.setAttribute("aria-expanded", String(Boolean(visible)));
+  }
+}
+
 function buildEventSharePayload(event) {
   if (!event) return null;
   const title = getEventTitle(event) || "GoMarcha Event";
@@ -6987,6 +7003,8 @@ function renderEventDetails(event) {
       class="button-secondary event-details__action"
       data-action="details-share"
       data-event-id="${event.id}"
+      aria-expanded="false"
+      aria-controls="event-details-share-panel"
     >
       ${t("details_share")}
     </button>
@@ -7001,16 +7019,33 @@ function renderEventDetails(event) {
       ${t("details_calendar_add")}
     </button>
   `;
-  const socialPrepMarkup = `
-    <section class="event-details__social-prep" aria-label="Instagram and TikTok share preparation">
-      <p class="event-details__social-helper">${t("details_share_helper_social")}</p>
-      <div class="event-details__social-grid">
-        <article class="event-details__social-card">
+  const sharePanelMarkup = `
+    <section
+      id="event-details-share-panel"
+      class="event-details__share-panel"
+      data-share-panel
+      hidden
+      aria-hidden="true"
+      aria-label="Share options"
+    >
+      <p class="event-details__share-helper">${t("details_share_helper_social")}</p>
+      <div class="event-details__share-quick">
+        <button
+          type="button"
+          class="button-secondary event-details__share-button event-details__share-button--whatsapp"
+          data-action="details-share-whatsapp"
+          data-event-id="${event.id}"
+        >
+          ${t("details_share_whatsapp")}
+        </button>
+      </div>
+      <div class="event-details__share-platforms">
+        <article class="event-details__share-platform">
           <h5>Instagram</h5>
-          <div class="event-details__social-actions">
+          <div class="event-details__share-actions">
             <button
               type="button"
-              class="button-secondary event-details__social-button"
+              class="button-secondary event-details__share-button"
               data-action="details-social-open-sheet"
               data-platform="instagram"
               data-event-id="${event.id}"
@@ -7019,7 +7054,7 @@ function renderEventDetails(event) {
             </button>
             <button
               type="button"
-              class="button-secondary event-details__social-button"
+              class="button-secondary event-details__share-button"
               data-action="details-social-copy-caption"
               data-platform="instagram"
               data-event-id="${event.id}"
@@ -7028,7 +7063,7 @@ function renderEventDetails(event) {
             </button>
             <button
               type="button"
-              class="button-secondary event-details__social-button"
+              class="button-secondary event-details__share-button"
               data-action="details-social-copy-link"
               data-platform="instagram"
               data-event-id="${event.id}"
@@ -7037,12 +7072,12 @@ function renderEventDetails(event) {
             </button>
           </div>
         </article>
-        <article class="event-details__social-card">
+        <article class="event-details__share-platform">
           <h5>TikTok</h5>
-          <div class="event-details__social-actions">
+          <div class="event-details__share-actions">
             <button
               type="button"
-              class="button-secondary event-details__social-button"
+              class="button-secondary event-details__share-button"
               data-action="details-social-open-sheet"
               data-platform="tiktok"
               data-event-id="${event.id}"
@@ -7051,7 +7086,7 @@ function renderEventDetails(event) {
             </button>
             <button
               type="button"
-              class="button-secondary event-details__social-button"
+              class="button-secondary event-details__share-button"
               data-action="details-social-copy-caption"
               data-platform="tiktok"
               data-event-id="${event.id}"
@@ -7060,7 +7095,7 @@ function renderEventDetails(event) {
             </button>
             <button
               type="button"
-              class="button-secondary event-details__social-button"
+              class="button-secondary event-details__share-button"
               data-action="details-social-copy-link"
               data-platform="tiktok"
               data-event-id="${event.id}"
@@ -7142,7 +7177,7 @@ function renderEventDetails(event) {
             ${shareButtonMarkup}
             ${calendarButtonMarkup}
           </div>
-          ${socialPrepMarkup}
+          ${sharePanelMarkup}
           ${descriptionMarkup}
         </div>
       </div>
@@ -7739,12 +7774,14 @@ function bindEvents() {
       if (!target) return;
       const detailsPreviewButton = target.closest("button[data-action='details-preview']");
       if (detailsPreviewButton) {
+        setEventDetailsSharePanelVisibility(false);
         setMapBottomSheetState("full");
         window.setTimeout(() => map?.invalidateSize(), 100);
         return;
       }
       const detailsCollapseButton = target.closest("button[data-action='details-collapse']");
       if (detailsCollapseButton) {
+        setEventDetailsSharePanelVisibility(false);
         setMapBottomSheetState("peek");
         window.setTimeout(() => map?.invalidateSize(), 100);
         return;
@@ -7754,7 +7791,21 @@ function bindEvents() {
         const eventId = shareButton.dataset.eventId || state.selectedEventId;
         const selectedEvent = findEventById(eventId) || state.activeEvent;
         if (selectedEvent) {
+          const panel = dom.eventDetails?.querySelector("[data-share-panel]");
+          const nextOpenState = panel ? panel.hidden : true;
+          setEventDetailsSharePanelVisibility(nextOpenState);
+        } else {
+          setStatus(t("details_share_error"), "warning");
+        }
+        return;
+      }
+      const whatsappShareButton = target.closest("button[data-action='details-share-whatsapp']");
+      if (whatsappShareButton) {
+        const eventId = whatsappShareButton.dataset.eventId || state.selectedEventId;
+        const selectedEvent = findEventById(eventId) || state.activeEvent;
+        if (selectedEvent) {
           shareEventFromDetails(selectedEvent);
+          setEventDetailsSharePanelVisibility(false);
         } else {
           setStatus(t("details_share_error"), "warning");
         }
@@ -7789,6 +7840,7 @@ function bindEvents() {
         const eventId = addCalendarButton.dataset.eventId || state.selectedEventId;
         const selectedEvent = findEventById(eventId) || state.activeEvent;
         if (selectedEvent) {
+          setEventDetailsSharePanelVisibility(false);
           addEventToCalendar(selectedEvent);
         } else {
           setStatus(t("details_calendar_error"), "warning");
@@ -7800,6 +7852,7 @@ function bindEvents() {
         const eventId = navigateButton.dataset.eventId || state.selectedEventId;
         const selectedEvent = findEventById(eventId) || state.activeEvent;
         if (selectedEvent) {
+          setEventDetailsSharePanelVisibility(false);
           openNavigationForEvent(selectedEvent);
         }
         return;
