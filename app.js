@@ -24,6 +24,7 @@ const INSTALL_BANNER_DISMISS_STORAGE_KEY = "vibeon.installBanner.dismissedUntil"
 const INSTALL_BANNER_INSTALLED_STORAGE_KEY = "vibeon.installBanner.installedUntil";
 const MOBILE_INSTALL_CTA_DISMISS_STORAGE_KEY = "vibeon.installCta.dismissedUntil";
 const USER_LOCATION_STORAGE_KEY = "vibeon.userLocation.v1";
+const LANGUAGE_STORAGE_KEY = "vibeon.language";
 const SOURCE_STORAGE_KEY = "source";
 const SOURCE_TRACKED_SESSION_STORAGE_KEY = "vibeon.sourceTrackedInSession.v1";
 const TRANSLATION_TARGET_LANGUAGE_BY_CODE = Object.freeze({
@@ -1344,6 +1345,10 @@ function resolveLanguage(langValue) {
   return I18N[langValue] ? langValue : "de";
 }
 
+function isSupportedLanguageCode(languageCode) {
+  return availableLanguageCodes().includes(String(languageCode || "").trim().toLowerCase());
+}
+
 function availableLanguageCodes() {
   return SUPPORTED_LANGUAGES.map((language) => language.code);
 }
@@ -1357,13 +1362,38 @@ function resolveLanguageFromBrowser(defaultLang = "de") {
     .map((lang) => String(lang).toLowerCase());
 
   for (const candidate of candidates) {
-    const shortCode = candidate.split("-")[0];
-    if (availableLanguageCodes().includes(shortCode)) {
-      return shortCode;
-    }
+    if (candidate.startsWith("es")) return "es";
+    if (candidate.startsWith("de")) return "de";
+    if (candidate.startsWith("en")) return "en";
   }
 
   return defaultLang;
+}
+
+function languageFallbackForHost() {
+  const host = String(window.location.hostname || "").trim().toLowerCase();
+  if (host === "gomarcha.com" || host === "www.gomarcha.com" || host.endsWith(".gomarcha.com")) {
+    return "es";
+  }
+  return "de";
+}
+
+function readSavedLanguagePreference() {
+  try {
+    const saved = String(window.localStorage.getItem(LANGUAGE_STORAGE_KEY) || "").trim().toLowerCase();
+    return isSupportedLanguageCode(saved) ? saved : "";
+  } catch (_error) {
+    return "";
+  }
+}
+
+function persistLanguagePreference(langCode) {
+  const resolved = resolveLanguage(String(langCode || "").trim().toLowerCase());
+  try {
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, resolved);
+  } catch (_error) {
+    // Ignore storage errors to keep language switching resilient.
+  }
 }
 
 function t(key, params = {}) {
@@ -1750,6 +1780,7 @@ function switchLanguage(nextLangCode) {
   const nextLang = resolveLanguage(nextLangCode);
   if (nextLang === state.lang) return;
   state.lang = nextLang;
+  persistLanguagePreference(nextLang);
   applyStaticTranslations();
   updateInstallUiVisibility();
   if (dom.mapBottomSheet) {
@@ -8087,8 +8118,14 @@ async function startApp() {
   registerServiceWorker();
   const query = readQueryParams();
   void trackLandingSource(query.source);
-  const requestedLang = resolveLanguage(query.lang);
-  state.lang = query.lang ? requestedLang : resolveLanguageFromBrowser(requestedLang);
+  const urlLang = String(query.lang || "").trim().toLowerCase();
+  if (isSupportedLanguageCode(urlLang)) {
+    state.lang = urlLang;
+    persistLanguagePreference(urlLang);
+  } else {
+    const savedLang = readSavedLanguagePreference();
+    state.lang = savedLang || resolveLanguageFromBrowser(languageFallbackForHost());
+  }
   state.isAdminMode = resolveAdminMode(query.admin);
   applyStaticTranslations();
   applyLegacyUiCleanupOverrides();
