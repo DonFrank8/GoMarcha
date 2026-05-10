@@ -24,6 +24,8 @@ const INSTALL_BANNER_DISMISS_STORAGE_KEY = "vibeon.installBanner.dismissedUntil"
 const INSTALL_BANNER_INSTALLED_STORAGE_KEY = "vibeon.installBanner.installedUntil";
 const MOBILE_INSTALL_CTA_DISMISS_STORAGE_KEY = "vibeon.installCta.dismissedUntil";
 const USER_LOCATION_STORAGE_KEY = "vibeon.userLocation.v1";
+const SOURCE_STORAGE_KEY = "source";
+const SOURCE_TRACKED_SESSION_STORAGE_KEY = "vibeon.sourceTrackedInSession.v1";
 const TRANSLATION_TARGET_LANGUAGE_BY_CODE = Object.freeze({
   de: "German",
   en: "English",
@@ -5095,6 +5097,7 @@ function readQueryParams() {
   const params = new URLSearchParams(window.location.search);
   return {
     lang: params.get("lang") || "",
+    source: params.get("source") || "",
     eventId: params.get("event_id") || "",
     q: params.get("q") || "",
     city: params.get("city") || "",
@@ -5110,6 +5113,39 @@ function readQueryParams() {
       .map((genre) => genre.trim())
       .filter(Boolean)
   };
+}
+
+async function trackLandingSource(sourceValue) {
+  const source = String(sourceValue || "").trim();
+  if (!source) return;
+  const normalizedSource = source.toLowerCase();
+
+  console.log("User came from:", source);
+  try {
+    window.localStorage.setItem(SOURCE_STORAGE_KEY, source);
+  } catch (_error) {
+    // Ignore storage errors to keep app flow unaffected.
+  }
+
+  if (normalizedSource !== "qr") return;
+
+  try {
+    if (window.sessionStorage.getItem(SOURCE_TRACKED_SESSION_STORAGE_KEY)) return;
+    window.sessionStorage.setItem(SOURCE_TRACKED_SESSION_STORAGE_KEY, normalizedSource);
+  } catch (_error) {
+    // If session storage is unavailable, continue without Supabase write.
+    return;
+  }
+
+  try {
+    const client = supabaseClient();
+    const { error } = await client.from("qr_tracking").insert({ source: normalizedSource });
+    if (error) {
+      console.warn("[Marcha Debug] qr_tracking insert skipped:", error.message || error);
+    }
+  } catch (error) {
+    console.warn("[Marcha Debug] qr_tracking insert failed:", error?.message || error);
+  }
 }
 
 function resolveAdminMode(queryValue) {
@@ -8050,6 +8086,7 @@ async function startApp() {
   suppressInstallUiOnAppLoad();
   registerServiceWorker();
   const query = readQueryParams();
+  void trackLandingSource(query.source);
   const requestedLang = resolveLanguage(query.lang);
   state.lang = query.lang ? requestedLang : resolveLanguageFromBrowser(requestedLang);
   state.isAdminMode = resolveAdminMode(query.admin);
