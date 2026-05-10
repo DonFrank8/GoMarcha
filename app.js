@@ -486,6 +486,25 @@ const I18N = {
     admin_update_success_approved: "Event wurde freigegeben.",
     admin_update_success_rejected: "Event wurde abgelehnt.",
     admin_update_error: "Moderation konnte nicht gespeichert werden.",
+    admin_social_title: "Social Automation",
+    admin_social_event_id_label: "Event-ID",
+    admin_social_event_id_placeholder: "UUID des Events eingeben",
+    admin_social_load: "Queue laden",
+    admin_social_generate: "Jobs erzeugen",
+    admin_social_retry: "Fehlgeschlagene retry",
+    admin_social_skip: "Pending auf skipped",
+    admin_social_jobs_title: "Social Queue",
+    admin_social_jobs_empty: "Keine Social-Jobs für dieses Event.",
+    admin_social_generate_success: "{count} Social-Jobs erstellt.",
+    admin_social_retry_success: "{count} Jobs auf pending gesetzt.",
+    admin_social_skip_success: "{count} Jobs auf skipped gesetzt.",
+    admin_social_action_error: "Social-Aktion fehlgeschlagen.",
+    admin_social_job_line: "{stage} · {status} · {date}",
+    admin_social_stage_approval: "Approval",
+    admin_social_stage_two_days_before: "2 Tage vorher",
+    admin_social_stage_one_day_before: "1 Tag vorher",
+    admin_social_stage_same_day: "Am selben Tag",
+    admin_social_stage_last_call: "Last Call",
     admin_geo_label: "Koordinaten",
     admin_geo_ok: "vorhanden",
     admin_geo_missing: "fehlt",
@@ -749,6 +768,25 @@ const I18N = {
     admin_update_success_approved: "Event approved.",
     admin_update_success_rejected: "Event rejected.",
     admin_update_error: "Moderation update failed.",
+    admin_social_title: "Social automation",
+    admin_social_event_id_label: "Event ID",
+    admin_social_event_id_placeholder: "Enter event UUID",
+    admin_social_load: "Load queue",
+    admin_social_generate: "Generate jobs",
+    admin_social_retry: "Retry failed",
+    admin_social_skip: "Mark pending skipped",
+    admin_social_jobs_title: "Social queue",
+    admin_social_jobs_empty: "No social jobs for this event.",
+    admin_social_generate_success: "{count} social jobs created.",
+    admin_social_retry_success: "{count} jobs reset to pending.",
+    admin_social_skip_success: "{count} jobs set to skipped.",
+    admin_social_action_error: "Social action failed.",
+    admin_social_job_line: "{stage} · {status} · {date}",
+    admin_social_stage_approval: "Approval",
+    admin_social_stage_two_days_before: "2 days before",
+    admin_social_stage_one_day_before: "1 day before",
+    admin_social_stage_same_day: "Same day",
+    admin_social_stage_last_call: "Last call",
     admin_geo_label: "Coordinates",
     admin_geo_ok: "present",
     admin_geo_missing: "missing",
@@ -1012,6 +1050,25 @@ const I18N = {
     admin_update_success_approved: "Evento aprobado.",
     admin_update_success_rejected: "Evento rechazado.",
     admin_update_error: "No se pudo guardar la moderación.",
+    admin_social_title: "Automatización social",
+    admin_social_event_id_label: "ID del evento",
+    admin_social_event_id_placeholder: "Introduce el UUID del evento",
+    admin_social_load: "Cargar cola",
+    admin_social_generate: "Generar jobs",
+    admin_social_retry: "Reintentar fallidos",
+    admin_social_skip: "Marcar pendientes como skipped",
+    admin_social_jobs_title: "Cola social",
+    admin_social_jobs_empty: "No hay jobs sociales para este evento.",
+    admin_social_generate_success: "{count} jobs sociales creados.",
+    admin_social_retry_success: "{count} jobs pasados a pending.",
+    admin_social_skip_success: "{count} jobs marcados como skipped.",
+    admin_social_action_error: "La acción social falló.",
+    admin_social_job_line: "{stage} · {status} · {date}",
+    admin_social_stage_approval: "Aprobación",
+    admin_social_stage_two_days_before: "2 días antes",
+    admin_social_stage_one_day_before: "1 día antes",
+    admin_social_stage_same_day: "Mismo día",
+    admin_social_stage_last_call: "Última llamada",
     admin_geo_label: "Coordenadas",
     admin_geo_ok: "disponibles",
     admin_geo_missing: "faltan",
@@ -1240,6 +1297,12 @@ const dom = {
   adminSessionInfo: document.getElementById("adminSessionInfo"),
   moderationCount: document.getElementById("moderationCount"),
   moderationFeedback: document.getElementById("moderationFeedback"),
+  socialQueueEventIdInput: document.getElementById("socialQueueEventIdInput"),
+  socialQueueLoadButton: document.getElementById("socialQueueLoadButton"),
+  socialQueueGenerateButton: document.getElementById("socialQueueGenerateButton"),
+  socialQueueRetryButton: document.getElementById("socialQueueRetryButton"),
+  socialQueueSkipButton: document.getElementById("socialQueueSkipButton"),
+  socialQueueJobs: document.getElementById("socialQueueJobs"),
   moderationList: document.getElementById("moderationList"),
   resultCount: document.getElementById("resultCount"),
   filtersForm: document.getElementById("filtersForm"),
@@ -7511,6 +7574,121 @@ async function handleCreateEventSubmit(submitEvent) {
   }
 }
 
+function socialStageLabel(stageValue) {
+  const stage = String(stageValue || "").trim();
+  const keyByStage = {
+    approval: "admin_social_stage_approval",
+    two_days_before: "admin_social_stage_two_days_before",
+    one_day_before: "admin_social_stage_one_day_before",
+    same_day: "admin_social_stage_same_day",
+    last_call: "admin_social_stage_last_call"
+  };
+  return t(keyByStage[stage] || keyByStage.approval);
+}
+
+function ensureAdminSocialEventId() {
+  const raw = String(dom.socialQueueEventIdInput?.value || "").trim();
+  if (!raw) {
+    setModerationFeedback(t("admin_social_action_error"), "error");
+    return "";
+  }
+  return raw;
+}
+
+function renderSocialQueueJobs(jobs = []) {
+  if (!dom.socialQueueJobs) return;
+  const rows = Array.isArray(jobs) ? jobs : [];
+  if (!rows.length) {
+    dom.socialQueueJobs.innerHTML = `<p class="admin-empty">${t("admin_social_jobs_empty")}</p>`;
+    return;
+  }
+  dom.socialQueueJobs.innerHTML = `
+    <p class="admin-social-jobs__title">${t("admin_social_jobs_title")}</p>
+    <ul class="admin-social-jobs__list">
+      ${rows.map((job) => {
+        const scheduled = String(job.scheduled_for || "").trim();
+        let dateLabel = "-";
+        if (scheduled) {
+          const parsedDate = new Date(scheduled);
+          dateLabel = Number.isNaN(parsedDate.getTime())
+            ? scheduled
+            : parsedDate.toLocaleString(getLocale(), { dateStyle: "short", timeStyle: "short" });
+        }
+        const line = t("admin_social_job_line", {
+          stage: socialStageLabel(job.post_stage),
+          status: job.status || "-",
+          date: dateLabel
+        });
+        return `<li class="admin-social-jobs__item">${line}</li>`;
+      }).join("")}
+    </ul>
+  `;
+}
+
+async function fetchSocialQueueJobsByEvent(eventId) {
+  const client = supabaseClient();
+  const { data, error } = await client
+    .from("social_queue")
+    .select("*")
+    .eq("event_id", eventId)
+    .order("scheduled_for", { ascending: true });
+  if (error) throw new Error(error.message || "Unable to load social queue.");
+  return data || [];
+}
+
+async function loadSocialQueueForEvent(eventId) {
+  const jobs = await fetchSocialQueueJobsByEvent(eventId);
+  renderSocialQueueJobs(jobs);
+}
+
+async function generateSocialQueueForEvent(eventId) {
+  const client = supabaseClient();
+  const { data, error } = await client.rpc("enqueue_social_jobs_for_event", {
+    p_event_id: eventId,
+    p_force: false
+  });
+  if (error) throw new Error(error.message || "Unable to generate social queue jobs.");
+  const count = Number(data || 0);
+  setModerationFeedback(t("admin_social_generate_success", { count }), "success");
+  return count;
+}
+
+async function retryFailedSocialQueueForEvent(eventId) {
+  const client = supabaseClient();
+  const { data, error } = await client
+    .from("social_queue")
+    .update({
+      status: "pending",
+      scheduled_for: new Date().toISOString(),
+      error_message: null
+    })
+    .eq("event_id", eventId)
+    .eq("status", "failed")
+    .lt("attempts", 3)
+    .select("id");
+  if (error) throw new Error(error.message || "Unable to retry failed jobs.");
+  const count = Array.isArray(data) ? data.length : 0;
+  setModerationFeedback(t("admin_social_retry_success", { count }), "success");
+  return count;
+}
+
+async function markSocialQueueSkippedForEvent(eventId) {
+  const client = supabaseClient();
+  const { data, error } = await client
+    .from("social_queue")
+    .update({
+      status: "skipped",
+      error_message: null
+    })
+    .eq("event_id", eventId)
+    .in("status", ["pending", "failed"])
+    .select("id");
+  if (error) throw new Error(error.message || "Unable to skip social jobs.");
+  const count = Array.isArray(data) ? data.length : 0;
+  setModerationFeedback(t("admin_social_skip_success", { count }), "success");
+  return count;
+}
+
 async function updateModerationStatus(eventId, nextStatus, verificationNotes) {
   const session = await checkAdminSession();
   if (!isSessionAdmin(session)) {
@@ -8044,6 +8222,32 @@ function bindEvents() {
       }
     });
   }
+  const bindAdminSocialAction = (button, handler) => {
+    if (!button) return;
+    button.addEventListener("click", async () => {
+      const eventId = ensureAdminSocialEventId();
+      if (!eventId) return;
+      const session = await checkAdminSession();
+      if (!isSessionAdmin(session)) {
+        setModerationFeedback(t("admin_role_required"), "error");
+        return;
+      }
+      button.disabled = true;
+      try {
+        await handler(eventId);
+        await loadSocialQueueForEvent(eventId);
+      } catch (error) {
+        console.error("Admin social action failed:", error);
+        setModerationFeedback(`${t("admin_social_action_error")} ${error.message || ""}`.trim(), "error");
+      } finally {
+        button.disabled = false;
+      }
+    });
+  };
+  bindAdminSocialAction(dom.socialQueueLoadButton, loadSocialQueueForEvent);
+  bindAdminSocialAction(dom.socialQueueGenerateButton, generateSocialQueueForEvent);
+  bindAdminSocialAction(dom.socialQueueRetryButton, retryFailedSocialQueueForEvent);
+  bindAdminSocialAction(dom.socialQueueSkipButton, markSocialQueueSkippedForEvent);
 }
 
 async function fetchEventsFromSupabase() {
