@@ -2149,67 +2149,24 @@ body.is-standalone-app .hero-first-open__actions {
   justify-content: center;
 }
 
-.event-details__share-panel {
+.event-details__share-actions-minimal {
   margin-top: 0.46rem;
-  padding: 0.54rem;
-  border-radius: 14px;
-  border: 1px solid rgba(255, 214, 186, 0.24);
-  background: linear-gradient(145deg, rgba(18, 28, 43, 0.9), rgba(26, 39, 58, 0.72));
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
 }
 
-.event-details__share-helper {
-  margin: 0 0 0.45rem;
-  color: #d8e3f7;
-  font-size: 0.74rem;
-  line-height: 1.32;
+.event-details__action--share-primary {
+  min-width: 128px;
 }
 
-.event-details__share-quick {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.32rem;
-  margin-bottom: 0.44rem;
-}
-
-.event-details__share-platforms {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 0.42rem;
-}
-
-.event-details__share-platform {
-  border-radius: 12px;
-  border: 1px solid rgba(255, 184, 145, 0.25);
-  background: rgba(14, 22, 36, 0.72);
-  padding: 0.44rem;
-}
-
-.event-details__share-platform h5 {
-  margin: 0 0 0.34rem;
-  font-size: 0.78rem;
-  line-height: 1.2;
-  color: #fff3ea;
-}
-
-.event-details__share-actions {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 0.3rem;
-}
-
-.event-details__share-button {
+.event-details__action--copy-compact {
   min-height: 34px;
-  font-size: 0.72rem;
+  padding: 0.28rem 0.58rem;
   border-radius: 10px;
-  padding: 0.3rem 0.44rem;
-}
-
-.event-details__share-button--whatsapp {
-  border-color: rgba(34, 197, 94, 0.6);
-}
-
-.event-details__share-button--facebook {
-  border-color: rgba(59, 130, 246, 0.62);
+  font-size: 0.72rem;
+  line-height: 1.1;
 }
 
 .event-details__action--primary {
@@ -2220,10 +2177,6 @@ body.is-standalone-app .hero-first-open__actions {
   border-color: rgba(255, 182, 120, 0.86);
   background: linear-gradient(135deg, rgba(236, 72, 153, 0.3), rgba(124, 58, 237, 0.26));
   color: #fff4de;
-}
-
-.event-details__action--whatsapp {
-  border-color: rgba(34, 197, 94, 0.55);
 }
 
 .map-bottom-sheet[data-sheet-state="peek"] .event-details {
@@ -3567,10 +3520,6 @@ body.is-standalone-app .hero-first-open__actions {
 
   .map-bottom-sheet[data-sheet-state="full"] .event-details__action--primary {
     grid-column: 1 / -1;
-  }
-
-  .map-bottom-sheet[data-sheet-state="full"] .event-details__share-platforms {
-    grid-template-columns: 1fr 1fr;
   }
 
   .map-bottom-sheet[data-sheet-state="half"] .event-details__sheet-actions,
