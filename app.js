@@ -420,15 +420,9 @@ const I18N = {
     details_view: "Details ansehen",
     details_image_counter: "{current} / {total}",
     details_share: "Teilen",
-    details_share_whatsapp: "WhatsApp",
-    details_share_facebook: "Facebook",
-    details_share_copy_caption: "Caption kopieren",
-    details_share_copy_link: "Event-Link kopieren",
-    details_share_open_sheet: "Teilen öffnen",
-    details_share_caption_copy_success: "Caption kopiert.",
-    details_share_helper_social: "Für Instagram oder TikTok: Caption kopieren und über Teilen öffnen.",
-    details_share_social_caption:
-      "Heute Live-Musik auf Marcha: {title} – {location}, {dateTime}. Mehr Infos: {link}",
+    details_copy_link: "Link kopieren",
+    details_share_vibe: "Live-Vibes heute Abend",
+    details_share_text: "🎶 {title}\n✨ {vibe}\n📍 {location}\n🕒 {time}\n🔗 {link}",
     details_calendar_add: "Zum Kalender",
     details_close_short: "Zurück",
     details_share_copy_success: "Link kopiert.",
@@ -685,15 +679,9 @@ const I18N = {
     details_view: "View details",
     details_image_counter: "{current} / {total}",
     details_share: "Share",
-    details_share_whatsapp: "WhatsApp",
-    details_share_facebook: "Facebook",
-    details_share_copy_caption: "Copy caption",
-    details_share_copy_link: "Copy event link",
-    details_share_open_sheet: "Open share sheet",
-    details_share_caption_copy_success: "Caption copied.",
-    details_share_helper_social: "For Instagram or TikTok: copy the caption and open the share sheet.",
-    details_share_social_caption:
-      "Live music on Marcha: {title} – {location}, {dateTime}. More info: {link}",
+    details_copy_link: "Copy link",
+    details_share_vibe: "Live vibes tonight",
+    details_share_text: "🎶 {title}\n✨ {vibe}\n📍 {location}\n🕒 {time}\n🔗 {link}",
     details_calendar_add: "Add to calendar",
     details_close_short: "Back",
     details_share_copy_success: "Link copied.",
@@ -950,15 +938,9 @@ const I18N = {
     details_view: "Ver detalles",
     details_image_counter: "{current} / {total}",
     details_share: "Compartir",
-    details_share_whatsapp: "WhatsApp",
-    details_share_facebook: "Facebook",
-    details_share_copy_caption: "Copiar texto",
-    details_share_copy_link: "Copiar enlace del evento",
-    details_share_open_sheet: "Abrir menú compartir",
-    details_share_caption_copy_success: "Texto copiado.",
-    details_share_helper_social: "Para Instagram o TikTok: copia el texto y abre el menú de compartir.",
-    details_share_social_caption:
-      "Música en vivo en Marcha: {title} – {location}, {dateTime}. Más info: {link}",
+    details_copy_link: "Copiar enlace",
+    details_share_vibe: "Buen ambiente en vivo esta noche",
+    details_share_text: "🎶 {title}\n✨ {vibe}\n📍 {location}\n🕒 {time}\n🔗 {link}",
     details_calendar_add: "Añadir al calendario",
     details_close_short: "Volver",
     details_share_copy_success: "Enlace copiado.",
@@ -4585,25 +4567,6 @@ function buildEventPublicLink(event) {
   return currentUrl.toString();
 }
 
-function buildEventSocialCaption(event) {
-  if (!event) return "";
-  const title = getEventTitle(event) || "Marcha Event";
-  const location = [getEventVenue(event), event.city]
-    .map((value) => String(value || "").trim())
-    .filter(Boolean)
-    .join(", ");
-  const dateTime = [formatDate(event.event_date, true), event.event_time || t("details_time_fallback")]
-    .filter(Boolean)
-    .join(" / ");
-  const link = buildEventPublicLink(event);
-  return t("details_share_social_caption", {
-    title,
-    location: location || "-",
-    dateTime: dateTime || "-",
-    link
-  });
-}
-
 async function copyTextToClipboard(text) {
   const value = String(text || "").trim();
   if (!value) return false;
@@ -4632,89 +4595,34 @@ async function copyTextToClipboard(text) {
   }
 }
 
-async function openNativeSocialShareSheet(event) {
-  if (!event || typeof navigator.share !== "function") return false;
-  const payload = {
-    title: getEventTitle(event) || "Marcha Event",
-    text: buildEventSocialCaption(event),
-    url: buildEventPublicLink(event)
-  };
-  try {
-    await navigator.share(payload);
-    return true;
-  } catch (error) {
-    if (error?.name === "AbortError") return true;
-    return false;
-  }
-}
-
-async function copyEventSocialCaption(event) {
-  const copied = await copyTextToClipboard(buildEventSocialCaption(event));
-  if (copied) {
-    setStatus(t("details_share_caption_copy_success"), "ok");
-    return true;
-  }
-  setStatus(t("details_share_not_supported"), "warning");
-  return false;
-}
-
-async function copyEventSocialLink(event) {
-  const copied = await copyTextToClipboard(buildEventPublicLink(event));
-  if (copied) {
-    setStatus(t("details_share_copy_success"), "ok");
-    return true;
-  }
-  setStatus(t("details_share_not_supported"), "warning");
-  return false;
-}
-
-function setEventDetailsSharePanelVisibility(visible) {
-  if (!dom.eventDetails) return;
-  const panel = dom.eventDetails.querySelector("[data-share-panel]");
-  const shareButton = dom.eventDetails.querySelector("button[data-action='details-share']");
-  if (panel) {
-    panel.hidden = !visible;
-    panel.setAttribute("aria-hidden", String(!visible));
-  }
-  if (shareButton) {
-    shareButton.setAttribute("aria-expanded", String(Boolean(visible)));
-  }
-}
-
-function buildEventSharePayload(event) {
-  if (!event) return null;
-  const title = getEventTitle(event) || "GoMarcha Event";
-  const dateLine = [formatDate(event.event_date, true), event.event_time || t("details_time_fallback")]
-    .filter(Boolean)
-    .join(" • ");
-  const locationLine = [getEventVenue(event), event.city, event.country]
+function buildEventShareText(event) {
+  if (!event) return "";
+  const title = getEventTitle(event) || "Marcha Event";
+  const location = [getEventVenue(event), event.city]
     .map((value) => String(value || "").trim())
     .filter(Boolean)
-    .join(" · ");
-  const text = [title, dateLine, locationLine].filter(Boolean).join("\n");
-  return {
-    title,
-    text,
-    url: buildNavigationUrl(event) || window.location.href
-  };
-}
-
-function buildWhatsappShareUrl(event) {
-  const payload = buildEventSharePayload(event);
-  if (!payload) return "";
-  const shareText = [payload.title, payload.text, payload.url].filter(Boolean).join("\n");
-  if (!shareText) return "";
-  return `https://wa.me/?text=${encodeURIComponent(shareText)}`;
-}
-
-function buildFacebookShareUrl(event) {
+    .join(", ");
+  const time = [formatDate(event.event_date, true), event.event_time || t("details_time_fallback")]
+    .filter(Boolean)
+    .join(" / ");
   const link = buildEventPublicLink(event);
-  if (!link) return "";
-  const caption = buildEventSocialCaption(event);
-  const params = new URLSearchParams();
-  params.set("u", link);
-  if (caption) params.set("quote", caption);
-  return `https://www.facebook.com/sharer/sharer.php?${params.toString()}`;
+  return t("details_share_text", {
+    title,
+    vibe: t("details_share_vibe"),
+    location: location || "-",
+    time: time || "-",
+    link
+  });
+}
+
+async function copyEventLinkFromDetails(event) {
+  const copied = await copyTextToClipboard(buildEventPublicLink(event));
+  if (copied) {
+    setStatus("Link copiado ✅", "ok");
+    return true;
+  }
+  setStatus(t("details_share_not_supported"), "warning");
+  return false;
 }
 
 function formatEventCalendarDateStamp(dateValue, allDay = false) {
@@ -4811,25 +4719,24 @@ function addEventToCalendar(event) {
   setStatus(t("details_calendar_success"), "ok");
 }
 
-async function shareEventFromDetails(event, platform = "whatsapp") {
-  const normalizedPlatform = String(platform || "whatsapp").trim().toLowerCase();
-  const shareUrl = normalizedPlatform === "facebook"
-    ? buildFacebookShareUrl(event)
-    : buildWhatsappShareUrl(event);
-  if (shareUrl) {
-    const openedWindow = window.open(shareUrl, "_blank", "noopener,noreferrer");
-    if (openedWindow) return;
-    window.location.href = shareUrl;
-    return;
+async function shareEventFromDetails(event) {
+  if (!event) return;
+  const eventUrl = buildEventPublicLink(event);
+  const generatedShareText = buildEventShareText(event);
+  const eventTitle = getEventTitle(event) || "Marcha Event";
+  if (typeof navigator.share === "function") {
+    try {
+      await navigator.share({
+        title: eventTitle,
+        text: generatedShareText,
+        url: eventUrl
+      });
+      return;
+    } catch (error) {
+      if (error?.name === "AbortError") return;
+    }
   }
-  const payload = buildEventSharePayload(event);
-  if (!payload) return;
-  const copied = await copyTextToClipboard(payload.url);
-  if (copied) {
-    setStatus(t("details_share_copy_success"), "ok");
-    return;
-  }
-  setStatus(t("details_share_not_supported"), "warning");
+  await copyEventLinkFromDetails(event);
 }
 
 function normalizeFilterText(value) {
@@ -7015,16 +6922,26 @@ function renderEventDetails(event) {
         ${t("details_navigate")}
       </button>
       `;
-  const shareButtonMarkup = `
+  const shareButtonMarkup = typeof navigator.share === "function"
+    ? `
     <button
       type="button"
-      class="button-secondary event-details__action"
+      class="button-secondary event-details__action event-details__action--share-primary"
       data-action="details-share"
       data-event-id="${event.id}"
-      aria-expanded="false"
-      aria-controls="event-details-share-panel"
     >
       ${t("details_share")}
+    </button>
+  `
+    : "";
+  const copyLinkButtonMarkup = `
+    <button
+      type="button"
+      class="button-secondary event-details__action event-details__action--copy-compact"
+      data-action="details-copy-link"
+      data-event-id="${event.id}"
+    >
+      ${t("details_copy_link")}
     </button>
   `;
   const calendarButtonMarkup = `
@@ -7036,102 +6953,6 @@ function renderEventDetails(event) {
     >
       ${t("details_calendar_add")}
     </button>
-  `;
-  const sharePanelMarkup = `
-    <section
-      id="event-details-share-panel"
-      class="event-details__share-panel"
-      data-share-panel
-      hidden
-      aria-hidden="true"
-      aria-label="Share options"
-    >
-      <p class="event-details__share-helper">${t("details_share_helper_social")}</p>
-      <div class="event-details__share-quick">
-        <button
-          type="button"
-          class="button-secondary event-details__share-button event-details__share-button--whatsapp"
-          data-action="details-share-whatsapp"
-          data-event-id="${event.id}"
-        >
-          ${t("details_share_whatsapp")}
-        </button>
-        <button
-          type="button"
-          class="button-secondary event-details__share-button event-details__share-button--facebook"
-          data-action="details-share-facebook"
-          data-event-id="${event.id}"
-        >
-          ${t("details_share_facebook")}
-        </button>
-      </div>
-      <div class="event-details__share-platforms">
-        <article class="event-details__share-platform">
-          <h5>Instagram</h5>
-          <div class="event-details__share-actions">
-            <button
-              type="button"
-              class="button-secondary event-details__share-button"
-              data-action="details-social-open-sheet"
-              data-platform="instagram"
-              data-event-id="${event.id}"
-            >
-              ${t("details_share_open_sheet")}
-            </button>
-            <button
-              type="button"
-              class="button-secondary event-details__share-button"
-              data-action="details-social-copy-caption"
-              data-platform="instagram"
-              data-event-id="${event.id}"
-            >
-              ${t("details_share_copy_caption")}
-            </button>
-            <button
-              type="button"
-              class="button-secondary event-details__share-button"
-              data-action="details-social-copy-link"
-              data-platform="instagram"
-              data-event-id="${event.id}"
-            >
-              ${t("details_share_copy_link")}
-            </button>
-          </div>
-        </article>
-        <article class="event-details__share-platform">
-          <h5>TikTok</h5>
-          <div class="event-details__share-actions">
-            <button
-              type="button"
-              class="button-secondary event-details__share-button"
-              data-action="details-social-open-sheet"
-              data-platform="tiktok"
-              data-event-id="${event.id}"
-            >
-              ${t("details_share_open_sheet")}
-            </button>
-            <button
-              type="button"
-              class="button-secondary event-details__share-button"
-              data-action="details-social-copy-caption"
-              data-platform="tiktok"
-              data-event-id="${event.id}"
-            >
-              ${t("details_share_copy_caption")}
-            </button>
-            <button
-              type="button"
-              class="button-secondary event-details__share-button"
-              data-action="details-social-copy-link"
-              data-platform="tiktok"
-              data-event-id="${event.id}"
-            >
-              ${t("details_share_copy_link")}
-            </button>
-          </div>
-        </article>
-      </div>
-    </section>
   `;
   dom.eventDetails.innerHTML = `
     <div class="event-details__preview">
@@ -7200,10 +7021,12 @@ function renderEventDetails(event) {
           </div>
           <div class="event-details__full-actions">
             ${routeButtonMarkup}
-            ${shareButtonMarkup}
             ${calendarButtonMarkup}
           </div>
-          ${sharePanelMarkup}
+          <div class="event-details__share-actions-minimal">
+            ${shareButtonMarkup}
+            ${copyLinkButtonMarkup}
+          </div>
           ${descriptionMarkup}
         </div>
       </div>
@@ -7800,14 +7623,12 @@ function bindEvents() {
       if (!target) return;
       const detailsPreviewButton = target.closest("button[data-action='details-preview']");
       if (detailsPreviewButton) {
-        setEventDetailsSharePanelVisibility(false);
         setMapBottomSheetState("full");
         window.setTimeout(() => map?.invalidateSize(), 100);
         return;
       }
       const detailsCollapseButton = target.closest("button[data-action='details-collapse']");
       if (detailsCollapseButton) {
-        setEventDetailsSharePanelVisibility(false);
         setMapBottomSheetState("peek");
         window.setTimeout(() => map?.invalidateSize(), 100);
         return;
@@ -7817,68 +7638,28 @@ function bindEvents() {
         const eventId = shareButton.dataset.eventId || state.selectedEventId;
         const selectedEvent = findEventById(eventId) || state.activeEvent;
         if (selectedEvent) {
-          const panel = dom.eventDetails?.querySelector("[data-share-panel]");
-          const nextOpenState = panel ? panel.hidden : true;
-          setEventDetailsSharePanelVisibility(nextOpenState);
-        } else {
-          setStatus(t("details_share_error"), "warning");
-        }
-        return;
-      }
-      const whatsappShareButton = target.closest("button[data-action='details-share-whatsapp']");
-      if (whatsappShareButton) {
-        const eventId = whatsappShareButton.dataset.eventId || state.selectedEventId;
-        const selectedEvent = findEventById(eventId) || state.activeEvent;
-        if (selectedEvent) {
           shareEventFromDetails(selectedEvent);
-          setEventDetailsSharePanelVisibility(false);
         } else {
           setStatus(t("details_share_error"), "warning");
         }
         return;
       }
-      const facebookShareButton = target.closest("button[data-action='details-share-facebook']");
-      if (facebookShareButton) {
-        const eventId = facebookShareButton.dataset.eventId || state.selectedEventId;
+      const copyLinkButton = target.closest("button[data-action='details-copy-link']");
+      if (copyLinkButton) {
+        const eventId = copyLinkButton.dataset.eventId || state.selectedEventId;
         const selectedEvent = findEventById(eventId) || state.activeEvent;
         if (selectedEvent) {
-          shareEventFromDetails(selectedEvent, "facebook");
-          setEventDetailsSharePanelVisibility(false);
+          copyEventLinkFromDetails(selectedEvent);
         } else {
           setStatus(t("details_share_error"), "warning");
         }
         return;
-      }
-      const socialActionButton = target.closest("button[data-action^='details-social-']");
-      if (socialActionButton) {
-        const eventId = socialActionButton.dataset.eventId || state.selectedEventId;
-        const selectedEvent = findEventById(eventId) || state.activeEvent;
-        if (!selectedEvent) {
-          setStatus(t("details_share_error"), "warning");
-          return;
-        }
-        const action = socialActionButton.dataset.action || "";
-        if (action === "details-social-open-sheet") {
-          openNativeSocialShareSheet(selectedEvent).then((opened) => {
-            if (!opened) setStatus(t("details_share_not_supported"), "warning");
-          });
-          return;
-        }
-        if (action === "details-social-copy-caption") {
-          copyEventSocialCaption(selectedEvent);
-          return;
-        }
-        if (action === "details-social-copy-link") {
-          copyEventSocialLink(selectedEvent);
-          return;
-        }
       }
       const addCalendarButton = target.closest("button[data-action='details-calendar']");
       if (addCalendarButton) {
         const eventId = addCalendarButton.dataset.eventId || state.selectedEventId;
         const selectedEvent = findEventById(eventId) || state.activeEvent;
         if (selectedEvent) {
-          setEventDetailsSharePanelVisibility(false);
           addEventToCalendar(selectedEvent);
         } else {
           setStatus(t("details_calendar_error"), "warning");
@@ -7890,7 +7671,6 @@ function bindEvents() {
         const eventId = navigateButton.dataset.eventId || state.selectedEventId;
         const selectedEvent = findEventById(eventId) || state.activeEvent;
         if (selectedEvent) {
-          setEventDetailsSharePanelVisibility(false);
           openNavigationForEvent(selectedEvent);
         }
         return;
