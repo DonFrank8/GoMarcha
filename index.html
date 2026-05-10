@@ -230,6 +230,25 @@
             <button id="adminSignOut" type="button" class="button-secondary" data-i18n="admin_logout">Abmelden</button>
           </div>
           <p id="moderationFeedback" class="add-event-message" hidden></p>
+          <section class="admin-social-tools">
+            <h4 data-i18n="admin_social_title">Social Automation</h4>
+            <label class="field field--full">
+              <span data-i18n="admin_social_event_id_label">Event-ID</span>
+              <input
+                id="socialQueueEventIdInput"
+                type="text"
+                data-i18n-placeholder="admin_social_event_id_placeholder"
+                placeholder="UUID des Events eingeben"
+              >
+            </label>
+            <div class="admin-social-tools__actions">
+              <button id="socialQueueLoadButton" type="button" class="button-secondary" data-i18n="admin_social_load">Queue laden</button>
+              <button id="socialQueueGenerateButton" type="button" class="button-secondary" data-i18n="admin_social_generate">Jobs erzeugen</button>
+              <button id="socialQueueRetryButton" type="button" class="button-secondary" data-i18n="admin_social_retry">Fehlgeschlagene retry</button>
+              <button id="socialQueueSkipButton" type="button" class="button-secondary" data-i18n="admin_social_skip">Pending auf skipped</button>
+            </div>
+            <div id="socialQueueJobs" class="admin-social-jobs"></div>
+          </section>
           <div id="moderationList" class="moderation-list"></div>
         </div>
       </section>
