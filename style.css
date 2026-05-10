@@ -2169,6 +2169,36 @@ body.is-standalone-app .hero-first-open__actions {
   line-height: 1.1;
 }
 
+.event-details__share-quick-social {
+  margin-top: 0.36rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.34rem;
+}
+
+.event-details__share-chip {
+  min-height: 34px;
+  border-radius: 10px;
+  font-size: 0.72rem;
+  padding: 0.3rem 0.44rem;
+}
+
+.event-details__share-chip--whatsapp {
+  border-color: rgba(34, 197, 94, 0.58);
+}
+
+.event-details__share-chip--telegram {
+  border-color: rgba(59, 130, 246, 0.55);
+}
+
+.event-details__share-chip--facebook {
+  border-color: rgba(59, 130, 246, 0.62);
+}
+
+.event-details__share-chip--instagram {
+  border-color: rgba(236, 72, 153, 0.52);
+}
+
 .event-details__action--primary {
   font-weight: 700;
 }

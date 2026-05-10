@@ -421,6 +421,10 @@ const I18N = {
     details_image_counter: "{current} / {total}",
     details_share: "Teilen",
     details_copy_link: "Link kopieren",
+    details_share_whatsapp: "WhatsApp",
+    details_share_telegram: "Telegram",
+    details_share_facebook: "Facebook",
+    details_share_instagram: "Instagram",
     details_share_vibe: "Live-Vibes heute Abend",
     details_share_text: "🎶 {title}\n✨ {vibe}\n📍 {location}\n🕒 {time}\n🔗 {link}",
     details_calendar_add: "Zum Kalender",
@@ -680,6 +684,10 @@ const I18N = {
     details_image_counter: "{current} / {total}",
     details_share: "Share",
     details_copy_link: "Copy link",
+    details_share_whatsapp: "WhatsApp",
+    details_share_telegram: "Telegram",
+    details_share_facebook: "Facebook",
+    details_share_instagram: "Instagram",
     details_share_vibe: "Live vibes tonight",
     details_share_text: "🎶 {title}\n✨ {vibe}\n📍 {location}\n🕒 {time}\n🔗 {link}",
     details_calendar_add: "Add to calendar",
@@ -939,6 +947,10 @@ const I18N = {
     details_image_counter: "{current} / {total}",
     details_share: "Compartir",
     details_copy_link: "Copiar enlace",
+    details_share_whatsapp: "WhatsApp",
+    details_share_telegram: "Telegram",
+    details_share_facebook: "Facebook",
+    details_share_instagram: "Instagram",
     details_share_vibe: "Buen ambiente en vivo esta noche",
     details_share_text: "🎶 {title}\n✨ {vibe}\n📍 {location}\n🕒 {time}\n🔗 {link}",
     details_calendar_add: "Añadir al calendario",
@@ -4615,6 +4627,76 @@ function buildEventShareText(event) {
   });
 }
 
+function buildEventSharePayload(event) {
+  if (!event) return null;
+  const title = getEventTitle(event) || "Marcha Event";
+  const url = buildEventPublicLink(event);
+  const text = buildEventShareText(event);
+  return {
+    title,
+    text,
+    url
+  };
+}
+
+function openExternalShareUrl(url) {
+  const targetUrl = String(url || "").trim();
+  if (!targetUrl) return false;
+  const openedWindow = window.open(targetUrl, "_blank", "noopener,noreferrer");
+  if (openedWindow) return true;
+  window.location.href = targetUrl;
+  return true;
+}
+
+function buildWhatsappShareUrl(event) {
+  const payload = buildEventSharePayload(event);
+  if (!payload) return "";
+  const shareText = [payload.text, payload.url].filter(Boolean).join("\n");
+  if (!shareText) return "";
+  return `https://wa.me/?text=${encodeURIComponent(shareText)}`;
+}
+
+function buildTelegramShareUrl(event) {
+  const payload = buildEventSharePayload(event);
+  if (!payload) return "";
+  const params = new URLSearchParams();
+  params.set("url", payload.url);
+  params.set("text", payload.text);
+  return `https://t.me/share/url?${params.toString()}`;
+}
+
+function buildFacebookShareUrl(event) {
+  const payload = buildEventSharePayload(event);
+  if (!payload) return "";
+  const params = new URLSearchParams();
+  params.set("u", payload.url);
+  if (payload.text) params.set("quote", payload.text);
+  return `https://www.facebook.com/sharer/sharer.php?${params.toString()}`;
+}
+
+async function shareEventViaQuickPlatform(event, platform) {
+  if (!event) return false;
+  const normalizedPlatform = String(platform || "").trim().toLowerCase();
+  if (normalizedPlatform === "instagram") {
+    if (typeof navigator.share === "function") {
+      await shareEventFromDetails(event);
+      return true;
+    }
+    await copyEventLinkFromDetails(event);
+    return true;
+  }
+  if (normalizedPlatform === "facebook") {
+    return openExternalShareUrl(buildFacebookShareUrl(event));
+  }
+  if (normalizedPlatform === "telegram") {
+    return openExternalShareUrl(buildTelegramShareUrl(event));
+  }
+  if (normalizedPlatform === "whatsapp") {
+    return openExternalShareUrl(buildWhatsappShareUrl(event));
+  }
+  return false;
+}
+
 async function copyEventLinkFromDetails(event) {
   const copied = await copyTextToClipboard(buildEventPublicLink(event));
   if (copied) {
@@ -6944,6 +7026,46 @@ function renderEventDetails(event) {
       ${t("details_copy_link")}
     </button>
   `;
+  const quickShareButtonsMarkup = `
+    <div class="event-details__share-quick-social" aria-label="Social quick share">
+      <button
+        type="button"
+        class="button-secondary event-details__share-chip event-details__share-chip--whatsapp"
+        data-action="details-share-quick"
+        data-platform="whatsapp"
+        data-event-id="${event.id}"
+      >
+        ${t("details_share_whatsapp")}
+      </button>
+      <button
+        type="button"
+        class="button-secondary event-details__share-chip event-details__share-chip--telegram"
+        data-action="details-share-quick"
+        data-platform="telegram"
+        data-event-id="${event.id}"
+      >
+        ${t("details_share_telegram")}
+      </button>
+      <button
+        type="button"
+        class="button-secondary event-details__share-chip event-details__share-chip--facebook"
+        data-action="details-share-quick"
+        data-platform="facebook"
+        data-event-id="${event.id}"
+      >
+        ${t("details_share_facebook")}
+      </button>
+      <button
+        type="button"
+        class="button-secondary event-details__share-chip event-details__share-chip--instagram"
+        data-action="details-share-quick"
+        data-platform="instagram"
+        data-event-id="${event.id}"
+      >
+        ${t("details_share_instagram")}
+      </button>
+    </div>
+  `;
   const calendarButtonMarkup = `
     <button
       type="button"
@@ -7027,6 +7149,7 @@ function renderEventDetails(event) {
             ${shareButtonMarkup}
             ${copyLinkButtonMarkup}
           </div>
+          ${quickShareButtonsMarkup}
           ${descriptionMarkup}
         </div>
       </div>
@@ -7650,6 +7773,20 @@ function bindEvents() {
         const selectedEvent = findEventById(eventId) || state.activeEvent;
         if (selectedEvent) {
           copyEventLinkFromDetails(selectedEvent);
+        } else {
+          setStatus(t("details_share_error"), "warning");
+        }
+        return;
+      }
+      const quickShareButton = target.closest("button[data-action='details-share-quick']");
+      if (quickShareButton) {
+        const eventId = quickShareButton.dataset.eventId || state.selectedEventId;
+        const selectedEvent = findEventById(eventId) || state.activeEvent;
+        if (selectedEvent) {
+          const platform = quickShareButton.dataset.platform || "";
+          shareEventViaQuickPlatform(selectedEvent, platform).then((success) => {
+            if (!success) setStatus(t("details_share_error"), "warning");
+          });
         } else {
           setStatus(t("details_share_error"), "warning");
         }
