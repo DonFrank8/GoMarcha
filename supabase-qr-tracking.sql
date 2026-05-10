@@ -2,8 +2,16 @@
 create table if not exists public.qr_tracking (
   id bigint generated always as identity primary key,
   source text not null,
+  language text,
+  page_url text,
+  user_agent text,
   created_at timestamptz not null default now()
 );
+
+alter table public.qr_tracking add column if not exists language text;
+alter table public.qr_tracking add column if not exists page_url text;
+alter table public.qr_tracking add column if not exists user_agent text;
+alter table public.qr_tracking add column if not exists created_at timestamptz not null default now();
 
 alter table public.qr_tracking enable row level security;
 

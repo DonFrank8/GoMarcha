@@ -26,7 +26,7 @@ const MOBILE_INSTALL_CTA_DISMISS_STORAGE_KEY = "vibeon.installCta.dismissedUntil
 const USER_LOCATION_STORAGE_KEY = "vibeon.userLocation.v1";
 const LANGUAGE_STORAGE_KEY = "vibeon.language";
 const SOURCE_STORAGE_KEY = "source";
-const SOURCE_TRACKED_SESSION_STORAGE_KEY = "vibeon.sourceTrackedInSession.v1";
+const SOURCE_TRACKED_SESSION_STORAGE_KEY = "qr_tracked_this_session";
 const TRANSLATION_TARGET_LANGUAGE_BY_CODE = Object.freeze({
   de: "German",
   en: "English",
@@ -5149,20 +5149,16 @@ function readQueryParams() {
 async function trackLandingSource(sourceValue) {
   const source = String(sourceValue || "").trim();
   if (!source) return;
-  const normalizedSource = source.toLowerCase();
-
-  console.log("User came from:", source);
+  console.log("QR source detected:", source);
   try {
     window.localStorage.setItem(SOURCE_STORAGE_KEY, source);
   } catch (_error) {
     // Ignore storage errors to keep app flow unaffected.
   }
 
-  if (normalizedSource !== "qr") return;
-
   try {
     if (window.sessionStorage.getItem(SOURCE_TRACKED_SESSION_STORAGE_KEY)) return;
-    window.sessionStorage.setItem(SOURCE_TRACKED_SESSION_STORAGE_KEY, normalizedSource);
+    window.sessionStorage.setItem(SOURCE_TRACKED_SESSION_STORAGE_KEY, "1");
   } catch (_error) {
     // If session storage is unavailable, continue without Supabase write.
     return;
@@ -5170,12 +5166,20 @@ async function trackLandingSource(sourceValue) {
 
   try {
     const client = supabaseClient();
-    const { error } = await client.from("qr_tracking").insert({ source: normalizedSource });
+    const { error } = await client.from("qr_tracking").insert({
+      source,
+      language: state.lang,
+      page_url: window.location.href,
+      user_agent: navigator.userAgent || "",
+      created_at: new Date().toISOString()
+    });
     if (error) {
-      console.warn("[Marcha Debug] qr_tracking insert skipped:", error.message || error);
+      console.log("QR tracking failed", error.message || error);
+      return;
     }
+    console.log("QR tracking saved");
   } catch (error) {
-    console.warn("[Marcha Debug] qr_tracking insert failed:", error?.message || error);
+    console.log("QR tracking failed", error?.message || error);
   }
 }
 
@@ -8117,7 +8121,6 @@ async function startApp() {
   suppressInstallUiOnAppLoad();
   registerServiceWorker();
   const query = readQueryParams();
-  void trackLandingSource(query.source);
   const urlLang = String(query.lang || "").trim().toLowerCase();
   if (isSupportedLanguageCode(urlLang)) {
     state.lang = urlLang;
@@ -8126,6 +8129,7 @@ async function startApp() {
     const savedLang = readSavedLanguagePreference();
     state.lang = savedLang || resolveLanguageFromBrowser(languageFallbackForHost());
   }
+  void trackLandingSource(query.source);
   state.isAdminMode = resolveAdminMode(query.admin);
   applyStaticTranslations();
   applyLegacyUiCleanupOverrides();
