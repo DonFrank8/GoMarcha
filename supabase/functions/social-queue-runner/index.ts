@@ -32,6 +32,8 @@ type EventRow = {
   featured: boolean | null;
   image_url: string | null;
   image_urls: unknown;
+  recurrence_type?: string | null;
+  recurrence_start_date?: string | null;
 };
 
 const CORS: Record<string, string> = {
@@ -85,7 +87,9 @@ function isHttpsImageUrl(raw: string | null | undefined): boolean {
   }
 }
 
-function resolveEventImageUrl(event: EventRow, fallback: string): { url: string; source: string } {
+/** Ordered HTTPS candidates from DB (featured image_urls first), excluding obvious Marcha promo/QR/logo URLs. */
+function orderedEventImageCandidates(event: EventRow, configuredFallback: string): { url: string; source: string }[] {
+  const out: { url: string; source: string }[] = [];
   const urls = event.image_urls;
   if (Array.isArray(urls) && urls.length) {
     const objects = urls.filter((x) => x && (typeof x === "object" || typeof x === "string")) as (string | Record<
@@ -96,36 +100,271 @@ function resolveEventImageUrl(event: EventRow, fallback: string): { url: string;
     const ordered = featured ? [featured, ...objects.filter((x) => x !== featured)] : objects;
     for (const entry of ordered) {
       const u = typeof entry === "string" ? entry : String((entry as { url?: string }).url || "").trim();
-      if (isHttpsImageUrl(u)) return { url: u.trim(), source: "events.image_urls" };
+      if (!isHttpsImageUrl(u)) continue;
+      if (isGenericMarchaPromoUrl(u, configuredFallback)) continue;
+      out.push({ url: u.trim(), source: "events.image_urls" });
     }
   }
   const main = String(event.image_url || "").trim();
-  if (isHttpsImageUrl(main)) return { url: main, source: "events.image_url" };
-  return { url: fallback, source: "fallback_generic" };
+  if (isHttpsImageUrl(main) && !isGenericMarchaPromoUrl(main, configuredFallback)) {
+    out.push({ url: main.trim(), source: "events.image_url" });
+  }
+  return out;
 }
 
-async function validateImageUrl(url: string): Promise<{ ok: boolean; status?: number; contentType?: string }> {
+/** Generic Marcha site assets / QR / promo — never treat as the real event photo when other candidates exist. */
+function isGenericMarchaPromoUrl(url: string, configuredFallback: string): boolean {
+  const t = url.trim().toLowerCase();
+  const fb = configuredFallback.trim().toLowerCase();
+  if (fb && t === fb) return true;
+  try {
+    const u = new URL(t);
+    const host = u.hostname.replace(/^www\./, "").toLowerCase();
+    const p = u.pathname.toLowerCase();
+    const hints = [
+      "/assets/logo",
+      "logo.png",
+      "logo.webp",
+      "logo-schrift",
+      "favicon",
+      "app-icon",
+      "app_icon",
+      "promo",
+      "/qr",
+      "qrcode",
+      "brand-marcha",
+      "marcha-qr"
+    ];
+    const marchaHosts = ["gomarcha.com", "www.gomarcha.com"];
+    if (marchaHosts.includes(host) && hints.some((h) => p.includes(h))) return true;
+  } catch {
+    return false;
+  }
+  return false;
+}
+
+async function validateImageReachable(url: string): Promise<{ ok: boolean; status?: number; contentType?: string; via?: string }> {
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 10000);
+  const timer = setTimeout(() => ctrl.abort(), 15000);
   try {
     let res = await fetch(url, { method: "HEAD", signal: ctrl.signal, redirect: "follow" });
-    if (res.status === 405 || res.status === 501) {
+    let via = "HEAD";
+    let ct = res.headers.get("content-type") || "";
+    if (!res.ok || !/image\//i.test(ct)) {
       res = await fetch(url, {
         method: "GET",
-        headers: { Range: "bytes=0-0" },
+        headers: { Range: "bytes=0-16384" },
         signal: ctrl.signal,
         redirect: "follow"
       });
+      via = "GET";
+      ct = res.headers.get("content-type") || "";
     }
-    const ct = res.headers.get("content-type") || "";
     const ok = res.ok && /image\//i.test(ct);
-    return { ok, status: res.status, contentType: ct };
+    return { ok, status: res.status, contentType: ct, via };
   } catch (e) {
-    slog("image_url_validation_failed", { url, error: String(e) });
+    slog("image_reachable_failed", { url: url.slice(0, 120), error: String(e) });
     return { ok: false };
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function selectBestReachableEventImage(
+  event: EventRow,
+  configuredFallback: string
+): Promise<{ url: string; source: string }> {
+  const candidates = orderedEventImageCandidates(event, configuredFallback);
+  const seen = new Set<string>();
+  for (const c of candidates) {
+    if (seen.has(c.url)) continue;
+    seen.add(c.url);
+    const v = await validateImageReachable(c.url);
+    if (v.ok) return { url: c.url, source: c.source };
+  }
+  return { url: configuredFallback, source: "fallback_generic" };
+}
+
+function getPrimaryEventDateYmd(event: EventRow): string | null {
+  const rt = String(event.recurrence_type || "none").toLowerCase();
+  if (rt !== "none") {
+    const s = String(event.recurrence_start_date || "").trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  }
+  const d = String(event.event_date || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
+  return null;
+}
+
+function parseWallTimeParts(raw: string): { h: number; m: number; s: number } {
+  const t = String(raw || "23:59").trim();
+  const p = t.split(":");
+  const h = Math.min(23, Math.max(0, Number(p[0]) || 0));
+  const m = Math.min(59, Math.max(0, Number(p[1]) || 0));
+  const s = p[2] !== undefined ? Math.min(59, Math.max(0, Number(p[2]) || 0)) : 0;
+  return { h, m, s };
+}
+
+/** Wall clock from `events.event_date` / `recurrence_start_date` + `events.event_time` in `timeZone` (default Europe/Berlin). */
+function eventStartEpochMs(event: EventRow, timeZone: string): number | null {
+  const ymd = getPrimaryEventDateYmd(event);
+  if (!ymd) return null;
+  const { h, m, s } = parseWallTimeParts(String(event.event_time || "23:59"));
+  // deno-lint-ignore no-explicit-any
+  const TemporalApi = (globalThis as any).Temporal as
+    | undefined
+    | {
+        ZonedDateTime: {
+          from(
+            x: Record<string, string | number>
+          ): { toInstant: () => { epochMilliseconds: number } };
+        };
+      };
+  if (!TemporalApi?.ZonedDateTime) {
+    slog("temporal_missing_using_utc", { event_id: event.id });
+    return Date.parse(`${ymd}T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}Z`);
+  }
+  try {
+    return TemporalApi.ZonedDateTime.from({
+      timeZone,
+      year: Number(ymd.slice(0, 4)),
+      month: Number(ymd.slice(5, 7)),
+      day: Number(ymd.slice(8, 10)),
+      hour: h,
+      minute: m,
+      second: s,
+      millisecond: 0
+    }).toInstant().epochMilliseconds;
+  } catch (e) {
+    slog("event_start_parse_failed", { event_id: event.id, ymd, error: String(e) });
+    return null;
+  }
+}
+
+function zonedCalendarParts(ms: number, timeZone: string): { y: number; mo: number; d: number; hour: number; minute: number } {
+  // deno-lint-ignore no-explicit-any
+  const TemporalApi = (globalThis as any).Temporal as
+    | undefined
+    | {
+        Instant: {
+          fromEpochMilliseconds(ms: number): {
+            toZonedDateTimeISO(tz: string): { year: number; month: number; day: number; hour: number; minute: number };
+          };
+        };
+      };
+  if (!TemporalApi?.Instant) {
+    const d = new Date(ms);
+    return { y: d.getUTCFullYear(), mo: d.getUTCMonth() + 1, d: d.getUTCDate(), hour: d.getUTCHours(), minute: d.getUTCMinutes() };
+  }
+  const z = TemporalApi.Instant.fromEpochMilliseconds(ms).toZonedDateTimeISO(timeZone);
+  return { y: z.year, mo: z.month, d: z.day, hour: z.hour, minute: z.minute };
+}
+
+function wallClockToEpochMs(
+  y: number,
+  mo: number,
+  d: number,
+  hour: number,
+  minute: number,
+  second: number,
+  timeZone: string
+): number | null {
+  // deno-lint-ignore no-explicit-any
+  const TemporalApi = (globalThis as any).Temporal as
+    | undefined
+    | {
+        ZonedDateTime: {
+          from(x: Record<string, string | number>): { toInstant: () => { epochMilliseconds: number } };
+        };
+      };
+  if (!TemporalApi?.ZonedDateTime) {
+    return Date.parse(`${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:${String(second).padStart(2, "0")}Z`);
+  }
+  try {
+    return TemporalApi.ZonedDateTime.from({
+      timeZone,
+      year: y,
+      month: mo,
+      day: d,
+      hour,
+      minute,
+      second,
+      millisecond: 0
+    }).toInstant().epochMilliseconds;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Never publish after event start. Default last compliant slot = 2h before start.
+ * Same calendar day (event TZ): afternoon queue times clamp toward a morning slot.
+ */
+function resolveEffectivePostTimeMs(args: {
+  queueScheduledIso: string;
+  eventStartMs: number;
+  nowMs: number;
+  timeZone: string;
+}): { ok: true; effectiveMs: number; trace: string[] } | { ok: false; reason: string; trace: string[] } {
+  const { queueScheduledIso, eventStartMs, nowMs, timeZone: tz } = args;
+  const trace: string[] = [];
+  const qMs = Date.parse(queueScheduledIso);
+  if (Number.isNaN(qMs)) return { ok: false, reason: "invalid_queue_scheduled_at", trace };
+
+  if (nowMs >= eventStartMs) return { ok: false, reason: "event_already_started_or_past", trace };
+  if (qMs >= eventStartMs) return { ok: false, reason: "queue_scheduled_after_event_start", trace };
+
+  const TWO_MS = 2 * 60 * 60 * 1000;
+  const lastCompliantMs = eventStartMs - TWO_MS;
+
+  let eff = qMs;
+  trace.push(`queue_ms=${qMs}`);
+
+  if (eff > lastCompliantMs) {
+    if (nowMs >= lastCompliantMs) {
+      trace.push("branch=last_call_immediate_inside_two_hours");
+      eff = nowMs + 45_000;
+      if (eff >= eventStartMs) eff = eventStartMs - 15_000;
+      if (eff <= nowMs) return { ok: false, reason: "too_late_cannot_post_before_event", trace };
+    } else {
+      trace.push("branch=clamp_to_two_hours_before_start");
+      eff = lastCompliantMs;
+    }
+  }
+
+  const afternoonCutoffHour = 15;
+  const morningHour = 10;
+  const morningMinute = 30;
+  const effParts = zonedCalendarParts(eff, tz);
+  const startParts = zonedCalendarParts(eventStartMs, tz);
+  const sameCalendarDay =
+    effParts.y === startParts.y && effParts.mo === startParts.mo && effParts.d === startParts.d;
+
+  if (sameCalendarDay && effParts.hour >= afternoonCutoffHour && eff < eventStartMs) {
+    trace.push("branch=same_day_afternoon_clamp_morning_slot");
+    const morningMs = wallClockToEpochMs(effParts.y, effParts.mo, effParts.d, morningHour, morningMinute, 0, tz);
+    if (morningMs !== null) {
+      let slot = morningMs;
+      if (slot > lastCompliantMs && nowMs < lastCompliantMs) slot = lastCompliantMs;
+      if (slot < nowMs && nowMs < lastCompliantMs) slot = Math.min(lastCompliantMs, nowMs + 60_000);
+      if (slot >= nowMs && slot < eventStartMs) eff = slot;
+      else if (nowMs >= lastCompliantMs) {
+        eff = Math.min(nowMs + 45_000, eventStartMs - 15_000);
+      } else {
+        eff = lastCompliantMs;
+      }
+    }
+  }
+
+  if (eff >= eventStartMs) return { ok: false, reason: "effective_post_after_event_start", trace };
+  if (eff < nowMs) {
+    eff = Math.min(nowMs + 60_000, eventStartMs - 15_000);
+  }
+  if (eff >= eventStartMs) return { ok: false, reason: "effective_post_after_event_start", trace };
+  if (eff < nowMs) return { ok: false, reason: "no_future_publish_slot", trace };
+
+  trace.push(`effective_ms=${eff}`);
+  return { ok: true, effectiveMs: eff, trace };
 }
 
 function buildCaption(hook: { id: string; line: string }, event: EventRow): { caption: string; template_id: string } {
@@ -455,6 +694,7 @@ Deno.serve(async (req) => {
   const intFb = Deno.env.get("POSTIZ_FACEBOOK_INTEGRATION_ID") || "";
   const fallbackImage =
     Deno.env.get("MARCHA_DEFAULT_SOCIAL_IMAGE_URL") || "https://gomarcha.com/assets/logo.png";
+  const eventTimeZone = Deno.env.get("MARCHA_EVENT_TIMEZONE") || "Europe/Berlin";
 
   if (!postizKey) {
     slog("missing_postiz_api_key");
@@ -535,7 +775,7 @@ Deno.serve(async (req) => {
     const { data: event, error: eErr } = await supabase
       .from("events")
       .select(
-        "id,name,city,location_name,event_date,event_time,genre,status,featured,image_url,image_urls"
+        "id,name,city,location_name,event_date,event_time,genre,status,featured,image_url,image_urls,recurrence_type,recurrence_start_date"
       )
       .eq("id", claimed.event_id)
       .maybeSingle();
@@ -587,21 +827,92 @@ Deno.serve(async (req) => {
       continue;
     }
 
-    const { url: chosenImage, source: imageSource } = resolveEventImageUrl(ev, fallbackImage);
-    const validation = await validateImageUrl(chosenImage);
-    const finalImage = validation.ok
-      ? chosenImage
-      : fallbackImage;
-    const imageLoggedSource = validation.ok ? imageSource : `${imageSource}_invalid_used_fallback`;
-
-    if (!validation.ok && chosenImage !== fallbackImage) {
-      slog("image_invalid_using_fallback", {
-        queue_id: claimed.id,
-        tried: chosenImage,
-        head_status: validation.status,
-        content_type: validation.contentType
-      });
+    const eventStartMs = eventStartEpochMs(ev, eventTimeZone);
+    if (eventStartMs === null) {
+      const msg = "event_start_unknown_missing_date";
+      slog("schedule_skip", { queue_id: claimed.id, event_id: ev.id, reason: msg });
+      await supabase
+        .from("social_queue")
+        .update({
+          status: "skipped",
+          last_error: msg,
+          updated_at: new Date().toISOString()
+        })
+        .eq("id", claimed.id);
+      results.push({ queue_id: claimed.id, skipped: true, reason: msg });
+      continue;
     }
+
+    const nowMs = Date.now();
+    const scheduleResult = resolveEffectivePostTimeMs({
+      queueScheduledIso: claimed.scheduled_at,
+      eventStartMs,
+      nowMs,
+      timeZone: eventTimeZone
+    });
+
+    if (!scheduleResult.ok) {
+      slog("schedule_skip", {
+        queue_id: claimed.id,
+        event_id: ev.id,
+        event_title: ev.name ?? "",
+        reason: scheduleResult.reason,
+        trace: scheduleResult.trace,
+        queue_scheduled_at: claimed.scheduled_at,
+        event_start_ms: eventStartMs,
+        timezone: eventTimeZone
+      });
+      await supabase
+        .from("social_queue")
+        .update({
+          status: "skipped",
+          last_error: `schedule:${scheduleResult.reason}`,
+          updated_at: new Date().toISOString()
+        })
+        .eq("id", claimed.id);
+      results.push({ queue_id: claimed.id, skipped: true, reason: scheduleResult.reason });
+      continue;
+    }
+
+    const effectivePostIso = new Date(scheduleResult.effectiveMs).toISOString();
+    slog("schedule_resolved", {
+      queue_id: claimed.id,
+      event_id: ev.id,
+      event_title: ev.name ?? "",
+      queue_scheduled_at: claimed.scheduled_at,
+      effective_post_at: effectivePostIso,
+      event_start_iso: new Date(eventStartMs).toISOString(),
+      timezone: eventTimeZone,
+      schedule_trace: scheduleResult.trace.join(" | ")
+    });
+
+    slog("event_image_audit", {
+      queue_id: claimed.id,
+      event_id: ev.id,
+      event_title: ev.name ?? "",
+      raw_image_url: ev.image_url ?? null,
+      raw_image_urls: ev.image_urls ?? null,
+      recurrence_type: ev.recurrence_type ?? null,
+      recurrence_start_date: ev.recurrence_start_date ?? null,
+      primary_event_date_ymd: getPrimaryEventDateYmd(ev),
+      event_time_wall: ev.event_time ?? null,
+      timezone: eventTimeZone
+    });
+
+    const pickedImage = await selectBestReachableEventImage(ev, fallbackImage);
+    const nonGenericCandidates = orderedEventImageCandidates(ev, fallbackImage).length;
+
+    const finalImage = pickedImage.url;
+    const imageLoggedSource = pickedImage.source;
+
+    slog("event_image_selected", {
+      queue_id: claimed.id,
+      event_id: ev.id,
+      selected_source_image_url: finalImage,
+      selection_source: imageLoggedSource,
+      non_generic_candidate_count: nonGenericCandidates,
+      using_generic_fallback: pickedImage.source === "fallback_generic"
+    });
 
     const uploadResult = await ensurePostizHostedMedia({
       apiBase: postizBase,
@@ -635,17 +946,25 @@ Deno.serve(async (req) => {
     const publishMedia = uploadResult.media;
     const resolvedPostizUrl = publishMedia.path;
 
+    slog("event_image_postiz_uploaded", {
+      queue_id: claimed.id,
+      event_id: ev.id,
+      uploaded_postiz_image_url: resolvedPostizUrl,
+      postiz_media_id: publishMedia.id
+    });
+
     const hook = await pickHook(supabase, claimed.event_id);
     const { caption, template_id } = buildCaption(hook, ev);
 
     slog("post_prepare", {
       queue_id: claimed.id,
       event_id: claimed.event_id,
+      event_title: ev.name ?? "",
       platform: claimed.platform,
-      scheduled_at: claimed.scheduled_at,
+      queue_scheduled_at: claimed.scheduled_at,
+      effective_post_at: effectivePostIso,
       source_image_url: finalImage,
       image_source: imageLoggedSource,
-      image_head_ok: validation.ok,
       postiz_media_id: publishMedia.id,
       postiz_image_path: resolvedPostizUrl,
       postiz_upload_performed: uploadResult.uploadPerformed,
@@ -659,7 +978,7 @@ Deno.serve(async (req) => {
       apiKey: postizKey,
       integrationId,
       platform: claimed.platform,
-      scheduledIso: claimed.scheduled_at,
+      scheduledIso: effectivePostIso,
       caption,
       image: publishMedia
     });
