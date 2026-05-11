@@ -617,6 +617,63 @@ function postizSettings(platform: SocialPlatform): Record<string, unknown> {
   return { __type: "facebook", url: "https://gomarcha.com" };
 }
 
+/** Postiz API validates `tags` as an array of `{ value, label }`; empty `[]` can break create/list visibility (see postiz-app#717). */
+function postizTagsPayload(): { value: string; label: string }[] {
+  return [{ value: "", label: "" }];
+}
+
+function toUtcPostizDateIso(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toISOString();
+}
+
+/**
+ * Extract listable post ids from POST /posts response (shape varies by Postiz version).
+ * Ignores releaseId === "missing" as non-listable for our "posted" gate.
+ */
+function extractPostIdsFromCreateResponse(body: unknown): string[] {
+  const out: string[] = [];
+  const take = (v: unknown) => {
+    if (typeof v !== "string") return;
+    const t = v.trim();
+    if (!t || t === "missing") return;
+    out.push(t);
+  };
+
+  const scanObject = (o: Record<string, unknown>) => {
+    take(o.postId);
+    take(o.post_id);
+    take(o.id);
+    const post = o.post;
+    if (post && typeof post === "object") {
+      const po = post as Record<string, unknown>;
+      take(po.id);
+      take(po.postId);
+    }
+  };
+
+  if (Array.isArray(body)) {
+    for (const item of body) {
+      if (item && typeof item === "object") scanObject(item as Record<string, unknown>);
+    }
+    return [...new Set(out)];
+  }
+  if (body && typeof body === "object") {
+    scanObject(body as Record<string, unknown>);
+    const root = body as Record<string, unknown>;
+    for (const key of ["posts", "data", "result", "items"]) {
+      const arr = root[key];
+      if (Array.isArray(arr)) {
+        for (const item of arr) {
+          if (item && typeof item === "object") scanObject(item as Record<string, unknown>);
+        }
+      }
+    }
+  }
+  return [...new Set(out)];
+}
+
 async function createPostizPost(args: {
   base: string;
   apiKey: string;
@@ -625,29 +682,39 @@ async function createPostizPost(args: {
   scheduledIso: string;
   caption: string;
   image: PostizMedia;
-}): Promise<{ ok: boolean; status: number; body: unknown }> {
+  queueId: string;
+}): Promise<{ ok: boolean; status: number; body: unknown; requestPayload: Record<string, unknown> }> {
   const url = `${args.base.replace(/\/$/, "")}/posts`;
-  const image = [args.image];
-  const body = {
+  const group = crypto.randomUUID();
+  const dateIso = toUtcPostizDateIso(args.scheduledIso);
+  const requestPayload: Record<string, unknown> = {
     type: "schedule",
-    date: args.scheduledIso,
+    date: dateIso,
     shortLink: false,
-    tags: [],
+    tags: postizTagsPayload(),
     posts: [
       {
+        group,
         integration: { id: args.integrationId },
-        value: [{ content: args.caption, image }],
+        value: [{ content: args.caption, image: [args.image] }],
         settings: postizSettings(args.platform)
       }
     ]
   };
+
+  slog("postiz_create_request_payload", {
+    queue_id: args.queueId,
+    endpoint: url,
+    payload: requestPayload
+  });
+
   const res = await fetch(url, {
     method: "POST",
     headers: {
       Authorization: args.apiKey,
       "Content-Type": "application/json"
     },
-    body: JSON.stringify(body)
+    body: JSON.stringify(requestPayload)
   });
   let parsed: unknown = null;
   try {
@@ -655,7 +722,8 @@ async function createPostizPost(args: {
   } catch {
     parsed = await res.text();
   }
-  return { ok: res.ok, status: res.status, body: parsed };
+  const httpOk = res.status >= 200 && res.status < 300;
+  return { ok: httpOk, status: res.status, body: parsed, requestPayload };
 }
 
 async function claimRow(supabase: SupabaseClient, rowId: string): Promise<QueueRow | null> {
@@ -980,13 +1048,13 @@ Deno.serve(async (req) => {
       platform: claimed.platform,
       scheduledIso: effectivePostIso,
       caption,
-      image: publishMedia
+      image: publishMedia,
+      queueId: claimed.id
     });
 
-    slog("postiz_response", {
+    slog("postiz_create_response_body", {
       queue_id: claimed.id,
       platform: claimed.platform,
-      ok: postizRes.ok,
       http_status: postizRes.status,
       body: postizRes.body
     });
@@ -1017,6 +1085,45 @@ Deno.serve(async (req) => {
       continue;
     }
 
+    const createdPostIds = extractPostIdsFromCreateResponse(postizRes.body);
+    if (createdPostIds.length === 0) {
+      slog("postiz_create_no_listable_post_id", {
+        queue_id: claimed.id,
+        http_status: postizRes.status,
+        body: postizRes.body
+      });
+      const mergedResponse =
+        typeof postizRes.body === "object" && postizRes.body !== null
+          ? { ...(postizRes.body as object), _marcha_extracted_post_ids: createdPostIds }
+          : { raw: postizRes.body, _marcha_extracted_post_ids: createdPostIds };
+      await supabase
+        .from("social_queue")
+        .update({
+          status: "failed",
+          resolved_image_url: resolvedPostizUrl,
+          caption,
+          caption_template_id: template_id,
+          postiz_response: mergedResponse as object,
+          last_error: "postiz:create_not_visible",
+          retry_count: claimed.retry_count + 1,
+          updated_at: now
+        })
+        .eq("id", claimed.id);
+      results.push({
+        queue_id: claimed.id,
+        ok: false,
+        phase: "posts_create",
+        postiz_status: postizRes.status,
+        reason: "postiz:create_not_visible"
+      });
+      continue;
+    }
+
+    const mergedSuccessResponse =
+      typeof postizRes.body === "object" && postizRes.body !== null
+        ? { ...(postizRes.body as object), _marcha_postiz_post_ids: createdPostIds }
+        : { raw: postizRes.body, _marcha_postiz_post_ids: createdPostIds };
+
     await supabase.from("social_caption_usage").insert({
       event_id: claimed.event_id,
       template_id,
@@ -1031,7 +1138,7 @@ Deno.serve(async (req) => {
         resolved_image_url: resolvedPostizUrl,
         caption,
         caption_template_id: template_id,
-        postiz_response: postizRes.body as object,
+        postiz_response: mergedSuccessResponse as object,
         last_error: null,
         posted_at: now,
         updated_at: now
@@ -1041,6 +1148,7 @@ Deno.serve(async (req) => {
     results.push({
       queue_id: claimed.id,
       ok: true,
+      postiz_post_ids: createdPostIds,
       source_image_url: finalImage,
       postiz_image_url: resolvedPostizUrl,
       image_source: imageLoggedSource,

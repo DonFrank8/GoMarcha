@@ -32,6 +32,22 @@ Postiz `posts:create` requires media `path` values on **`uploads.postiz.com`**. 
 
 Postiz rate limit: **30 requests/hour** across the API (each job uses at least **upload + posts**).
 
+### Create post payload (calendar + `posts:list` visibility)
+
+The public `POST /v1/posts` contract is strict. The runner sends:
+
+- `type: "schedule"`, `shortLink: false`, `date` as UTC ISO (`…Z`) from the scheduling step  
+- **`tags`: `[{ "value": "", "label": "" }]`** — an empty `tags: []` array has been reported to break validation / visibility (see [postiz-app#717](https://github.com/gitroomhq/postiz-app/issues/717))  
+- **`posts[].group`**: a new UUID per request so Postiz can group the item for calendar/UI  
+- **`posts[].integration.id`**, **`value[]`**, **`settings`** (`__type` + Instagram/Facebook fields), **`image`** array with upload `id` + `path`  
+
+Logs:
+
+- **`postiz_create_request_payload`** — full JSON body (no API key in the body)  
+- **`postiz_create_response_body`** — parsed response  
+
+**`social_queue.status = posted`** only if HTTP **2xx** **and** the response yields at least one **listable** id (`postId`, `id`, etc.). Otherwise the row is **`failed`** with **`last_error = postiz:create_not_visible`** (including **2xx** with no id).
+
 ## Automated QA script (recommended)
 
 **Script:** `scripts/check-social-automation.js`  
@@ -107,6 +123,76 @@ Use when debugging or before a release if you want human eyes on top of the scri
 3. **Image in Postiz UI:** Open a scheduled post and confirm the asset is correct visually (stored URL will be `uploads.postiz.com/…` after upload).
 4. **Logs:** In Supabase → Edge Functions → `social-queue-runner`, confirm logs show `event_image_audit`, `event_image_selected`, `event_image_postiz_uploaded`, `schedule_resolved`, `postiz_upload_*`, `source_image_url`, `postiz_image_path`, caption preview, and Postiz HTTP status on success/failure.
 5. **Retry:** After a `failed` row, confirm `retry_count` increments and the runner picks it up again after backoff (or fix data and re-run).
+
+## Postiz visibility check — event id `32` (Instagram integration)
+
+Use when `events.id` is integer **`32`**. Replace `YOUR_QUEUE_ROW_UUID` and Supabase URLs after insert.
+
+### SQL — test queue job (Instagram)
+
+```sql
+insert into public.social_queue (
+  event_id,
+  platform,
+  scheduled_at,
+  status,
+  postiz_integration_id
+) values (
+  32,
+  'instagram',
+  (now() at time zone 'utc') - interval '5 minutes',
+  'pending',
+  'cmp0a20b201b1p40yg9srpshq'
+)
+returning id, event_id, scheduled_at;
+```
+
+Facebook variant (same event, different row):
+
+```sql
+insert into public.social_queue (
+  event_id,
+  platform,
+  scheduled_at,
+  status,
+  postiz_integration_id
+) values (
+  32,
+  'facebook',
+  (now() at time zone 'utc') - interval '5 minutes',
+  'pending',
+  'cmp0a44690059qg0ywxs10b6d'
+)
+returning id, event_id, scheduled_at;
+```
+
+### curl — run worker for one queue row
+
+```bash
+export SUPABASE_URL="https://YOUR_PROJECT_REF.supabase.co"
+export MARCHA_SOCIAL_RUNNER_SECRET="your-runner-secret"
+
+curl -sS -X POST "${SUPABASE_URL}/functions/v1/social-queue-runner" \
+  -H "x-marcha-social-secret: ${MARCHA_SOCIAL_RUNNER_SECRET}" \
+  -H "Content-Type: application/json" \
+  -d '{"queue_id":"YOUR_QUEUE_ROW_UUID","limit":1}'
+```
+
+Confirm logs show **`postiz_create_request_payload`** then **`postiz_create_response_body`**, and that `social_queue.postiz_response` contains **`_marcha_postiz_post_ids`** on success.
+
+### CLI — list posts (same API as the app)
+
+```bash
+export POSTIZ_API_KEY="your_postiz_api_key"
+# Self-hosted only: match your API origin (no /public/v1 suffix)
+# export POSTIZ_API_URL="https://api.postiz.com"
+
+npx postiz posts:list \
+  --startDate "2025-01-01T00:00:00.000Z" \
+  --endDate "2027-12-31T23:59:59.000Z"
+```
+
+If the new post appears, you will see a row whose **`id`** matches one of **`_marcha_postiz_post_ids`** stored on `social_queue`.
 
 ## Regression test — event id `34`
 
