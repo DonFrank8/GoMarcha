@@ -1,92 +1,84 @@
-# Marcha Social Automation Setup
+# Marcha social automation — setup and QA
 
-This document explains how to set up the automated social media pipeline for approved events.
+This document covers the Supabase queue, the `social-queue-runner` Edge Function, and **read-only** verification (no posts are published).
 
-## 1) Run SQL migrations
+## Automated QA script (recommended)
 
-Run these SQL files in Supabase SQL Editor:
+**Script:** `scripts/check-social-automation.js`  
+**Safe:** read-only `GET` requests to Supabase REST; does not call Postiz or the Edge Function.
 
-1. `supabase-social-automation.sql`
-2. `supabase-qr-tracking.sql` (optional, if you also want QR/source attribution)
+### Prerequisites
 
-The social automation migration creates:
+- Node.js **18+** (includes `fetch`).
+- A Supabase **service role** key (required to read `social_queue` and join `events` under RLS).
 
-- `social_queue` table
-- unique index on `(event_id, post_stage)` to avoid duplicate jobs
-- trigger on `events.status` changes to `approved`
-- helper function `enqueue_social_jobs_for_event(uuid, boolean)`
-- RLS policies for admin usage
+### Environment variables
 
-## 2) Deploy the Edge Function
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `SUPABASE_URL` | Yes | Project URL (`https://<ref>.supabase.co`) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Yes | Service role key (keep local / CI secret) |
+| `MARCHA_DEFAULT_SOCIAL_IMAGE_URL` | No | Must match Edge Function fallback when checking CHK04–05 (default: `https://gomarcha.com/assets/logo.png`) |
+| `POSTIZ_INSTAGRAM_INTEGRATION_ID` | No | Default Postiz integration id for `platform=instagram` when row has null `postiz_integration_id` |
+| `POSTIZ_FACEBOOK_INTEGRATION_ID` | No | Same for `facebook` |
+| `SOCIAL_QA_STRICT_IMAGE` | No | Set to `1` or `true` to **HEAD** each image URL (slower; catches broken URLs) |
+| `SOCIAL_QA_MAX_RETRY` | No | Must match runner (default **5**) for CHK10 |
 
-Function name: `process-social-queue`
+**Never** commit keys. Use `.env` locally (not tracked) or your CI secret store.
 
-Files:
-
-- `supabase/functions/process-social-queue/index.ts`
-- `supabase/functions/process-social-queue/caption.ts`
-- `supabase/functions/process-social-queue/postiz.ts`
-
-Deploy:
+### Run
 
 ```bash
-supabase functions deploy process-social-queue
+export SUPABASE_URL="https://YOUR_REF.supabase.co"
+export SUPABASE_SERVICE_ROLE_KEY="your-service-role-key"
+
+# Optional: match production secrets
+export MARCHA_DEFAULT_SOCIAL_IMAGE_URL="https://…"
+export POSTIZ_INSTAGRAM_INTEGRATION_ID="…"
+export POSTIZ_FACEBOOK_INTEGRATION_ID="…"
+
+node scripts/check-social-automation.js
 ```
 
-## 3) Configure environment variables
+Optional stricter image checks:
 
-Set these for the Edge Function environment:
+```bash
+export SOCIAL_QA_STRICT_IMAGE=1
+node scripts/check-social-automation.js
+```
 
-- `SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `POSTIZ_API_KEY`
-- `POSTIZ_BASE_URL`
+Exit code **0** = all checks **PASS**, **1** = at least one **FAIL** or startup error (`OVERALL: PASS` / `OVERALL: FAIL`).
 
-Optional:
+### What the script validates (aligned with product rules)
 
-- `POSTIZ_INTEGRATION_IDS` (comma-separated).  
-  If not set, defaults to:
-  - Instagram: `cmp0a20b201b1p40yg9srpshq`
-  - Facebook: `cmp0a44690059qg0ywxs10b6d`
+| Code | Rule |
+|------|------|
+| `CHK01_jobs_for_approved_events` | Every `social_queue` row points at an `events` row with `status = approved`. |
+| `CHK02_no_duplicate_event_post_stage` | No two non-`skipped` rows share the same **event** + **platform** (post stage: `instagram` \| `facebook`) + **UTC calendar day** of `scheduled_at`. |
+| `CHK03_valid_image_url` | Each row has a resolvable HTTPS image (uses `resolved_image_url` when set, else the same resolver as the Edge Function). |
+| `CHK03b_image_reachable` | Only when `SOCIAL_QA_STRICT_IMAGE=1`: URL returns an `image/*` response. |
+| `CHK04_event_image_when_available` | If the event has an HTTPS image (`image_urls` or `image_url`), the effective URL matches the resolver output. |
+| `CHK05_fallback_only_when_missing` | If the event has a real image, the effective URL must not be the generic fallback. |
+| `CHK06_caption_non_empty` | Rows with `status` in `posted`, `failed` must have a non-empty `caption` (pending may still be empty). |
+| `CHK07_caption_spanish` | Same rows: heuristic for Spanish (punctuation, accents, or common Spanish tokens). Tune copy if false positives. |
+| `CHK08_caption_variation_per_event` | For each `event_id`, all non-empty captions must be **pairwise distinct** (IG + FB must not reuse identical text). |
+| `CHK09_postiz_integration_ids` | Each non-`skipped` row has `postiz_integration_id`, or the matching `POSTIZ_*` env id is set. |
+| `CHK10_failed_retryable` | No `failed` row may have `retry_count` ≥ max (default 5), so jobs remain eligible for retry. |
 
-If you later add AI caption generation:
+**Schema note:** There is no separate `post_stage` column; **`platform`** is the post stage in the database.
 
-- `OPENAI_API_KEY` or `OPENROUTER_API_KEY`
+## Manual QA checklist (optional)
 
-## 4) Schedule queue processing
+Use when debugging or before a release if you want human eyes on top of the script.
 
-Invoke `process-social-queue` regularly (for example every 10 minutes) using Supabase scheduled functions / cron.
+1. **Approved-only:** In Supabase Table Editor, confirm each `social_queue.event_id` joins to `events.status = approved`.
+2. **Single slot per stage/day:** For each event, only one Instagram and one Facebook job per UTC day (unless older rows are `skipped`).
+3. **Image in Postiz UI:** Open a scheduled post in Postiz and confirm the media matches the event’s public Supabase storage URL (not only the generic Marcha asset).
+4. **Logs:** In Supabase → Edge Functions → `social-queue-runner`, confirm logs show `image_url_selected`, caption preview, and Postiz HTTP status on success/failure.
+5. **Retry:** After a `failed` row, confirm `retry_count` increments and the runner picks it up again after backoff (or fix data and re-run).
 
-Expected behavior:
+## Related files
 
-- picks due jobs (`scheduled_for <= now()`)
-- processes only `pending` and `failed` jobs with attempts `< 3`
-- updates status to `scheduled`, `published`, `failed`, or `skipped`
-
-## 5) Admin/debug actions in dashboard
-
-In the admin moderation workspace:
-
-- enter Event UUID
-- **Queue laden** (load jobs)
-- **Jobs erzeugen** (manual generation)
-- **Fehlgeschlagene retry** (reset failed to pending)
-- **Pending auf skipped** (mark pending/failed skipped)
-
-This is useful for manual recovery and verification.
-
-## 6) Logging and safety
-
-The Edge Function logs only safe context:
-
-- `event_id`
-- `post_stage`
-- `status`
-
-No API secrets are logged.
-
-## 7) Notes
-
-- Approval flow remains safe: trigger function catches internal errors and avoids blocking event approvals.
-- Captions are generated in Spanish with stage-specific tone and CTA to `gomarcha.com`.
-- Social image uses the same event image URL (`event.image_url`).
+- SQL: `supabase-social-automation.sql`
+- Runner: `supabase/functions/social-queue-runner/index.ts`
+- Verification: `scripts/check-social-automation.js`
