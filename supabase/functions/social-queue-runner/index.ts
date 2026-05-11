@@ -34,6 +34,9 @@ type EventRow = {
   image_urls: unknown;
   recurrence_type?: string | null;
   recurrence_start_date?: string | null;
+  recurrence_end_date?: string | null;
+  recurrence_weekday?: number | null;
+  recurrence_day_of_month?: number | null;
 };
 
 const CORS: Record<string, string> = {
@@ -185,17 +188,6 @@ async function selectBestReachableEventImage(
   return { url: configuredFallback, source: "fallback_generic" };
 }
 
-function getPrimaryEventDateYmd(event: EventRow): string | null {
-  const rt = String(event.recurrence_type || "none").toLowerCase();
-  if (rt !== "none") {
-    const s = String(event.recurrence_start_date || "").trim();
-    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  }
-  const d = String(event.event_date || "").trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
-  return null;
-}
-
 function parseWallTimeParts(raw: string): { h: number; m: number; s: number } {
   const t = String(raw || "23:59").trim();
   const p = t.split(":");
@@ -205,40 +197,220 @@ function parseWallTimeParts(raw: string): { h: number; m: number; s: number } {
   return { h, m, s };
 }
 
-/** Wall clock from `events.event_date` / `recurrence_start_date` + `events.event_time` in `timeZone` (default Europe/Berlin). */
-function eventStartEpochMs(event: EventRow, timeZone: string): number | null {
-  const ymd = getPrimaryEventDateYmd(event);
-  if (!ymd) return null;
-  const { h, m, s } = parseWallTimeParts(String(event.event_time || "23:59"));
-  // deno-lint-ignore no-explicit-any
-  const TemporalApi = (globalThis as any).Temporal as
-    | undefined
-    | {
-        ZonedDateTime: {
-          from(
-            x: Record<string, string | number>
-          ): { toInstant: () => { epochMilliseconds: number } };
-        };
-      };
-  if (!TemporalApi?.ZonedDateTime) {
-    slog("temporal_missing_using_utc", { event_id: event.id });
-    return Date.parse(`${ymd}T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}Z`);
-  }
+function normalizeRecurrenceTypeEdge(raw: string | null | undefined): "none" | "weekly" | "monthly" {
+  const t = String(raw || "none").trim().toLowerCase();
+  if (t === "weekly") return "weekly";
+  if (t === "monthly") return "monthly";
+  return "none";
+}
+
+function normalizeWeekdayEdge(raw: unknown): number | null {
+  const p = Number.parseInt(String(raw ?? "").trim(), 10);
+  if (!Number.isInteger(p) || p < 0 || p > 6) return null;
+  return p;
+}
+
+function normalizeDayOfMonthEdge(raw: unknown): number | null {
+  const p = Number.parseInt(String(raw ?? "").trim(), 10);
+  if (!Number.isInteger(p) || p < 1 || p > 31) return null;
+  return p;
+}
+
+/** JS getDay(): Sunday=0..Saturday=6 → ISO weekday in Temporal.PlainDate (Mon=1..Sun=7). */
+function jsWeekdayToIsoDayOfWeek(js: number): number {
+  return js === 0 ? 7 : js;
+}
+
+function parseYmdParts(ymd: string): { y: number; mo: number; d: number } | null {
+  const t = ymd.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) return null;
+  return { y: Number(t.slice(0, 4)), mo: Number(t.slice(5, 7)), d: Number(t.slice(8, 10)) };
+}
+
+// deno-lint-ignore no-explicit-any
+function getTemporalApi(): any {
+  return (globalThis as { Temporal?: unknown }).Temporal;
+}
+
+function epochMsFromYmdAndEventTime(ymd: string, eventTime: string, timeZone: string): number | null {
+  const parts = parseYmdParts(ymd);
+  if (!parts) return null;
+  const { h, m, s } = parseWallTimeParts(String(eventTime || "23:59"));
+  return wallClockToEpochMs(parts.y, parts.mo, parts.d, h, m, s, timeZone);
+}
+
+function plainDateFromYmdString(ymd: string, TemporalApi: { PlainDate: { from: (x: Record<string, number>) => unknown } }): {
+  year: number;
+  month: number;
+  day: number;
+  add: (x: { days: number } | { months: number }) => unknown;
+  with: (x: { day: number }) => unknown;
+  dayOfWeek: number;
+  toString: () => string;
+} | null {
+  const p = parseYmdParts(ymd);
+  if (!p || !TemporalApi?.PlainDate) return null;
   try {
-    return TemporalApi.ZonedDateTime.from({
-      timeZone,
-      year: Number(ymd.slice(0, 4)),
-      month: Number(ymd.slice(5, 7)),
-      day: Number(ymd.slice(8, 10)),
-      hour: h,
-      minute: m,
-      second: s,
-      millisecond: 0
-    }).toInstant().epochMilliseconds;
-  } catch (e) {
-    slog("event_start_parse_failed", { event_id: event.id, ymd, error: String(e) });
+    return TemporalApi.PlainDate.from({ year: p.y, month: p.mo, day: p.d }) as {
+      year: number;
+      month: number;
+      day: number;
+      add: (x: { days: number } | { months: number }) => unknown;
+      with: (x: { day: number }) => unknown;
+      dayOfWeek: number;
+      toString: () => string;
+    };
+  } catch {
     return null;
   }
+}
+
+function plainDateInMonthOrNull(
+  year: number,
+  month: number,
+  dayOfMonth: number,
+  TemporalApi: { PlainDate: { from: (x: Record<string, number>) => unknown } }
+): {
+  year: number;
+  month: number;
+  day: number;
+  add: (x: { days: number } | { months: number }) => unknown;
+  with: (x: { day: number }) => unknown;
+  dayOfWeek: number;
+  toString: () => string;
+} | null {
+  try {
+    return TemporalApi.PlainDate.from({ year, month, day: dayOfMonth }) as {
+      year: number;
+      month: number;
+      day: number;
+      add: (x: { days: number } | { months: number }) => unknown;
+      with: (x: { day: number }) => unknown;
+      dayOfWeek: number;
+      toString: () => string;
+    };
+  } catch {
+    return null;
+  }
+}
+
+function nextWeeklyOccurrenceStartMs(
+  event: EventRow,
+  timeZone: string,
+  nowMs: number
+): { ok: true; epochMs: number; occurrenceYmd: string } | { ok: false; reason: string } {
+  const T = getTemporalApi();
+  if (!T?.PlainDate || !T.PlainDate.compare) {
+    return { ok: false, reason: "recurrence_temporal_required" };
+  }
+  const seriesStartStr = String(event.recurrence_start_date || "").trim();
+  const seriesStartPlain = plainDateFromYmdString(seriesStartStr, T);
+  if (!seriesStartPlain) return { ok: false, reason: "recurrence_invalid_start_date" };
+
+  const endPlain = event.recurrence_end_date
+    ? plainDateFromYmdString(String(event.recurrence_end_date).trim(), T)
+    : null;
+
+  const targetJs = normalizeWeekdayEdge(event.recurrence_weekday);
+  if (targetJs === null) return { ok: false, reason: "recurrence_weekday_missing" };
+  const isoTarget = jsWeekdayToIsoDayOfWeek(targetJs);
+
+  const nowPlain = T.Instant.fromEpochMilliseconds(nowMs).toZonedDateTimeISO(timeZone).toPlainDate();
+
+  let fromPlain =
+    T.PlainDate.compare(nowPlain, seriesStartPlain) >= 0 ? nowPlain : seriesStartPlain;
+
+  let delta = (isoTarget - fromPlain.dayOfWeek + 7) % 7;
+  let candidatePlain = fromPlain.add({ days: delta }) as typeof fromPlain;
+  if (T.PlainDate.compare(candidatePlain, seriesStartPlain) < 0) {
+    delta = (isoTarget - seriesStartPlain.dayOfWeek + 7) % 7;
+    candidatePlain = seriesStartPlain.add({ days: delta }) as typeof fromPlain;
+  }
+
+  for (let i = 0; i < 104; i++) {
+    if (endPlain && T.PlainDate.compare(candidatePlain, endPlain) > 0) {
+      return { ok: false, reason: "recurrence_series_ended" };
+    }
+    const ymd = candidatePlain.toString();
+    const startMs = epochMsFromYmdAndEventTime(ymd, String(event.event_time || "23:59"), timeZone);
+    if (startMs === null) return { ok: false, reason: "recurrence_wall_time_invalid" };
+    if (startMs > nowMs) {
+      return { ok: true, epochMs: startMs, occurrenceYmd: ymd };
+    }
+    candidatePlain = candidatePlain.add({ days: 7 }) as typeof candidatePlain;
+  }
+  return { ok: false, reason: "recurrence_no_upcoming_occurrence" };
+}
+
+function nextMonthlyOccurrenceStartMs(
+  event: EventRow,
+  timeZone: string,
+  nowMs: number
+): { ok: true; epochMs: number; occurrenceYmd: string } | { ok: false; reason: string } {
+  const T = getTemporalApi();
+  if (!T?.PlainDate || !T.PlainDate.compare) {
+    return { ok: false, reason: "recurrence_temporal_required" };
+  }
+  const seriesStartStr = String(event.recurrence_start_date || "").trim();
+  const seriesStartPlain = plainDateFromYmdString(seriesStartStr, T);
+  if (!seriesStartPlain) return { ok: false, reason: "recurrence_invalid_start_date" };
+
+  const endPlain = event.recurrence_end_date
+    ? plainDateFromYmdString(String(event.recurrence_end_date).trim(), T)
+    : null;
+
+  const dom = normalizeDayOfMonthEdge(event.recurrence_day_of_month);
+  if (dom === null) return { ok: false, reason: "recurrence_day_of_month_missing" };
+
+  const nowPlain = T.Instant.fromEpochMilliseconds(nowMs).toZonedDateTimeISO(timeZone).toPlainDate();
+  let cursorPlain =
+    T.PlainDate.compare(nowPlain, seriesStartPlain) >= 0 ? nowPlain : seriesStartPlain;
+  cursorPlain = cursorPlain.with({ day: 1 }) as typeof cursorPlain;
+
+  for (let m = 0; m < 36; m++) {
+    const candidatePlain = plainDateInMonthOrNull(cursorPlain.year, cursorPlain.month, dom, T);
+    if (!candidatePlain) {
+      cursorPlain = cursorPlain.add({ months: 1 }).with({ day: 1 }) as typeof cursorPlain;
+      continue;
+    }
+    if (T.PlainDate.compare(candidatePlain, seriesStartPlain) < 0) {
+      cursorPlain = cursorPlain.add({ months: 1 }).with({ day: 1 }) as typeof cursorPlain;
+      continue;
+    }
+    if (endPlain && T.PlainDate.compare(candidatePlain, endPlain) > 0) {
+      return { ok: false, reason: "recurrence_series_ended" };
+    }
+    const ymd = candidatePlain.toString();
+    const startMs = epochMsFromYmdAndEventTime(ymd, String(event.event_time || "23:59"), timeZone);
+    if (startMs === null) return { ok: false, reason: "recurrence_wall_time_invalid" };
+    if (startMs > nowMs) {
+      return { ok: true, epochMs: startMs, occurrenceYmd: ymd };
+    }
+    cursorPlain = cursorPlain.add({ months: 1 }).with({ day: 1 }) as typeof cursorPlain;
+  }
+  return { ok: false, reason: "recurrence_no_upcoming_occurrence" };
+}
+
+/**
+ * Next wall-clock start for social automation: one-off uses `event_date`;
+ * recurring uses next future occurrence (weekly/monthly), not stale `recurrence_start_date` alone.
+ */
+function resolveSocialEventOccurrence(
+  event: EventRow,
+  timeZone: string,
+  nowMs: number
+): { ok: true; epochMs: number; occurrenceYmd: string } | { ok: false; reason: string } {
+  const rt = normalizeRecurrenceTypeEdge(event.recurrence_type);
+  if (rt === "none") {
+    const d = String(event.event_date || "").trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return { ok: false, reason: "event_date_missing" };
+    const ms = epochMsFromYmdAndEventTime(d, String(event.event_time || "23:59"), timeZone);
+    if (ms === null) return { ok: false, reason: "event_start_parse_failed" };
+    return { ok: true, epochMs: ms, occurrenceYmd: d };
+  }
+  if (rt === "weekly") return nextWeeklyOccurrenceStartMs(event, timeZone, nowMs);
+  if (rt === "monthly") return nextMonthlyOccurrenceStartMs(event, timeZone, nowMs);
+  return { ok: false, reason: "recurrence_type_unsupported" };
 }
 
 function zonedCalendarParts(ms: number, timeZone: string): { y: number; mo: number; d: number; hour: number; minute: number } {
@@ -367,11 +539,17 @@ function resolveEffectivePostTimeMs(args: {
   return { ok: true, effectiveMs: eff, trace };
 }
 
-function buildCaption(hook: { id: string; line: string }, event: EventRow): { caption: string; template_id: string } {
+function buildCaption(
+  hook: { id: string; line: string },
+  event: EventRow,
+  whenOverride?: { date: string; time: string } | null
+): { caption: string; template_id: string } {
   const name = String(event.name || "Evento").trim();
   const city = String(event.city || "").trim();
   const venue = String(event.location_name || "").trim();
-  const whenParts = [event.event_date, event.event_time].filter(Boolean);
+  const dateStr = whenOverride?.date?.trim() || String(event.event_date || "").trim();
+  const timeStr = whenOverride?.time?.trim() || String(event.event_time || "").trim();
+  const whenParts = [dateStr, timeStr].filter(Boolean);
   const when = whenParts.length ? whenParts.join(" · ") : "pronto";
   const localBit = city
     ? venue
@@ -843,7 +1021,7 @@ Deno.serve(async (req) => {
     const { data: event, error: eErr } = await supabase
       .from("events")
       .select(
-        "id,name,city,location_name,event_date,event_time,genre,status,featured,image_url,image_urls,recurrence_type,recurrence_start_date"
+        "id,name,city,location_name,event_date,event_time,genre,status,featured,image_url,image_urls,recurrence_type,recurrence_start_date,recurrence_end_date,recurrence_weekday,recurrence_day_of_month"
       )
       .eq("id", claimed.event_id)
       .maybeSingle();
@@ -895,10 +1073,22 @@ Deno.serve(async (req) => {
       continue;
     }
 
-    const eventStartMs = eventStartEpochMs(ev, eventTimeZone);
-    if (eventStartMs === null) {
-      const msg = "event_start_unknown_missing_date";
-      slog("schedule_skip", { queue_id: claimed.id, event_id: ev.id, reason: msg });
+    const nowMs = Date.now();
+    const occ = resolveSocialEventOccurrence(ev, eventTimeZone, nowMs);
+    if (!occ.ok) {
+      const msg = `recurrence:${occ.reason}`;
+      slog("recurrence_occurrence_unresolved", {
+        queue_id: claimed.id,
+        event_id: ev.id,
+        recurrence_type: ev.recurrence_type ?? null,
+        recurrence_start_date: ev.recurrence_start_date ?? null,
+        recurrence_end_date: ev.recurrence_end_date ?? null,
+        recurrence_weekday: ev.recurrence_weekday ?? null,
+        recurrence_day_of_month: ev.recurrence_day_of_month ?? null,
+        event_time: ev.event_time ?? null,
+        timezone: eventTimeZone,
+        reason: occ.reason
+      });
       await supabase
         .from("social_queue")
         .update({
@@ -907,11 +1097,25 @@ Deno.serve(async (req) => {
           updated_at: new Date().toISOString()
         })
         .eq("id", claimed.id);
-      results.push({ queue_id: claimed.id, skipped: true, reason: msg });
+      results.push({ queue_id: claimed.id, skipped: true, reason: occ.reason });
       continue;
     }
 
-    const nowMs = Date.now();
+    const eventStartMs = occ.epochMs;
+    slog("recurrence_occurrence_resolved", {
+      queue_id: claimed.id,
+      event_id: ev.id,
+      recurrence_type: ev.recurrence_type ?? null,
+      recurrence_start_date: ev.recurrence_start_date ?? null,
+      recurrence_end_date: ev.recurrence_end_date ?? null,
+      recurrence_weekday: ev.recurrence_weekday ?? null,
+      recurrence_day_of_month: ev.recurrence_day_of_month ?? null,
+      calculated_next_occurrence: occ.occurrenceYmd,
+      event_time: ev.event_time ?? null,
+      timezone: eventTimeZone,
+      event_start_ms: eventStartMs
+    });
+
     const scheduleResult = resolveEffectivePostTimeMs({
       queueScheduledIso: claimed.scheduled_at,
       eventStartMs,
@@ -950,6 +1154,7 @@ Deno.serve(async (req) => {
       queue_scheduled_at: claimed.scheduled_at,
       effective_post_at: effectivePostIso,
       event_start_iso: new Date(eventStartMs).toISOString(),
+      calculated_next_occurrence: occ.occurrenceYmd,
       timezone: eventTimeZone,
       schedule_trace: scheduleResult.trace.join(" | ")
     });
@@ -962,7 +1167,10 @@ Deno.serve(async (req) => {
       raw_image_urls: ev.image_urls ?? null,
       recurrence_type: ev.recurrence_type ?? null,
       recurrence_start_date: ev.recurrence_start_date ?? null,
-      primary_event_date_ymd: getPrimaryEventDateYmd(ev),
+      recurrence_end_date: ev.recurrence_end_date ?? null,
+      recurrence_weekday: ev.recurrence_weekday ?? null,
+      recurrence_day_of_month: ev.recurrence_day_of_month ?? null,
+      calculated_next_occurrence: occ.occurrenceYmd,
       event_time_wall: ev.event_time ?? null,
       timezone: eventTimeZone
     });
@@ -1022,7 +1230,7 @@ Deno.serve(async (req) => {
     });
 
     const hook = await pickHook(supabase, claimed.event_id);
-    const { caption, template_id } = buildCaption(hook, ev);
+    const { caption, template_id } = buildCaption(hook, ev, { date: occ.occurrenceYmd });
 
     slog("post_prepare", {
       queue_id: claimed.id,

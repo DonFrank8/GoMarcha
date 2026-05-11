@@ -6,8 +6,8 @@ This document covers the Supabase queue, the `social-queue-runner` Edge Function
 
 The runner **never** sends a Postiz `date` that is **on or after the event start**. Event start is computed from:
 
-- **`events.event_date`** + **`events.event_time`** (wall clock) when `recurrence_type` is `none` or empty, and  
-- **`events.recurrence_start_date`** + **`events.event_time`** when the event is recurring.
+- **`events.event_date`** + **`events.event_time`** (wall clock) when `recurrence_type` is `none` or empty.  
+- **Recurring** (`weekly` / `monthly`): the **next future occurrence** in **`MARCHA_EVENT_TIMEZONE`** — **`events.event_time`** on the computed calendar day — not the stale **`recurrence_start_date`** alone. Weekly uses **`recurrence_weekday`** (0–6, same as JavaScript `Date.getDay()`); monthly uses **`recurrence_day_of_month`** and **`recurrence_start_date`** as series anchor; **`recurrence_end_date`** ends the series when set. If the next occurrence cannot be resolved (missing fields, series ended, or Temporal unavailable), the job is **`skipped`** with **`last_error`** like `recurrence:…`.
 
 Wall times are interpreted in **`MARCHA_EVENT_TIMEZONE`** (default **`Europe/Berlin`**).
 
@@ -19,7 +19,7 @@ Behaviour:
 - **Last call:** if the system is already within **2 hours** of event start, the post is scheduled **as soon as possible** (`now + 45s`), still strictly **before** event start (otherwise skip).
 - **Same calendar day** (in the event timezone): if the queue time falls in the **afternoon (≥ 15:00)** before the event, it is clamped toward a **morning slot (~10:30)** when that remains valid and before the 2‑hour cutoff.
 
-Logs: `schedule_resolved`, `schedule_skip` (with reason and trace).
+Logs: `recurrence_occurrence_resolved` / `recurrence_occurrence_unresolved` (recurrence fields + `calculated_next_occurrence`), `schedule_resolved`, `schedule_skip` (with reason and trace).
 
 ## Edge Function — Postiz images
 
@@ -127,6 +127,8 @@ Use when debugging or before a release if you want human eyes on top of the scri
 ## Postiz visibility check — event id `32` (Instagram integration)
 
 Use when `events.id` is integer **`32`**. Replace `YOUR_QUEUE_ROW_UUID` and Supabase URLs after insert.
+
+**Recurring events:** before inserting a queue row, confirm the event row has `recurrence_type = 'weekly'`, `recurrence_weekday = 0` for Sunday, valid `recurrence_start_date`, and `event_time`. After the runner executes, logs must show **`recurrence_occurrence_resolved`** with **`calculated_next_occurrence`** equal to the **next upcoming Sunday** (YYYY-MM-DD in Berlin), not an old series start date. Compare **`event_start_iso`** in `schedule_resolved` to that same local start. The caption date segment uses **`calculated_next_occurrence`** as well.
 
 ### SQL — test queue job (Instagram)
 
