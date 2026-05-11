@@ -1,0 +1,4 @@
+# Minimal Supabase CLI config. Set project_id when linking, or pass --project-ref on deploy.
+
+[functions.social-queue-runner]
+verify_jwt = false
