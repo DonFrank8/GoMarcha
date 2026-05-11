@@ -164,7 +164,11 @@ function utcDayRangeIso(scheduledAt: string): { start: string; end: string } {
   return { start: start.toISOString(), end: end.toISOString() };
 }
 
-/** Blocks duplicate posts: same event+platform+UTC day already posted or being processed elsewhere. */
+/**
+ * Blocks duplicate posts for the same event+platform+UTC day:
+ * - any other row already `posted`, or
+ * - another row in `processing` with a lower `id` (stable tie-break so two workers cannot both publish).
+ */
 async function hasQueueConflict(
   supabase: SupabaseClient,
   eventId: string,
@@ -175,19 +179,22 @@ async function hasQueueConflict(
   const { start, end } = utcDayRangeIso(scheduledAt);
   const { data, error } = await supabase
     .from("social_queue")
-    .select("id")
+    .select("id,status")
     .eq("event_id", eventId)
     .eq("platform", platform)
     .neq("id", excludeQueueId)
     .gte("scheduled_at", start)
     .lte("scheduled_at", end)
-    .in("status", ["posted", "processing"])
-    .limit(1);
+    .in("status", ["posted", "processing"]);
   if (error) {
     slog("dedupe_check_error", { message: error.message });
     return false;
   }
-  return Boolean(data?.length);
+  for (const row of data ?? []) {
+    if (row.status === "posted") return true;
+    if (row.status === "processing" && typeof row.id === "string" && row.id < excludeQueueId) return true;
+  }
+  return false;
 }
 
 function mediaPayloadFromUrl(url: string): { id: string; path: string } {
