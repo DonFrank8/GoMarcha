@@ -2,6 +2,17 @@
 
 This document covers the Supabase queue, the `social-queue-runner` Edge Function, and **read-only** verification (no posts are published).
 
+## Edge Function — Postiz images
+
+Postiz `posts:create` requires media `path` values on **`uploads.postiz.com`**. The runner:
+
+1. Resolves the event (or fallback) **source** HTTPS URL as before.
+2. If the source is not already on `uploads.postiz.com`, it **downloads** the file and **POST**s multipart form field `file` to **`POST {POSTIZ_API_BASE}/upload`** (same base as `/posts`).
+3. Uses the JSON response **`id`** and **`path`** in the post body’s `image` array.
+4. Persists **`social_queue.resolved_image_url`** as the Postiz **`path`** after a successful upload (and after a successful post). Upload failures increment **`retry_count`** like other failures.
+
+Postiz rate limit: **30 requests/hour** across the API (each job uses at least **upload + posts**).
+
 ## Automated QA script (recommended)
 
 **Script:** `scripts/check-social-automation.js`  
@@ -57,7 +68,7 @@ Exit code **0** = all checks **PASS**, **1** = at least one **FAIL** or startup 
 | `CHK02_no_duplicate_event_post_stage` | No two non-`skipped` rows share the same **event** + **platform** (post stage: `instagram` \| `facebook`) + **UTC calendar day** of `scheduled_at`. |
 | `CHK03_valid_image_url` | Each row has a resolvable HTTPS image (uses `resolved_image_url` when set, else the same resolver as the Edge Function). |
 | `CHK03b_image_reachable` | Only when `SOCIAL_QA_STRICT_IMAGE=1`: URL returns an `image/*` response. |
-| `CHK04_event_image_when_available` | If the event has an HTTPS image (`image_urls` or `image_url`), the effective URL matches the resolver output. |
+| `CHK04_event_image_when_available` | If the event has an HTTPS image, the effective URL is either the same as the resolver output **or** a `uploads.postiz.com` URL (after Postiz upload). |
 | `CHK05_fallback_only_when_missing` | If the event has a real image, the effective URL must not be the generic fallback. |
 | `CHK06_caption_non_empty` | Rows with `status` in `posted`, `failed` must have a non-empty `caption` (pending may still be empty). |
 | `CHK07_caption_spanish` | Same rows: heuristic for Spanish (punctuation, accents, or common Spanish tokens). Tune copy if false positives. |
@@ -73,8 +84,8 @@ Use when debugging or before a release if you want human eyes on top of the scri
 
 1. **Approved-only:** In Supabase Table Editor, confirm each `social_queue.event_id` joins to `events.status = approved`.
 2. **Single slot per stage/day:** For each event, only one Instagram and one Facebook job per UTC day (unless older rows are `skipped`).
-3. **Image in Postiz UI:** Open a scheduled post in Postiz and confirm the media matches the event’s public Supabase storage URL (not only the generic Marcha asset).
-4. **Logs:** In Supabase → Edge Functions → `social-queue-runner`, confirm logs show `image_url_selected`, caption preview, and Postiz HTTP status on success/failure.
+3. **Image in Postiz UI:** Open a scheduled post and confirm the asset is correct visually (stored URL will be `uploads.postiz.com/…` after upload).
+4. **Logs:** In Supabase → Edge Functions → `social-queue-runner`, confirm logs show `postiz_upload_*`, `source_image_url`, `postiz_image_path`, caption preview, and Postiz HTTP status on success/failure.
 5. **Retry:** After a `failed` row, confirm `retry_count` increments and the runner picks it up again after backoff (or fix data and re-run).
 
 ## Related files

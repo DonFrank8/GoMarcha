@@ -58,6 +58,15 @@ function eventHasUsableEventImage(event, fallback) {
   return source !== "fallback_generic";
 }
 
+/** After Postiz upload, `resolved_image_url` points at uploads.postiz.com (not the Supabase URL). */
+function isPostizHostedResolved(url) {
+  try {
+    return new URL(url).hostname.toLowerCase() === "uploads.postiz.com";
+  } catch {
+    return false;
+  }
+}
+
 function looksSpanish(text) {
   if (!text || typeof text !== "string") return false;
   const s = text.trim();
@@ -255,8 +264,10 @@ async function main() {
         if (!h.headOk) headFails.push(`${row.id}: ${resolved}`);
       }
       if (eventHasUsableEventImage(ev, fallbackImage)) {
-        if (resolved !== expected.url) {
-          eventImageWrong.push(`${row.id}: got ${resolved.slice(0, 72)} expected ${expected.url.slice(0, 72)}`);
+        const matchesEventUrl = resolved === expected.url;
+        const viaPostizCdn = isPostizHostedResolved(resolved);
+        if (!matchesEventUrl && !viaPostizCdn) {
+          eventImageWrong.push(`${row.id}: got ${resolved.slice(0, 72)} expected event URL or uploads.postiz.com`);
         }
         if (resolved === fallbackImage) {
           fallbackMisuse.push(row.id);
@@ -286,7 +297,7 @@ async function main() {
       fail++;
       printResult(false, "CHK04_event_image_when_available", eventImageWrong.slice(0, 5).join("; "));
     } else {
-      printResult(true, "CHK04_event_image_when_available", "aligned with resolver");
+      printResult(true, "CHK04_event_image_when_available", "event URL or Postiz CDN after upload");
     }
 
     if (fallbackMisuse.length) {

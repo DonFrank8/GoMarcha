@@ -12,7 +12,13 @@ type QueueRow = {
   postiz_integration_id: string | null;
   retry_count: number;
   last_attempt_at: string | null;
+  resolved_image_url?: string | null;
 };
+
+/** Postiz posts API requires `image[].path` on uploads.postiz.com (and matching `id` from upload). */
+type PostizMedia = { id: string; path: string };
+
+const MAX_IMAGE_DOWNLOAD_BYTES = 10 * 1024 * 1024;
 
 type EventRow = {
   id: string;
@@ -197,7 +203,7 @@ async function hasQueueConflict(
   return false;
 }
 
-function mediaPayloadFromUrl(url: string): { id: string; path: string } {
+function mediaPayloadFromUrl(url: string): PostizMedia {
   const enc = new TextEncoder().encode(url);
   return { id: stableIdFromBytes(enc), path: url };
 }
@@ -209,6 +215,153 @@ function stableIdFromBytes(bytes: Uint8Array): string {
     h = Math.imul(h, 16777619);
   }
   return `m-${(h >>> 0).toString(16)}`;
+}
+
+function isPostizUploadsHost(url: string): boolean {
+  try {
+    return new URL(url).hostname.toLowerCase() === "uploads.postiz.com";
+  } catch {
+    return false;
+  }
+}
+
+function filenameForPostizUpload(sourceUrl: string, contentType: string): string {
+  let ext = ".jpg";
+  if (/png/i.test(contentType)) ext = ".png";
+  else if (/webp/i.test(contentType)) ext = ".webp";
+  else if (/gif/i.test(contentType)) ext = ".gif";
+  else if (/jpeg|jpe/i.test(contentType)) ext = ".jpg";
+  try {
+    const base = new URL(sourceUrl).pathname.split("/").pop() || "";
+    if (/\.(jpe?g|png|gif|webp)$/i.test(base)) return base.slice(0, 180);
+  } catch {
+    /* ignore */
+  }
+  return `marcha-event${ext}`;
+}
+
+async function downloadImageBytes(
+  url: string
+): Promise<{ ok: true; bytes: Uint8Array; contentType: string } | { ok: false; error: string }> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 45000);
+  try {
+    const res = await fetch(url, { method: "GET", redirect: "follow", signal: ctrl.signal });
+    if (!res.ok) return { ok: false, error: `image_download_http_${res.status}` };
+    const cl = res.headers.get("content-length");
+    if (cl && Number(cl) > MAX_IMAGE_DOWNLOAD_BYTES) {
+      return { ok: false, error: "image_download_too_large" };
+    }
+    const buf = new Uint8Array(await res.arrayBuffer());
+    if (buf.byteLength > MAX_IMAGE_DOWNLOAD_BYTES) return { ok: false, error: "image_download_too_large" };
+    const contentType = res.headers.get("content-type") || "application/octet-stream";
+    if (!/image\//i.test(contentType)) {
+      return { ok: false, error: `image_download_not_image:${contentType}` };
+    }
+    return { ok: true, bytes: buf, contentType };
+  } catch (e) {
+    return { ok: false, error: `image_download_${String(e)}` };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Ensures media is hosted on uploads.postiz.com for posts:create.
+ * External URLs are downloaded and sent to POST /upload (multipart).
+ */
+async function ensurePostizHostedMedia(args: {
+  apiBase: string;
+  apiKey: string;
+  queueId: string;
+  sourceUrl: string;
+}): Promise<
+  | { ok: true; media: PostizMedia; uploadPerformed: boolean }
+  | { ok: false; error: string; httpStatus?: number; body?: unknown }
+> {
+  if (isPostizUploadsHost(args.sourceUrl)) {
+    slog("postiz_upload_skip", {
+      queue_id: args.queueId,
+      reason: "already_postiz_host",
+      path: args.sourceUrl.slice(0, 120)
+    });
+    return { ok: true, media: mediaPayloadFromUrl(args.sourceUrl), uploadPerformed: false };
+  }
+
+  slog("postiz_upload_download_start", { queue_id: args.queueId, source_host: safeHost(args.sourceUrl) });
+  const dl = await downloadImageBytes(args.sourceUrl);
+  if (!dl.ok) {
+    slog("postiz_upload_download_failed", { queue_id: args.queueId, error: dl.error });
+    return { ok: false, error: dl.error };
+  }
+
+  const filename = filenameForPostizUpload(args.sourceUrl, dl.contentType);
+  const uploadUrl = `${args.apiBase.replace(/\/$/, "")}/upload`;
+  const form = new FormData();
+  form.append("file", new Blob([dl.bytes], { type: dl.contentType }), filename);
+
+  slog("postiz_upload_multipart_start", {
+    queue_id: args.queueId,
+    endpoint: uploadUrl,
+    filename,
+    bytes: dl.bytes.byteLength,
+    content_type: dl.contentType
+  });
+
+  let res: Response;
+  try {
+    res = await fetch(uploadUrl, {
+      method: "POST",
+      headers: { Authorization: args.apiKey },
+      body: form
+    });
+  } catch (e) {
+    const err = `postiz_upload_network_${String(e)}`;
+    slog("postiz_upload_failed", { queue_id: args.queueId, error: err });
+    return { ok: false, error: err };
+  }
+
+  let parsed: unknown = null;
+  try {
+    parsed = await res.json();
+  } catch {
+    parsed = await res.text();
+  }
+
+  if (!res.ok) {
+    slog("postiz_upload_failed", {
+      queue_id: args.queueId,
+      http_status: res.status,
+      body: typeof parsed === "string" ? parsed.slice(0, 500) : parsed
+    });
+    return { ok: false, error: `postiz_upload_http_${res.status}`, httpStatus: res.status, body: parsed };
+  }
+
+  const body = parsed as { id?: string; path?: string };
+  const id = typeof body?.id === "string" ? body.id : "";
+  const path = typeof body?.path === "string" ? body.path : "";
+  if (!id || !path || !isPostizUploadsHost(path)) {
+    const err = "postiz_upload_invalid_response";
+    slog("postiz_upload_failed", { queue_id: args.queueId, error: err, body: parsed });
+    return { ok: false, error: err, httpStatus: res.status, body: parsed };
+  }
+
+  slog("postiz_upload_ok", {
+    queue_id: args.queueId,
+    postiz_media_id: id,
+    postiz_path: path,
+    bytes: dl.bytes.byteLength
+  });
+
+  return { ok: true, media: { id, path }, uploadPerformed: true };
+}
+
+function safeHost(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return "(invalid-url)";
+  }
 }
 
 function integrationForRow(row: QueueRow, envIg: string, envFb: string): string | null {
@@ -232,10 +385,10 @@ async function createPostizPost(args: {
   platform: SocialPlatform;
   scheduledIso: string;
   caption: string;
-  imageUrl: string;
+  image: PostizMedia;
 }): Promise<{ ok: boolean; status: number; body: unknown }> {
   const url = `${args.base.replace(/\/$/, "")}/posts`;
-  const image = [mediaPayloadFromUrl(args.imageUrl)];
+  const image = [args.image];
   const body = {
     type: "schedule",
     date: args.scheduledIso,
@@ -450,6 +603,38 @@ Deno.serve(async (req) => {
       });
     }
 
+    const uploadResult = await ensurePostizHostedMedia({
+      apiBase: postizBase,
+      apiKey: postizKey,
+      queueId: claimed.id,
+      sourceUrl: finalImage
+    });
+
+    if (!uploadResult.ok) {
+      const errText =
+        typeof uploadResult.body === "string"
+          ? uploadResult.body
+          : uploadResult.body !== undefined
+            ? JSON.stringify(uploadResult.body)
+            : uploadResult.error;
+      slog("post_aborted_after_upload_failure", { queue_id: claimed.id, error: uploadResult.error });
+      await supabase
+        .from("social_queue")
+        .update({
+          status: "failed",
+          resolved_image_url: finalImage,
+          last_error: `postiz_upload:${uploadResult.error}:${String(errText).slice(0, 400)}`,
+          retry_count: claimed.retry_count + 1,
+          updated_at: new Date().toISOString()
+        })
+        .eq("id", claimed.id);
+      results.push({ queue_id: claimed.id, ok: false, phase: "upload", error: uploadResult.error });
+      continue;
+    }
+
+    const publishMedia = uploadResult.media;
+    const resolvedPostizUrl = publishMedia.path;
+
     const hook = await pickHook(supabase, claimed.event_id);
     const { caption, template_id } = buildCaption(hook, ev);
 
@@ -458,9 +643,12 @@ Deno.serve(async (req) => {
       event_id: claimed.event_id,
       platform: claimed.platform,
       scheduled_at: claimed.scheduled_at,
-      image_url_selected: finalImage,
+      source_image_url: finalImage,
       image_source: imageLoggedSource,
       image_head_ok: validation.ok,
+      postiz_media_id: publishMedia.id,
+      postiz_image_path: resolvedPostizUrl,
+      postiz_upload_performed: uploadResult.uploadPerformed,
       caption_preview: caption.slice(0, 120),
       caption_template_id: template_id,
       postiz_integration_id: integrationId
@@ -473,7 +661,7 @@ Deno.serve(async (req) => {
       platform: claimed.platform,
       scheduledIso: claimed.scheduled_at,
       caption,
-      imageUrl: finalImage
+      image: publishMedia
     });
 
     slog("postiz_response", {
@@ -491,11 +679,11 @@ Deno.serve(async (req) => {
         .from("social_queue")
         .update({
           status: "failed",
-          resolved_image_url: finalImage,
+          resolved_image_url: resolvedPostizUrl,
           caption,
           caption_template_id: template_id,
           postiz_response: postizRes.body as object,
-          last_error: `postiz_http_${postizRes.status}:${errText.slice(0, 800)}`,
+          last_error: `postiz_posts_http_${postizRes.status}:${errText.slice(0, 800)}`,
           retry_count: claimed.retry_count + 1,
           updated_at: now
         })
@@ -503,6 +691,7 @@ Deno.serve(async (req) => {
       results.push({
         queue_id: claimed.id,
         ok: false,
+        phase: "posts_create",
         postiz_status: postizRes.status,
         postiz_body: postizRes.body
       });
@@ -520,7 +709,7 @@ Deno.serve(async (req) => {
       .from("social_queue")
       .update({
         status: "posted",
-        resolved_image_url: finalImage,
+        resolved_image_url: resolvedPostizUrl,
         caption,
         caption_template_id: template_id,
         postiz_response: postizRes.body as object,
@@ -533,7 +722,8 @@ Deno.serve(async (req) => {
     results.push({
       queue_id: claimed.id,
       ok: true,
-      image_url: finalImage,
+      source_image_url: finalImage,
+      postiz_image_url: resolvedPostizUrl,
       image_source: imageLoggedSource,
       caption_template_id: template_id,
       postiz_status: postizRes.status
