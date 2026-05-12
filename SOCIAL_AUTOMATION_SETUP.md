@@ -32,19 +32,17 @@ Postiz `posts:create` requires media `path` values on **`uploads.postiz.com`**. 
 
 Postiz rate limit: **30 requests/hour** across the API (each job uses at least **upload + posts**).
 
-### Create post payload (calendar + `posts:list` visibility)
+### Create post payload (draft vs schedule + review)
 
-The public `POST /v1/posts` contract is strict. The runner sends:
+The runner sends the same **`posts[]`** shape as before (integration, caption, image, settings, `tags` placeholder). Root fields:
 
-- `type: "schedule"`, `shortLink: false`, `date` as UTC ISO (`…Z`) from the scheduling step  
-- **`tags`: `[{ "value": "", "label": "" }]`** — an empty `tags: []` array has been reported to break validation / visibility (see [postiz-app#717](https://github.com/gitroomhq/postiz-app/issues/717))  
-- **`posts[].group`**: a new UUID per request so Postiz can group the item for calendar/UI  
-- **`posts[].integration.id`**, **`value[]`**, **`settings`** (`__type` + Instagram/Facebook fields), **`image`** array with upload `id` + `path`  
+- **`type`**: default **`"draft"`** so entries appear in Postiz for **manual review** before publishing (set env **`MARCHA_POSTIZ_POST_MODE=schedule`** to create scheduled posts instead).
+- **`date`**: UTC ISO from the internal scheduling step (required by the API; for **`draft`**, Postiz does **not** auto-publish at that time — treat it as a suggested calendar hint).
+- **`shortLink: false`**, **`tags`**: `[{ "value": "", "label": "" }]` (see [postiz-app#717](https://github.com/gitroomhq/postiz-app/issues/717)).
 
-Logs:
+**Schedule mode** (`MARCHA_POSTIZ_POST_MODE=schedule`): the publish instant is at least **`MARCHA_POSTIZ_MIN_REVIEW_HOURS`** (default **24**) after `now`, and still strictly **before event start − 2 hours**. If that window is impossible, the runner falls back to **`draft`** and logs **`postiz_schedule_fallback_draft`**.
 
-- **`postiz_create_request_payload`** — full JSON body (no API key in the body)  
-- **`postiz_create_response_body`** — parsed response  
+Logs **`schedule_resolved`** / **`post_prepare`** include **`postiz_root_type`** (`draft` | `schedule`) and **`postiz_api_date_utc`** for debugging.
 
 **`social_queue.status = posted`** only if HTTP **2xx** **and** the response yields at least one **listable** id (`postId`, `id`, etc.). Otherwise the row is **`failed`** with **`last_error = postiz:create_not_visible`** (including **2xx** with no id).
 
@@ -68,6 +66,8 @@ Logs:
 | `MARCHA_EVENT_TIMEZONE` | No | IANA zone for interpreting `event_date` + `event_time` (default `Europe/Berlin`) |
 | `POSTIZ_INSTAGRAM_INTEGRATION_ID` | No | Default Postiz integration id for `platform=instagram` when row has null `postiz_integration_id` |
 | `POSTIZ_FACEBOOK_INTEGRATION_ID` | No | Same for `facebook` |
+| `MARCHA_POSTIZ_POST_MODE` | No | `draft` (default): Postiz **draft** for manual review; `schedule`: scheduled post with min lead (see below) |
+| `MARCHA_POSTIZ_MIN_REVIEW_HOURS` | No | With `schedule` mode, earliest publish is `now +` this many hours (default **24**); if impossible before event, falls back to `draft` |
 | `SOCIAL_QA_STRICT_IMAGE` | No | Set to `1` or `true` to **HEAD** each image URL (slower; catches broken URLs) |
 | `SOCIAL_QA_MAX_RETRY` | No | Must match runner (default **5**) for CHK10 |
 

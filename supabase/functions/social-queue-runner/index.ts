@@ -44,34 +44,124 @@ const CORS: Record<string, string> = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-marcha-social-secret"
 };
 
-/** Spanish FOMO / local hooks — paired stable ids for non-repetition tracking. */
+/** Short Spanish hooks — stable ids for `social_caption_usage` de-dupe. Local / Costa vibe, no tech tone. */
 const CAPTION_HOOKS: { id: string; line: string }[] = [
-  { id: "hook-01", line: "¿Ya tienes plan para esta noche?" },
-  { id: "hook-02", line: "La mejor música está más cerca de lo que piensas." },
-  { id: "hook-03", line: "Hoy se vive algo especial." },
-  { id: "hook-04", line: "Última llamada para esta noche." },
-  { id: "hook-05", line: "Este finde todavía no termina." },
-  { id: "hook-06", line: "El ambiente está sonando fuerte." },
-  { id: "hook-07", line: "Tu noche empieza con un buen directo." },
-  { id: "hook-08", line: "Música en vivo, buena gente, buen rollo." },
-  { id: "hook-09", line: "No te quedes en casa: la ciudad se enciende." },
-  { id: "hook-10", line: "Una noche para salir y bailar." },
-  { id: "hook-11", line: "El escenario ya está listo." },
-  { id: "hook-12", line: "Planazo a la vuelta de la esquina." },
-  { id: "hook-13", line: "Si buscas vibe, aquí la encuentras." },
-  { id: "hook-14", line: "La noche pide música en directo." },
-  { id: "hook-15", line: "Siente la ciudad con otro ritmo." },
-  { id: "hook-16", line: "Hoy toca salir y disfrutar." },
-  { id: "hook-17", line: "Ritmo, luces y buena compañía." },
-  { id: "hook-18", line: "El afterwork perfecto existe." },
-  { id: "hook-19", line: "Descubre qué suena cerca de ti." },
-  { id: "hook-20", line: "La escena local no duerme." },
-  { id: "hook-21", line: "Un concierto que no querrás perderte." },
-  { id: "hook-22", line: "La sala ya huele a noche grande." },
-  { id: "hook-23", line: "Menos scroll, más música en vivo." },
-  { id: "hook-24", line: "Tu próximo recuerdo empieza aquí." },
-  { id: "hook-25", line: "Salir sí, quedarse con las ganas no." }
+  { id: "cap-01", line: "Este viernes hay plan 🔥" },
+  { id: "cap-02", line: "Música en vivo, buen ambiente y ganas de disfrutar." },
+  { id: "cap-03", line: "Este finde se vive con buena energía." },
+  { id: "cap-04", line: "Directo, calle y buen rollo." },
+  { id: "cap-05", line: "Noche de música en vivo." },
+  { id: "cap-06", line: "¿Plan para salir? Aquí huele a concierto." },
+  { id: "cap-07", line: "La Costa suena distinto." },
+  { id: "cap-08", line: "Buena gente, buena música." },
+  { id: "cap-09", line: "Se acerca un buen directo." },
+  { id: "cap-10", line: "Salir un rato y desconectar." },
+  { id: "cap-11", line: "Ritmo en vivo, sin complicaciones." },
+  { id: "cap-12", line: "Hay plan: música y buen ambiente." },
+  { id: "cap-13", line: "Una noche para disfrutar en serio." },
+  { id: "cap-14", line: "Lo local también pega fuerte." },
+  { id: "cap-15", line: "Este hueco del calendario pide música." },
+  { id: "cap-16", line: "Ambiente de barrio, nivel alto." },
+  { id: "cap-17", line: "Si te gusta el directo, mira esto." },
+  { id: "cap-18", line: "Finde con sabor a escenario." },
+  { id: "cap-19", line: "Poca cháchara, mucha música." },
+  { id: "cap-20", line: "Aquí el plan es simple: salir y gozar." }
 ];
+
+const CAPTION_SOFT_CTAS = [
+  "Descubre qué pasa cerca de ti en gomarcha.com",
+  "¿Tienes un evento? Súbelo gratis en Marcha.",
+  "Este finde se vive con Marcha."
+];
+
+function calendarDayKeyInTimeZone(ms: number, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(new Date(ms));
+}
+
+/** Calendar-day distance a→b in `timeZone` (integer, may be negative). */
+function calendarDaysBetween(aMs: number, bMs: number, timeZone: string): number {
+  const ka = calendarDayKeyInTimeZone(aMs, timeZone);
+  const kb = calendarDayKeyInTimeZone(bMs, timeZone);
+  const parse = (k: string) => {
+    const [y, m, d] = k.split("-").map((x) => Number(x));
+    return Date.UTC(y, m - 1, d);
+  };
+  return Math.round((parse(ka) - parse(kb)) / 86400000);
+}
+
+/** Natural Spanish teaser — no ISO dates, no weekday English. */
+function spanishNaturalTimeTeaser(eventStartMs: number, nowMs: number, timeZone: string): string {
+  const diffDays = calendarDaysBetween(eventStartMs, nowMs, timeZone);
+  if (diffDays < 0) return "Planazo en marcha.";
+  if (diffDays === 0) return "Hoy hay plan.";
+  if (diffDays === 1) return "Mañana suena bien.";
+  if (diffDays <= 3) return "Esta semana viene fuerte.";
+  if (diffDays < 7) return "Este finde hay ambiente.";
+  if (diffDays < 14) return "Buen plan en la Costa.";
+  return "Música en vivo por la zona.";
+}
+
+function shortEventWhereLine(event: EventRow): string {
+  const name = String(event.name || "Evento").trim();
+  const city = String(event.city || "").trim();
+  if (city) return `${name} · ${city}`;
+  const venue = String(event.location_name || "").trim();
+  if (venue) return `${name} · ${venue}`;
+  return name;
+}
+
+function captionVarietyHash(eventId: string, templateId: string): number {
+  const s = `${eventId}:${templateId}`;
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i)!;
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function buildSpanishHashtagLine(event: EventRow): string {
+  const base = ["músicaenvivo", "livemusic", "CostaDelSol", "goodvibes", "nightlife"];
+  const cityRaw = String(event.city || "").trim();
+  const city = cityRaw
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  const extras: string[] = [];
+  if (city.includes("malaga")) extras.push("Malaga");
+  if (city.includes("marbella")) extras.push("Marbella");
+  if (city.includes("torremolinos")) extras.push("Torremolinos");
+  if (city.includes("fuengirola")) extras.push("Fuengirola");
+  if (city.includes("benalmadena")) extras.push("Benalmadena");
+  if (city.includes("estepona")) extras.push("Estepona");
+  if (city.includes("nerja")) extras.push("Nerja");
+  if (extras.length === 0) extras.push("Andalucía");
+  const merged = [...base, ...extras, "gomarcha"];
+  const seen = new Set<string>();
+  const tags: string[] = [];
+  for (const raw of merged) {
+    const t = String(raw || "")
+      .replace(/^#/u, "")
+      .replace(/\s+/gu, "");
+    if (!t || seen.has(t.toLowerCase())) continue;
+    seen.add(t.toLowerCase());
+    tags.push(`#${t}`);
+    if (tags.length >= 8) break;
+  }
+  while (tags.length < 5) {
+    const pad = ["eventos", "musica", "conciertos", "fiesta"].filter((x) => !seen.has(x));
+    const x = pad[0];
+    if (!x) break;
+    seen.add(x);
+    tags.push(`#${x}`);
+  }
+  return tags.slice(0, 8).join(" ");
+}
 
 function slog(msg: string, extra?: Record<string, unknown>) {
   const suffix = extra ? ` ${JSON.stringify(extra)}` : "";
@@ -542,24 +632,18 @@ function resolveEffectivePostTimeMs(args: {
 function buildCaption(
   hook: { id: string; line: string },
   event: EventRow,
-  whenOverride?: { date: string; time: string } | null
+  ctx: { eventStartMs: number; nowMs: number; timeZone: string }
 ): { caption: string; template_id: string } {
-  const name = String(event.name || "Evento").trim();
-  const city = String(event.city || "").trim();
-  const venue = String(event.location_name || "").trim();
-  const dateStr = whenOverride?.date?.trim() || String(event.event_date || "").trim();
-  const timeStr = whenOverride?.time?.trim() || String(event.event_time || "").trim();
-  const whenParts = [dateStr, timeStr].filter(Boolean);
-  const when = whenParts.length ? whenParts.join(" · ") : "pronto";
-  const localBit = city
-    ? venue
-      ? `${name} en ${venue} (${city}). ${when}.`
-      : `${name} en ${city}. ${when}.`
-    : venue
-      ? `${name} en ${venue}. ${when}.`
-      : `${name}. ${when}.`;
-  const cta = "Más detalles en gomarcha.com";
-  const caption = `${hook.line}\n\n${localBit}\n\n${cta}`;
+  const teaser = spanishNaturalTimeTeaser(ctx.eventStartMs, ctx.nowMs, ctx.timeZone);
+  const where = shortEventWhereLine(event);
+  const mid = `${teaser} ${where}`;
+  const h = captionVarietyHash(String(event.id), hook.id);
+  const parts: string[] = [hook.line, mid];
+  if (h % 3 === 0) {
+    parts.push(CAPTION_SOFT_CTAS[h % CAPTION_SOFT_CTAS.length]!);
+  }
+  parts.push(buildSpanishHashtagLine(event));
+  const caption = parts.join("\n\n").trim();
   return { caption, template_id: hook.id };
 }
 
@@ -806,6 +890,93 @@ function toUtcPostizDateIso(iso: string): string {
   return d.toISOString();
 }
 
+type PostizRootType = "draft" | "schedule";
+
+/**
+ * Default: Postiz `draft` for human review. Optional `MARCHA_POSTIZ_POST_MODE=schedule` with
+ * `MARCHA_POSTIZ_MIN_REVIEW_HOURS` (default 24) so scheduled publish is not immediate; falls back to draft if impossible before event.
+ */
+function resolvePostizPublishPlan(args: {
+  effectiveMs: number;
+  eventStartMs: number;
+  nowMs: number;
+  envModeRaw: string;
+  minReviewHours: number;
+}): { postType: PostizRootType; publishMs: number; usedScheduleFallbackToDraft: boolean } {
+  const mode = String(args.envModeRaw || "draft").trim().toLowerCase();
+  const wantSchedule = mode === "schedule";
+  const leadMs = Math.max(0, Number.isFinite(args.minReviewHours) ? args.minReviewHours : 24) * 3600000;
+  const twoH = 2 * 60 * 60 * 1000;
+  const lastScheduleMs = args.eventStartMs - twoH;
+
+  if (!wantSchedule) {
+    return { postType: "draft", publishMs: args.effectiveMs, usedScheduleFallbackToDraft: false };
+  }
+
+  let publishMs = Math.max(args.effectiveMs, args.nowMs + leadMs);
+  if (publishMs >= lastScheduleMs) {
+    return {
+      postType: "draft",
+      publishMs: args.effectiveMs,
+      usedScheduleFallbackToDraft: true
+    };
+  }
+  return { postType: "schedule", publishMs, usedScheduleFallbackToDraft: false };
+}
+
+async function createPostizPost(args: {
+  base: string;
+  apiKey: string;
+  integrationId: string;
+  platform: SocialPlatform;
+  scheduledIso: string;
+  caption: string;
+  image: PostizMedia;
+  queueId: string;
+  postType: PostizRootType;
+}): Promise<{ ok: boolean; status: number; body: unknown; requestPayload: Record<string, unknown> }> {
+  const url = `${args.base.replace(/\/$/, "")}/posts`;
+  const group = crypto.randomUUID();
+  const dateIso = toUtcPostizDateIso(args.scheduledIso);
+  const requestPayload: Record<string, unknown> = {
+    type: args.postType,
+    date: dateIso,
+    shortLink: false,
+    tags: postizTagsPayload(),
+    posts: [
+      {
+        group,
+        integration: { id: args.integrationId },
+        value: [{ content: args.caption, image: [args.image] }],
+        settings: postizSettings(args.platform)
+      }
+    ]
+  };
+
+  slog("postiz_create_request_payload", {
+    queue_id: args.queueId,
+    endpoint: url,
+    payload: requestPayload
+  });
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: args.apiKey,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(requestPayload)
+  });
+  let parsed: unknown = null;
+  try {
+    parsed = await res.json();
+  } catch {
+    parsed = await res.text();
+  }
+  const httpOk = res.status >= 200 && res.status < 300;
+  return { ok: httpOk, status: res.status, body: parsed, requestPayload };
+}
+
 /**
  * Extract listable post ids from POST /posts response (shape varies by Postiz version).
  * Ignores releaseId === "missing" as non-listable for our "posted" gate.
@@ -852,58 +1023,6 @@ function extractPostIdsFromCreateResponse(body: unknown): string[] {
   return [...new Set(out)];
 }
 
-async function createPostizPost(args: {
-  base: string;
-  apiKey: string;
-  integrationId: string;
-  platform: SocialPlatform;
-  scheduledIso: string;
-  caption: string;
-  image: PostizMedia;
-  queueId: string;
-}): Promise<{ ok: boolean; status: number; body: unknown; requestPayload: Record<string, unknown> }> {
-  const url = `${args.base.replace(/\/$/, "")}/posts`;
-  const group = crypto.randomUUID();
-  const dateIso = toUtcPostizDateIso(args.scheduledIso);
-  const requestPayload: Record<string, unknown> = {
-    type: "schedule",
-    date: dateIso,
-    shortLink: false,
-    tags: postizTagsPayload(),
-    posts: [
-      {
-        group,
-        integration: { id: args.integrationId },
-        value: [{ content: args.caption, image: [args.image] }],
-        settings: postizSettings(args.platform)
-      }
-    ]
-  };
-
-  slog("postiz_create_request_payload", {
-    queue_id: args.queueId,
-    endpoint: url,
-    payload: requestPayload
-  });
-
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: args.apiKey,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(requestPayload)
-  });
-  let parsed: unknown = null;
-  try {
-    parsed = await res.json();
-  } catch {
-    parsed = await res.text();
-  }
-  const httpOk = res.status >= 200 && res.status < 300;
-  return { ok: httpOk, status: res.status, body: parsed, requestPayload };
-}
-
 async function claimRow(supabase: SupabaseClient, rowId: string): Promise<QueueRow | null> {
   const now = new Date().toISOString();
   const { data, error } = await supabase
@@ -941,6 +1060,8 @@ Deno.serve(async (req) => {
   const fallbackImage =
     Deno.env.get("MARCHA_DEFAULT_SOCIAL_IMAGE_URL") || "https://gomarcha.com/assets/logo.png";
   const eventTimeZone = Deno.env.get("MARCHA_EVENT_TIMEZONE") || "Europe/Berlin";
+  const postizPostMode = Deno.env.get("MARCHA_POSTIZ_POST_MODE") || "draft";
+  const postizMinReviewHours = Number.parseFloat(Deno.env.get("MARCHA_POSTIZ_MIN_REVIEW_HOURS") || "24");
 
   if (!postizKey) {
     slog("missing_postiz_api_key");
@@ -1147,12 +1268,30 @@ Deno.serve(async (req) => {
     }
 
     const effectivePostIso = new Date(scheduleResult.effectiveMs).toISOString();
+    const postizPlan = resolvePostizPublishPlan({
+      effectiveMs: scheduleResult.effectiveMs,
+      eventStartMs,
+      nowMs,
+      envModeRaw: postizPostMode,
+      minReviewHours: Number.isFinite(postizMinReviewHours) ? postizMinReviewHours : 24
+    });
+    const postizPublishIso = new Date(postizPlan.publishMs).toISOString();
+    if (postizPlan.usedScheduleFallbackToDraft) {
+      slog("postiz_schedule_fallback_draft", {
+        queue_id: claimed.id,
+        event_id: ev.id,
+        reason: "cannot_meet_min_review_hours_before_event"
+      });
+    }
+
     slog("schedule_resolved", {
       queue_id: claimed.id,
       event_id: ev.id,
       event_title: ev.name ?? "",
       queue_scheduled_at: claimed.scheduled_at,
       effective_post_at: effectivePostIso,
+      postiz_root_type: postizPlan.postType,
+      postiz_api_date_utc: postizPublishIso,
       event_start_iso: new Date(eventStartMs).toISOString(),
       calculated_next_occurrence: occ.occurrenceYmd,
       timezone: eventTimeZone,
@@ -1230,7 +1369,11 @@ Deno.serve(async (req) => {
     });
 
     const hook = await pickHook(supabase, claimed.event_id);
-    const { caption, template_id } = buildCaption(hook, ev, { date: occ.occurrenceYmd });
+    const { caption, template_id } = buildCaption(hook, ev, {
+      eventStartMs,
+      nowMs,
+      timeZone: eventTimeZone
+    });
 
     slog("post_prepare", {
       queue_id: claimed.id,
@@ -1239,6 +1382,8 @@ Deno.serve(async (req) => {
       platform: claimed.platform,
       queue_scheduled_at: claimed.scheduled_at,
       effective_post_at: effectivePostIso,
+      postiz_root_type: postizPlan.postType,
+      postiz_api_date_utc: postizPublishIso,
       source_image_url: finalImage,
       image_source: imageLoggedSource,
       postiz_media_id: publishMedia.id,
@@ -1254,7 +1399,8 @@ Deno.serve(async (req) => {
       apiKey: postizKey,
       integrationId,
       platform: claimed.platform,
-      scheduledIso: effectivePostIso,
+      scheduledIso: postizPublishIso,
+      postType: postizPlan.postType,
       caption,
       image: publishMedia,
       queueId: claimed.id
