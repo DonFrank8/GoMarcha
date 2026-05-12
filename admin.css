@@ -531,6 +531,104 @@ body {
   border: 0;
 }
 
+.admin-crop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(2, 6, 23, 0.78);
+  backdrop-filter: blur(6px);
+}
+
+.admin-crop-dialog {
+  width: min(440px, 94vw);
+  max-height: min(92vh, 900px);
+  overflow: auto;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  padding: 1rem 1.05rem 1.05rem;
+}
+
+.admin-crop-title {
+  margin: 0 0 0.4rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.admin-crop-hint {
+  margin: 0 0 0.75rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.admin-crop-aspect {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-bottom: 0.75rem;
+}
+
+.admin-crop-aspect-btn {
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(10, 14, 27, 0.86);
+  color: var(--muted);
+  min-height: 32px;
+  padding: 0.22rem 0.72rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: 0.16s ease;
+}
+
+.admin-crop-aspect-btn:hover {
+  border-color: rgba(236, 72, 153, 0.55);
+  color: var(--text);
+}
+
+.admin-crop-aspect-btn.is-active {
+  border-color: rgba(163, 130, 255, 0.72);
+  color: #f6f3ff;
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.28), rgba(236, 72, 153, 0.22));
+  box-shadow: var(--glow-purple);
+}
+
+.admin-crop-canvas-wrap {
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 1px solid rgba(124, 58, 237, 0.22);
+  background: #020617;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.admin-crop-canvas {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  vertical-align: top;
+  cursor: grab;
+  touch-action: none;
+}
+
+.admin-crop-canvas.is-dragging {
+  cursor: grabbing;
+}
+
+.admin-crop-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
 .event-description {
   margin: 0;
   color: #dce8ff;

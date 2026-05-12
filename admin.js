@@ -7,6 +7,9 @@ const ADMIN_DASHBOARD_BUILD = "2026.04.08-admin-2";
 const EVENT_IMAGES_BUCKET = "event-images";
 const ADMIN_REPLACE_IMAGE_MAX_BYTES = 8 * 1024 * 1024;
 const ADMIN_REPLACE_ALLOWED_EXT = new Set(["jpg", "jpeg", "png", "webp"]);
+const CROP_EXPORT_MAX_WIDTH = 1600;
+const CROP_EXPORT_QUALITY = 0.82;
+const CROP_PREVIEW_BASE_W = 360;
 
 const VALID_STATUS = new Set(["pending", "approved", "rejected"]);
 
@@ -132,14 +135,16 @@ function sanitizeEventIdForStoragePath(eventId) {
   return safe || "event";
 }
 
-function buildAdminReplacementImagePath(eventId, file) {
+function buildAdminReplacementImagePath(eventId, extForPath) {
   const date = new Date();
   const yyyy = date.getUTCFullYear();
   const mm = String(date.getUTCMonth() + 1).padStart(2, "0");
   const dd = String(date.getUTCDate()).padStart(2, "0");
   const idPart = sanitizeEventIdForStoragePath(eventId);
-  const ext = fileExtension(file?.name);
-  const safeExt = ADMIN_REPLACE_ALLOWED_EXT.has(ext) ? ext : "jpg";
+  const raw = String(extForPath || "jpg")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+  const safeExt = raw === "webp" ? "webp" : ADMIN_REPLACE_ALLOWED_EXT.has(raw) ? raw : "jpg";
   const random = Math.random().toString(36).slice(2, 10);
   return `admin-replacements/${yyyy}/${mm}/${dd}/${idPart}-${random}.${safeExt}`;
 }
@@ -163,6 +168,303 @@ function validateAdminReplacementImageFile(file) {
     }
   }
   return { ok: true };
+}
+
+function validateAdminReplacementExportBlob(blob) {
+  if (!blob || !Number.isFinite(blob.size) || blob.size <= 0) {
+    return { ok: false, message: "Exportiertes Bild ist leer." };
+  }
+  if (blob.size > ADMIN_REPLACE_IMAGE_MAX_BYTES) {
+    return { ok: false, message: "Export ist zu groß (max. 8 MB)." };
+  }
+  const mime = String(blob.type || "").trim().toLowerCase();
+  const allowed = new Set(["image/jpeg", "image/webp"]);
+  if (mime && !allowed.has(mime)) {
+    return { ok: false, message: "Export-Format nicht unterstützt." };
+  }
+  return { ok: true };
+}
+
+function adminCropAspectRatioWoverH(aspectMode) {
+  return aspectMode === "11" ? 1 : 4 / 5;
+}
+
+function adminCropMaxRectInSource(iw, ih, ar) {
+  if (iw / ih >= ar) {
+    const sh = ih;
+    const sw = ih * ar;
+    return { sw, sh };
+  }
+  const sw = iw;
+  const sh = iw / ar;
+  return { sw, sh };
+}
+
+function adminCropSourceRect(iw, ih, aspectMode, panX, panY) {
+  const ar = adminCropAspectRatioWoverH(aspectMode);
+  const { sw, sh } = adminCropMaxRectInSource(iw, ih, ar);
+  const sx0 = (iw - sw) / 2;
+  const sy0 = (ih - sh) / 2;
+  let sx = sx0 + panX;
+  let sy = sy0 + panY;
+  sx = Math.max(0, Math.min(sx, iw - sw));
+  sy = Math.max(0, Math.min(sy, ih - sh));
+  return { sx, sy, sw, sh, sx0, sy0 };
+}
+
+function adminCropPanBounds(iw, ih, aspectMode) {
+  const ar = adminCropAspectRatioWoverH(aspectMode);
+  const { sw, sh } = adminCropMaxRectInSource(iw, ih, ar);
+  const sx0 = (iw - sw) / 2;
+  const sy0 = (ih - sh) / 2;
+  return {
+    panXMin: -sx0,
+    panXMax: iw - sw - sx0,
+    panYMin: -sy0,
+    panYMax: ih - sh - sy0
+  };
+}
+
+function adminCropPreviewCanvasSize(aspectMode) {
+  const w = CROP_PREVIEW_BASE_W;
+  if (aspectMode === "11") return { cw: w, ch: w };
+  return { cw: w, ch: Math.round((w * 5) / 4) };
+}
+
+function adminCropExportCanvasSize(aspectMode) {
+  const outW = CROP_EXPORT_MAX_WIDTH;
+  if (aspectMode === "11") return { outW, outH: outW };
+  return { outW, outH: Math.round((outW * 5) / 4) };
+}
+
+function adminCanvasToExportBlob(canvas) {
+  return new Promise((resolve, reject) => {
+    if (typeof canvas.toBlob !== "function") {
+      reject(new Error("Canvas-Export wird nicht unterstützt."));
+      return;
+    }
+    canvas.toBlob(
+      (webpBlob) => {
+        if (webpBlob && webpBlob.size > 0) {
+          resolve(webpBlob);
+          return;
+        }
+        canvas.toBlob(
+          (jpegBlob) => {
+            if (jpegBlob && jpegBlob.size > 0) resolve(jpegBlob);
+            else reject(new Error("Export fehlgeschlagen."));
+          },
+          "image/jpeg",
+          CROP_EXPORT_QUALITY
+        );
+      },
+      "image/webp",
+      CROP_EXPORT_QUALITY
+    );
+  });
+}
+
+function openAdminImageCropModal(file) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "admin-crop-overlay";
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+    overlay.setAttribute("aria-label", "Bild zuschneiden");
+
+    overlay.innerHTML = `
+      <div class="admin-crop-dialog">
+        <h3 class="admin-crop-title">Bild zuschneiden</h3>
+        <p class="admin-crop-hint">Ziehen Sie mit der Maus, um den Ausschnitt zu verschieben.</p>
+        <div class="admin-crop-aspect" role="group" aria-label="Seitenverhältnis">
+          <button type="button" class="admin-crop-aspect-btn is-active" data-crop-aspect="45">4:5</button>
+          <button type="button" class="admin-crop-aspect-btn" data-crop-aspect="11">1:1</button>
+        </div>
+        <div class="admin-crop-canvas-wrap">
+          <canvas class="admin-crop-canvas" width="360" height="450"></canvas>
+        </div>
+        <div class="admin-crop-actions">
+          <button type="button" class="button-secondary" data-crop-cancel>Abbrechen</button>
+          <button type="button" class="button-secondary button-secondary--primary" data-crop-confirm>Übernehmen &amp; hochladen</button>
+        </div>
+      </div>
+    `;
+
+    const canvas = overlay.querySelector(".admin-crop-canvas");
+    const ctx = canvas.getContext("2d");
+    const btn45 = overlay.querySelector('[data-crop-aspect="45"]');
+    const btn11 = overlay.querySelector('[data-crop-aspect="11"]');
+    const btnCancel = overlay.querySelector("[data-crop-cancel]");
+    const btnConfirm = overlay.querySelector("[data-crop-confirm]");
+
+    let aspectMode = "45";
+    let panX = 0;
+    let panY = 0;
+    let img = null;
+    let objectUrl = null;
+    let dragging = false;
+    let lastClientX = 0;
+    let lastClientY = 0;
+
+    const finish = (blob) => {
+      document.removeEventListener("keydown", onKeyDown);
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+        objectUrl = null;
+      }
+      overlay.remove();
+      resolve(blob);
+    };
+
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        finish(null);
+      }
+    };
+
+    const resizeCanvasForAspect = () => {
+      const { cw, ch } = adminCropPreviewCanvasSize(aspectMode);
+      canvas.width = cw;
+      canvas.height = ch;
+    };
+
+    const draw = () => {
+      if (!img || !ctx) return;
+      const iw = img.naturalWidth;
+      const ih = img.naturalHeight;
+      if (!iw || !ih) return;
+      const { sx, sy, sw, sh } = adminCropSourceRect(iw, ih, aspectMode, panX, panY);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+    };
+
+    const clampPan = () => {
+      if (!img) return;
+      const iw = img.naturalWidth;
+      const ih = img.naturalHeight;
+      const { panXMin, panXMax, panYMin, panYMax } = adminCropPanBounds(iw, ih, aspectMode);
+      panX = Math.max(panXMin, Math.min(panXMax, panX));
+      panY = Math.max(panYMin, Math.min(panYMax, panY));
+    };
+
+    const setAspect = (mode) => {
+      aspectMode = mode;
+      panX = 0;
+      panY = 0;
+      btn45?.classList.toggle("is-active", mode === "45");
+      btn11?.classList.toggle("is-active", mode === "11");
+      resizeCanvasForAspect();
+      clampPan();
+      draw();
+    };
+
+    btn45?.addEventListener("click", () => setAspect("45"));
+    btn11?.addEventListener("click", () => setAspect("11"));
+
+    btnCancel?.addEventListener("click", () => finish(null));
+
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) finish(null);
+    });
+
+    btnConfirm?.addEventListener("click", async () => {
+      if (!img) return;
+      const iw = img.naturalWidth;
+      const ih = img.naturalHeight;
+      const { sx, sy, sw, sh } = adminCropSourceRect(iw, ih, aspectMode, panX, panY);
+      const { outW, outH } = adminCropExportCanvasSize(aspectMode);
+      const exportCanvas = document.createElement("canvas");
+      exportCanvas.width = outW;
+      exportCanvas.height = outH;
+      const ex = exportCanvas.getContext("2d");
+      if (!ex) {
+        setGlobalFeedback("Export nicht möglich.", "error");
+        return;
+      }
+      ex.imageSmoothingEnabled = true;
+      ex.imageSmoothingQuality = "high";
+      ex.drawImage(img, sx, sy, sw, sh, 0, 0, outW, outH);
+      try {
+        const blob = await adminCanvasToExportBlob(exportCanvas);
+        const v = validateAdminReplacementExportBlob(blob);
+        if (!v.ok) {
+          setGlobalFeedback(v.message, "error");
+          return;
+        }
+        finish(blob);
+      } catch (err) {
+        console.error("Crop export failed:", err);
+        setGlobalFeedback(err.message || "Export fehlgeschlagen.", "error");
+      }
+    });
+
+    canvas.addEventListener("pointerdown", (e) => {
+      if (!img) return;
+      dragging = true;
+      lastClientX = e.clientX;
+      lastClientY = e.clientY;
+      try {
+        canvas.setPointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+      canvas.classList.add("is-dragging");
+    });
+
+    canvas.addEventListener("pointermove", (e) => {
+      if (!dragging || !img) return;
+      const rect = canvas.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      const iw = img.naturalWidth;
+      const ih = img.naturalHeight;
+      const { sw, sh } = adminCropMaxRectInSource(iw, ih, adminCropAspectRatioWoverH(aspectMode));
+      const dx = e.clientX - lastClientX;
+      const dy = e.clientY - lastClientY;
+      lastClientX = e.clientX;
+      lastClientY = e.clientY;
+      panX -= (dx * sw) / rect.width;
+      panY -= (dy * sh) / rect.height;
+      clampPan();
+      draw();
+    });
+
+    const endDrag = () => {
+      dragging = false;
+      canvas.classList.remove("is-dragging");
+    };
+
+    canvas.addEventListener("pointerup", endDrag);
+    canvas.addEventListener("pointercancel", endDrag);
+
+    objectUrl = URL.createObjectURL(file);
+    img = new Image();
+    img.decoding = "async";
+    img.onload = () => {
+      try {
+        resizeCanvasForAspect();
+        clampPan();
+        draw();
+        btnConfirm.disabled = false;
+      } catch (err) {
+        console.error("Crop preview init failed:", err);
+        setGlobalFeedback("Bild konnte nicht geladen werden.", "error");
+        finish(null);
+      }
+    };
+    img.onerror = () => {
+      setGlobalFeedback("Bild konnte nicht geladen werden.", "error");
+      finish(null);
+    };
+    img.src = objectUrl;
+
+    btnConfirm.disabled = true;
+    document.body.appendChild(overlay);
+    document.addEventListener("keydown", onKeyDown);
+    btnCancel?.focus();
+  });
 }
 
 function buildImageUrlsAfterAdminReplacement(event, newPublicUrl) {
@@ -201,10 +503,12 @@ function buildImageUrlsAfterAdminReplacement(event, newPublicUrl) {
   return out;
 }
 
-async function uploadAdminReplacementEventImage(client, eventId, file) {
-  const path = buildAdminReplacementImagePath(eventId, file);
-  const contentType = String(file.type || "").trim() || "application/octet-stream";
-  const { error: uploadError } = await client.storage.from(EVENT_IMAGES_BUCKET).upload(path, file, {
+async function uploadAdminReplacementBlob(client, eventId, blob) {
+  const mime = String(blob.type || "").toLowerCase();
+  const extForPath = mime.includes("webp") ? "webp" : "jpg";
+  const path = buildAdminReplacementImagePath(eventId, extForPath);
+  const contentType = extForPath === "webp" ? "image/webp" : "image/jpeg";
+  const { error: uploadError } = await client.storage.from(EVENT_IMAGES_BUCKET).upload(path, blob, {
     contentType,
     upsert: false
   });
@@ -216,16 +520,16 @@ async function uploadAdminReplacementEventImage(client, eventId, file) {
   return { path, publicUrl };
 }
 
-async function replaceAdminEventMainImage(eventId, file) {
+async function replaceAdminEventMainImageBlob(eventId, blob) {
   if (!isSessionAdmin(state.adminSession)) {
     throw new Error("Admin-Anmeldung erforderlich.");
   }
-  const v = validateAdminReplacementImageFile(file);
+  const v = validateAdminReplacementExportBlob(blob);
   if (!v.ok) throw new Error(v.message);
   const eventData = state.allEvents.find((e) => String(e.id) === String(eventId));
   if (!eventData) throw new Error("Event nicht gefunden.");
   const client = supabaseClient();
-  const { publicUrl } = await uploadAdminReplacementEventImage(client, eventId, file);
+  const { publicUrl } = await uploadAdminReplacementBlob(client, eventId, blob);
   const nextImageUrls = buildImageUrlsAfterAdminReplacement(eventData, publicUrl);
   await updateEventWithFallback(eventId, { image_url: publicUrl, image_urls: nextImageUrls });
   return publicUrl;
@@ -745,13 +1049,26 @@ function bindEvents() {
     const eventId = card?.dataset.eventId;
     if (!eventId) return;
 
+    const v = validateAdminReplacementImageFile(file);
+    if (!v.ok) {
+      setGlobalFeedback(v.message, "error");
+      return;
+    }
+
     if (btn) {
       btn.disabled = true;
-      btn.textContent = "Wird hochgeladen…";
+      btn.textContent = "Zuschneiden…";
     }
     setGlobalFeedback("");
     try {
-      const publicUrl = await replaceAdminEventMainImage(eventId, file);
+      const blob = await openAdminImageCropModal(file);
+      if (!blob) {
+        return;
+      }
+      if (btn) {
+        btn.textContent = "Wird hochgeladen…";
+      }
+      const publicUrl = await replaceAdminEventMainImageBlob(eventId, blob);
       if (previewImg) {
         previewImg.removeAttribute("hidden");
         const sep = publicUrl.includes("?") ? "&" : "?";
