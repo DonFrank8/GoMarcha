@@ -4,6 +4,10 @@ const ADMIN_REQUIRED_ROLE = "admin";
 const ADMIN_ALLOWED_EMAILS = [];
 const ADMIN_DASHBOARD_BUILD = "2026.04.08-admin-2";
 
+const EVENT_IMAGES_BUCKET = "event-images";
+const ADMIN_REPLACE_IMAGE_MAX_BYTES = 8 * 1024 * 1024;
+const ADMIN_REPLACE_ALLOWED_EXT = new Set(["jpg", "jpeg", "png", "webp"]);
+
 const VALID_STATUS = new Set(["pending", "approved", "rejected"]);
 
 const state = {
@@ -91,6 +95,142 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+function sanitizeFileName(fileName) {
+  const raw = String(fileName || "").trim();
+  const normalized = raw.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  return normalized.replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+
+function fileExtension(fileName) {
+  const parts = String(fileName || "").split(".");
+  if (parts.length < 2) return "jpg";
+  const ext = String(parts.pop() || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+  return ext || "jpg";
+}
+
+function resolvePrimaryImageUrl(raw) {
+  const main = String(raw.image_url || raw.image || "").trim();
+  if (main) return main;
+  const coll = raw.image_urls;
+  if (Array.isArray(coll)) {
+    for (const entry of coll) {
+      const u =
+        typeof entry === "string"
+          ? entry.trim()
+          : String(entry?.url || entry?.image_url || "").trim();
+      if (u) return u;
+    }
+  }
+  return "";
+}
+
+function sanitizeEventIdForStoragePath(eventId) {
+  const raw = String(eventId || "").trim();
+  const safe = raw.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
+  return safe || "event";
+}
+
+function buildAdminReplacementImagePath(eventId, file) {
+  const date = new Date();
+  const yyyy = date.getUTCFullYear();
+  const mm = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(date.getUTCDate()).padStart(2, "0");
+  const idPart = sanitizeEventIdForStoragePath(eventId);
+  const ext = fileExtension(file?.name);
+  const safeExt = ADMIN_REPLACE_ALLOWED_EXT.has(ext) ? ext : "jpg";
+  const random = Math.random().toString(36).slice(2, 10);
+  return `admin-replacements/${yyyy}/${mm}/${dd}/${idPart}-${random}.${safeExt}`;
+}
+
+function validateAdminReplacementImageFile(file) {
+  if (!file || !Number.isFinite(file.size) || file.size <= 0) {
+    return { ok: false, message: "Keine gültige Bilddatei ausgewählt." };
+  }
+  if (file.size > ADMIN_REPLACE_IMAGE_MAX_BYTES) {
+    return { ok: false, message: "Datei ist zu groß (max. 8 MB)." };
+  }
+  const ext = fileExtension(file.name);
+  if (!ADMIN_REPLACE_ALLOWED_EXT.has(ext)) {
+    return { ok: false, message: "Nur JPG, PNG oder WEBP sind erlaubt." };
+  }
+  const mime = String(file.type || "").trim().toLowerCase();
+  if (mime) {
+    const allowedMime = new Set(["image/jpeg", "image/png", "image/webp"]);
+    if (!allowedMime.has(mime)) {
+      return { ok: false, message: "Nur JPG, PNG oder WEBP sind erlaubt." };
+    }
+  }
+  return { ok: true };
+}
+
+function buildImageUrlsAfterAdminReplacement(event, newPublicUrl) {
+  const newMain = String(newPublicUrl || "").trim();
+  const oldMain = String(event.image_url || "").trim();
+  const out = [];
+  const seen = new Set();
+
+  const pushUnique = (url, featured) => {
+    const u = String(url || "").trim();
+    if (!u) return;
+    const key = u.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ url: u, featured: Boolean(featured) });
+  };
+
+  pushUnique(newMain, true);
+
+  if (oldMain && oldMain.toLowerCase() !== newMain.toLowerCase()) {
+    pushUnique(oldMain, false);
+  }
+
+  const raw = event.image_urls;
+  if (Array.isArray(raw)) {
+    for (const entry of raw) {
+      const u =
+        typeof entry === "string"
+          ? entry.trim()
+          : String(entry?.url || entry?.image_url || "").trim();
+      if (!u || u.toLowerCase() === newMain.toLowerCase()) continue;
+      pushUnique(u, false);
+    }
+  }
+
+  return out;
+}
+
+async function uploadAdminReplacementEventImage(client, eventId, file) {
+  const path = buildAdminReplacementImagePath(eventId, file);
+  const contentType = String(file.type || "").trim() || "application/octet-stream";
+  const { error: uploadError } = await client.storage.from(EVENT_IMAGES_BUCKET).upload(path, file, {
+    contentType,
+    upsert: false
+  });
+  if (uploadError) throw uploadError;
+  const {
+    data: { publicUrl }
+  } = client.storage.from(EVENT_IMAGES_BUCKET).getPublicUrl(path);
+  if (!publicUrl) throw new Error("Öffentliche Bild-URL konnte nicht ermittelt werden.");
+  return { path, publicUrl };
+}
+
+async function replaceAdminEventMainImage(eventId, file) {
+  if (!isSessionAdmin(state.adminSession)) {
+    throw new Error("Admin-Anmeldung erforderlich.");
+  }
+  const v = validateAdminReplacementImageFile(file);
+  if (!v.ok) throw new Error(v.message);
+  const eventData = state.allEvents.find((e) => String(e.id) === String(eventId));
+  if (!eventData) throw new Error("Event nicht gefunden.");
+  const client = supabaseClient();
+  const { publicUrl } = await uploadAdminReplacementEventImage(client, eventId, file);
+  const nextImageUrls = buildImageUrlsAfterAdminReplacement(eventData, publicUrl);
+  await updateEventWithFallback(eventId, { image_url: publicUrl, image_urls: nextImageUrls });
+  return publicUrl;
+}
+
 function normalizeEvent(event) {
   const status = String(event.status || "").toLowerCase();
   const normalizeRecurrenceType = (value) => {
@@ -115,7 +255,8 @@ function normalizeEvent(event) {
     contact_email: event.contact_email || "",
     status: VALID_STATUS.has(status) ? status : "pending",
     verification_notes: event.verification_notes || "",
-    image_url: event.image_url || "",
+    image_url: resolvePrimaryImageUrl(event),
+    image_urls: event.image_urls ?? null,
     lat: Number.isFinite(event.lat) ? event.lat : null,
     lng: Number.isFinite(event.lng) ? event.lng : null,
     recurrence_type: recurrenceType,
@@ -260,30 +401,32 @@ function renderEventCard(event) {
   const previewGenre = escapeHtml(String(event.genre || "Event").split(",")[0].trim() || "Event");
   const previewTitle = escapeHtml(event.name || "Untitled Event");
   const previewMeta = escapeHtml([event.location_name, event.city].filter(Boolean).join(" · ") || "-");
-  const previewMarkup = event.image_url
-    ? `
-      <figure class="event-card__preview">
-        <img class="event-card__image" src="${escapeHtml(event.image_url)}" alt="${previewTitle}" loading="lazy">
-        <figcaption class="event-card__preview-overlay">
-          <span class="event-card__preview-badge">${previewGenre}</span>
-          <strong>${previewTitle}</strong>
-          <span>${previewMeta}</span>
-        </figcaption>
-      </figure>
-    `
-    : `
-      <div class="event-card__preview event-card__preview--empty" aria-hidden="true">
-        <div class="event-card__preview-overlay">
-          <span class="event-card__preview-badge">${previewGenre}</span>
-          <strong>${previewTitle}</strong>
-          <span>${previewMeta}</span>
-        </div>
-      </div>
-    `;
+  const thumbSrc = String(event.image_url || "").trim();
+  const imgTag = thumbSrc
+    ? `<img class="event-card__image" data-event-preview-img src="${escapeHtml(thumbSrc)}" alt="${previewTitle}" loading="lazy" decoding="async" />`
+    : `<img class="event-card__image" data-event-preview-img hidden alt="${previewTitle}" loading="lazy" decoding="async" />`;
+  const previewMarkup = `
+    <figure class="event-card__preview${thumbSrc ? "" : " event-card__preview--empty"}">
+      ${imgTag}
+      <figcaption class="event-card__preview-overlay">
+        <span class="event-card__preview-badge">${previewGenre}</span>
+        <strong>${previewTitle}</strong>
+        <span>${previewMeta}</span>
+      </figcaption>
+    </figure>
+  `;
+  const replaceBlock =
+    event.status === "pending"
+      ? `<div class="event-card__replace-row">
+          <button type="button" class="button-secondary event-card__replace-btn" data-action="replace-image">Bild ersetzen</button>
+          <input type="file" class="event-card__replace-input" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" data-admin-replace-input tabindex="-1" aria-hidden="true" />
+        </div>`
+      : "";
   card.innerHTML = `
     <div class="event-card__layout">
       <div class="event-card__media-column">
         ${previewMarkup}
+        ${replaceBlock}
       </div>
       <div class="event-card__content-column">
         <header class="event-card__head">
@@ -453,6 +596,12 @@ function findEventByCard(cardElement) {
 async function handleCardAction(clickEvent) {
   const button = clickEvent.target.closest("button[data-action]");
   if (!button) return;
+  if (button.dataset.action === "replace-image") {
+    const card = button.closest(".event-card");
+    const input = card?.querySelector("input[data-admin-replace-input]");
+    if (input && !button.disabled) input.click();
+    return;
+  }
   const card = button.closest(".event-card");
   if (!card) return;
   const eventData = findEventByCard(card);
@@ -584,6 +733,44 @@ function bindEvents() {
   });
 
   dom.eventGrid?.addEventListener("click", handleCardAction);
+
+  dom.eventGrid?.addEventListener("change", async (changeEvent) => {
+    const input = changeEvent.target.closest("input[data-admin-replace-input]");
+    if (!input || !input.files?.length) return;
+    const file = input.files[0];
+    input.value = "";
+    const card = input.closest(".event-card");
+    const btn = card?.querySelector("button[data-action='replace-image']");
+    const previewImg = card?.querySelector("img[data-event-preview-img]");
+    const eventId = card?.dataset.eventId;
+    if (!eventId) return;
+
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "Wird hochgeladen…";
+    }
+    setGlobalFeedback("");
+    try {
+      const publicUrl = await replaceAdminEventMainImage(eventId, file);
+      if (previewImg) {
+        previewImg.removeAttribute("hidden");
+        const sep = publicUrl.includes("?") ? "&" : "?";
+        previewImg.src = `${publicUrl}${sep}t=${Date.now()}`;
+        const fig = previewImg.closest(".event-card__preview");
+        fig?.classList.remove("event-card__preview--empty");
+      }
+      setGlobalFeedback("Bild wurde ersetzt.", "success");
+      await loadEvents();
+    } catch (error) {
+      console.error("Replace image failed:", error);
+      setGlobalFeedback(`Bild konnte nicht ersetzt werden: ${error.message}`, "error");
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = "Bild ersetzen";
+      }
+    }
+  });
 }
 
 async function start() {
