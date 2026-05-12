@@ -2,6 +2,21 @@
 
 This document covers the Supabase queue, the `social-queue-runner` Edge Function, and **read-only** verification (no posts are published).
 
+## Queue eligibility (early Postiz drafts)
+
+The cron may still invoke the runner **every 15 minutes**. The worker selects `pending` / retryable `failed` rows where:
+
+- **`social_queue.scheduled_at` ≤ `now()` + review window** (default **72 hours**), and  
+- **`retry_count` &lt; 5** (unchanged).
+
+Set **`MARCHA_POSTIZ_REVIEW_WINDOW_HOURS`** (optional, default **72**) so posts appear in Postiz **roughly 2–3 days before** the planned slot, as **drafts** (default mode), for review and edits. Rows with `scheduled_at` further in the future are **not** loaded until they enter that window.
+
+Once a row is successfully handed to Postiz (`status = posted` in the DB), it is **not** selected again — same duplicate protection as before (`hasQueueConflict`, listable Postiz ids, etc.).
+
+Logs: **`queue_eligibility_config`** (`review_window_hours`, `eligibility_horizon_iso`, `postiz_mode`, `min_review_hours`), and per job **`schedule_resolved`** / **`post_prepare`** / **`postiz_create_ok`** with **`eligible_for_review`**, **`queue_scheduled_at`**, **`postiz_mode`**, **`created_as_draft_or_schedule`**.
+
+The HTTP response body also includes **`review_window_hours`**, **`eligibility_horizon_iso`**, **`postiz_mode`**, **`min_review_hours`**.
+
 ## Edge Function — scheduling (hard rules)
 
 The runner **never** sends a Postiz `date` that is **on or after the event start**. Event start is computed from:
@@ -36,13 +51,18 @@ Postiz rate limit: **30 requests/hour** across the API (each job uses at least *
 
 The runner sends the same **`posts[]`** shape as before (integration, caption, image, settings, `tags` placeholder). Root fields:
 
-- **`type`**: default **`"draft"`** so entries appear in Postiz for **manual review** before publishing (set env **`MARCHA_POSTIZ_POST_MODE=schedule`** to create scheduled posts instead).
-- **`date`**: UTC ISO from the internal scheduling step (required by the API; for **`draft`**, Postiz does **not** auto-publish at that time — treat it as a suggested calendar hint).
+- **`type`**: default **`"draft"`** when **`MARCHA_POSTIZ_POST_MODE`** is unset, empty, or anything other than **`schedule`** — entries appear in Postiz for **manual review** before publishing. Set **`MARCHA_POSTIZ_POST_MODE=schedule`** to create **Postiz scheduled** posts when the review rules below are satisfied.
+- **`date`**: UTC ISO for the **intended publish instant** (the resolved effective slot from the queue + event rules). For **`draft`**, Postiz does **not** auto-publish at that time — use it as the planned time in the UI. For **`schedule`**, Postiz should publish at that same instant (not a delayed substitute).
 - **`shortLink: false`**, **`tags`**: `[{ "value": "", "label": "" }]` (see [postiz-app#717](https://github.com/gitroomhq/postiz-app/issues/717)).
 
-**Schedule mode** (`MARCHA_POSTIZ_POST_MODE=schedule`): the publish instant is at least **`MARCHA_POSTIZ_MIN_REVIEW_HOURS`** (default **24**) after `now`, and still strictly **before event start − 2 hours**. If that window is impossible, the runner falls back to **`draft`** and logs **`postiz_schedule_fallback_draft`**.
+**Schedule mode** (`MARCHA_POSTIZ_POST_MODE=schedule`): a **scheduled** Postiz post is created only if:
 
-Logs **`schedule_resolved`** / **`post_prepare`** include **`postiz_root_type`** (`draft` | `schedule`) and **`postiz_api_date_utc`** for debugging.
+1. **`effective_post_at` &lt; event start − 2 hours** (same hard cap as before), and  
+2. **`effective_post_at` ≥ `now` + `MARCHA_POSTIZ_MIN_REVIEW_HOURS`** (default **72** hours) — enough lead time for human review.
+
+If (2) fails (intended slot too soon) or (1) fails (too close to event), the runner uses **`type: draft`** with the **same** **`date`** (intended time preserved) and logs **`postiz_schedule_fallback_draft`** with **`reason`**: `insufficient_review_lead` or `too_close_to_event`.
+
+Logs **`schedule_resolved`** / **`post_prepare`** / **`postiz_create_ok`** include **`postiz_root_type`** / **`created_as_draft_or_schedule`** (`draft` | `schedule`), **`postiz_api_date_utc`**, **`review_window_hours`**, **`eligible_for_review`**, **`postiz_mode`**, **`queue_scheduled_at`**.
 
 **`social_queue.status = posted`** only if HTTP **2xx** **and** the response yields at least one **listable** id (`postId`, `id`, etc.). Otherwise the row is **`failed`** with **`last_error = postiz:create_not_visible`** (including **2xx** with no id).
 
@@ -66,8 +86,9 @@ Logs **`schedule_resolved`** / **`post_prepare`** include **`postiz_root_type`**
 | `MARCHA_EVENT_TIMEZONE` | No | IANA zone for interpreting `event_date` + `event_time` (default `Europe/Berlin`) |
 | `POSTIZ_INSTAGRAM_INTEGRATION_ID` | No | Default Postiz integration id for `platform=instagram` when row has null `postiz_integration_id` |
 | `POSTIZ_FACEBOOK_INTEGRATION_ID` | No | Same for `facebook` |
-| `MARCHA_POSTIZ_POST_MODE` | No | `draft` (default): Postiz **draft** for manual review; `schedule`: scheduled post with min lead (see below) |
-| `MARCHA_POSTIZ_MIN_REVIEW_HOURS` | No | With `schedule` mode, earliest publish is `now +` this many hours (default **24**); if impossible before event, falls back to `draft` |
+| `MARCHA_POSTIZ_POST_MODE` | No | Unset / `draft` / anything except `schedule` → Postiz **draft**; `schedule` → Postiz scheduled post only if min review + event−2h rules pass (else draft) |
+| `MARCHA_POSTIZ_MIN_REVIEW_HOURS` | No | With **`schedule`** mode: intended slot must be at least this many hours after **`now`** (default **72**); otherwise **draft** fallback |
+| `MARCHA_POSTIZ_REVIEW_WINDOW_HOURS` | No | Runner loads rows with **`scheduled_at` ≤ now + this many hours** (default **72**); use **48** if you want a shorter prep window |
 | `SOCIAL_QA_STRICT_IMAGE` | No | Set to `1` or `true` to **HEAD** each image URL (slower; catches broken URLs) |
 | `SOCIAL_QA_MAX_RETRY` | No | Must match runner (default **5**) for CHK10 |
 
@@ -121,7 +142,7 @@ Use when debugging or before a release if you want human eyes on top of the scri
 1. **Approved-only:** In Supabase Table Editor, confirm each `social_queue.event_id` joins to `events.status = approved`.
 2. **Single slot per stage/day:** For each event, only one Instagram and one Facebook job per UTC day (unless older rows are `skipped`).
 3. **Image in Postiz UI:** Open a scheduled post and confirm the asset is correct visually (stored URL will be `uploads.postiz.com/…` after upload).
-4. **Logs:** In Supabase → Edge Functions → `social-queue-runner`, confirm logs show `event_image_audit`, `event_image_selected`, `event_image_postiz_uploaded`, `schedule_resolved`, `postiz_upload_*`, `source_image_url`, `postiz_image_path`, caption preview, and Postiz HTTP status on success/failure.
+4. **Logs:** In Supabase → Edge Functions → `social-queue-runner`, confirm logs show **`queue_eligibility_config`**, **`event_image_audit`**, **`event_image_selected`**, **`event_image_postiz_uploaded`**, **`schedule_resolved`** (with **`review_window_hours`**, **`eligible_for_review`**, **`postiz_mode`**, **`created_as_draft_or_schedule`**, **`queue_scheduled_at`**), **`post_prepare`**, **`postiz_upload_*`**, **`postiz_create_ok`**, and Postiz HTTP status on success/failure.
 5. **Retry:** After a `failed` row, confirm `retry_count` increments and the runner picks it up again after backoff (or fix data and re-run).
 
 ## Postiz visibility check — event id `32` (Instagram integration)
@@ -130,7 +151,30 @@ Use when `events.id` is integer **`32`**. Replace `YOUR_QUEUE_ROW_UUID` and Supa
 
 **Recurring events:** before inserting a queue row, confirm the event row has `recurrence_type = 'weekly'`, `recurrence_weekday = 0` for Sunday, valid `recurrence_start_date`, and `event_time`. After the runner executes, logs must show **`recurrence_occurrence_resolved`** with **`calculated_next_occurrence`** equal to the **next upcoming Sunday** (YYYY-MM-DD in Berlin), not an old series start date. Compare **`event_start_iso`** in `schedule_resolved` to that same local start. The caption date segment uses **`calculated_next_occurrence`** as well.
 
-### SQL — test queue job (Instagram)
+### SQL — test queue job ~2 days ahead (Instagram)
+
+Use an **`event_id`** that is **`approved`**, with event start **after** `scheduled_at` + margin (and outside the “queue after event start” skip). Replace the integration id.
+
+```sql
+insert into public.social_queue (
+  event_id,
+  platform,
+  scheduled_at,
+  status,
+  postiz_integration_id
+) values (
+  32,
+  'instagram',
+  (now() at time zone 'utc') + interval '2 days',
+  'pending',
+  'cmp0a20b201b1p40yg9srpshq'
+)
+returning id, event_id, scheduled_at;
+```
+
+With default **`MARCHA_POSTIZ_REVIEW_WINDOW_HOURS=72`**, this row is eligible because **`scheduled_at` ≤ now + 72h** (48h ≤ 72h). If your window is **48**, use **`interval '1 day'`** or **`interval '36 hours'`** instead so the row still falls inside the window.
+
+### SQL — immediate pick (past / near-now `scheduled_at`)
 
 ```sql
 insert into public.social_queue (
@@ -145,25 +189,6 @@ insert into public.social_queue (
   (now() at time zone 'utc') - interval '5 minutes',
   'pending',
   'cmp0a20b201b1p40yg9srpshq'
-)
-returning id, event_id, scheduled_at;
-```
-
-Facebook variant (same event, different row):
-
-```sql
-insert into public.social_queue (
-  event_id,
-  platform,
-  scheduled_at,
-  status,
-  postiz_integration_id
-) values (
-  32,
-  'facebook',
-  (now() at time zone 'utc') - interval '5 minutes',
-  'pending',
-  'cmp0a44690059qg0ywxs10b6d'
 )
 returning id, event_id, scheduled_at;
 ```
@@ -196,6 +221,15 @@ npx postiz posts:list \
 
 If the new post appears, you will see a row whose **`id`** matches one of **`_marcha_postiz_post_ids`** stored on `social_queue`.
 
+### Postiz UI — drafts created early
+
+1. Run the worker after a queue row is **eligible** (`scheduled_at` within **`MARCHA_POSTIZ_REVIEW_WINDOW_HOURS`**).
+2. In the Postiz app, open **Drafts** (or the queue view your workspace uses for **draft** items — labels vary by Postiz version).
+3. Find the post whose **id** matches **`social_queue.postiz_response._marcha_postiz_post_ids`**.
+4. Confirm the **caption** and **media**; the **date** field should reflect the **intended publish** time from Marcha (for drafts, Postiz does not auto-publish at that time by default).
+
+Scheduled-mode smoke test: set **`MARCHA_POSTIZ_POST_MODE=schedule`** only when the intended slot is **≥ `MARCHA_POSTIZ_MIN_REVIEW_HOURS`** in the future and still **before event − 2h`**; otherwise expect **draft** and **`postiz_schedule_fallback_draft`** in logs.
+
 ## Regression test — event id `34`
 
 Use this when **`public.events.id = 34`** applies in your database (integer PK). If `id` is **UUID**, replace `where id = 34` with `where id = '<your-uuid>'`.
@@ -218,7 +252,7 @@ Insert a queue row whose `scheduled_at` is **after** the computed event start (I
 
 ### 3) Valid job (expect **posted** or Postiz success path)
 
-Insert `social_queue` with `event_id = 34`, `scheduled_at` **before** event start and **before** `now()` if you need the worker to pick it up (remember the worker only selects rows with `scheduled_at <= now()` unless you adjust for testing). Invoke the function. In logs, find **`event_image_audit`** (raw `image_url` / `image_urls`), **`event_image_selected`** (`selected_source_image_url`), **`event_image_postiz_uploaded`**, and **`schedule_resolved`** (`effective_post_at` strictly before event start).
+Insert `social_queue` with `event_id = 34`, `scheduled_at` **before** event start and within **`now + MARCHA_POSTIZ_REVIEW_WINDOW_HOURS`** (default 72h — e.g. **`now() + interval '2 days'`** is fine). Invoke the function. In logs, find **`queue_eligibility_config`**, **`event_image_audit`**, **`event_image_selected`**, **`event_image_postiz_uploaded`**, and **`schedule_resolved`** (`effective_post_at` strictly before event start; **`created_as_draft_or_schedule`** usually **`draft`** unless you forced **`schedule`** mode and the review rules passed).
 
 ### 4) Image sanity
 

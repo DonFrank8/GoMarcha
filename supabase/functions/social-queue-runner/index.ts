@@ -893,8 +893,10 @@ function toUtcPostizDateIso(iso: string): string {
 type PostizRootType = "draft" | "schedule";
 
 /**
- * Default: Postiz `draft` for human review. Optional `MARCHA_POSTIZ_POST_MODE=schedule` with
- * `MARCHA_POSTIZ_MIN_REVIEW_HOURS` (default 24) so scheduled publish is not immediate; falls back to draft if impossible before event.
+ * Default: Postiz `draft` for human review (unset or `draft`).
+ * `MARCHA_POSTIZ_POST_MODE=schedule`: Postiz scheduled post only if the intended slot (`effectiveMs`)
+ * is at least `MARCHA_POSTIZ_MIN_REVIEW_HOURS` after `now` and still before event−2h; otherwise draft.
+ * Postiz `date` always reflects the intended publish instant (`effectiveMs`), never a delayed substitute.
  */
 function resolvePostizPublishPlan(args: {
   effectiveMs: number;
@@ -902,26 +904,52 @@ function resolvePostizPublishPlan(args: {
   nowMs: number;
   envModeRaw: string;
   minReviewHours: number;
-}): { postType: PostizRootType; publishMs: number; usedScheduleFallbackToDraft: boolean } {
+}): {
+  postType: PostizRootType;
+  publishMs: number;
+  usedScheduleFallbackToDraft: boolean;
+  scheduleFallbackReason: null | "too_close_to_event" | "insufficient_review_lead";
+} {
   const mode = String(args.envModeRaw || "draft").trim().toLowerCase();
   const wantSchedule = mode === "schedule";
-  const leadMs = Math.max(0, Number.isFinite(args.minReviewHours) ? args.minReviewHours : 24) * 3600000;
+  const hours = Number.isFinite(args.minReviewHours) ? args.minReviewHours : 72;
+  const leadMs = Math.max(0, hours) * 3600000;
   const twoH = 2 * 60 * 60 * 1000;
   const lastScheduleMs = args.eventStartMs - twoH;
 
   if (!wantSchedule) {
-    return { postType: "draft", publishMs: args.effectiveMs, usedScheduleFallbackToDraft: false };
-  }
-
-  let publishMs = Math.max(args.effectiveMs, args.nowMs + leadMs);
-  if (publishMs >= lastScheduleMs) {
     return {
       postType: "draft",
       publishMs: args.effectiveMs,
-      usedScheduleFallbackToDraft: true
+      usedScheduleFallbackToDraft: false,
+      scheduleFallbackReason: null
     };
   }
-  return { postType: "schedule", publishMs, usedScheduleFallbackToDraft: false };
+
+  if (args.effectiveMs >= lastScheduleMs) {
+    return {
+      postType: "draft",
+      publishMs: args.effectiveMs,
+      usedScheduleFallbackToDraft: true,
+      scheduleFallbackReason: "too_close_to_event"
+    };
+  }
+
+  if (args.effectiveMs < args.nowMs + leadMs) {
+    return {
+      postType: "draft",
+      publishMs: args.effectiveMs,
+      usedScheduleFallbackToDraft: true,
+      scheduleFallbackReason: "insufficient_review_lead"
+    };
+  }
+
+  return {
+    postType: "schedule",
+    publishMs: args.effectiveMs,
+    usedScheduleFallbackToDraft: false,
+    scheduleFallbackReason: null
+  };
 }
 
 async function createPostizPost(args: {
@@ -1060,8 +1088,14 @@ Deno.serve(async (req) => {
   const fallbackImage =
     Deno.env.get("MARCHA_DEFAULT_SOCIAL_IMAGE_URL") || "https://gomarcha.com/assets/logo.png";
   const eventTimeZone = Deno.env.get("MARCHA_EVENT_TIMEZONE") || "Europe/Berlin";
-  const postizPostMode = Deno.env.get("MARCHA_POSTIZ_POST_MODE") || "draft";
-  const postizMinReviewHours = Number.parseFloat(Deno.env.get("MARCHA_POSTIZ_MIN_REVIEW_HOURS") || "24");
+  const postizPostModeEnv = (Deno.env.get("MARCHA_POSTIZ_POST_MODE") || "draft").trim().toLowerCase();
+  const postizPostMode = postizPostModeEnv === "schedule" ? "schedule" : "draft";
+  const postizMinReviewHours = Number.parseFloat(Deno.env.get("MARCHA_POSTIZ_MIN_REVIEW_HOURS") || "72");
+  const reviewWindowHoursParsed = Number.parseFloat(Deno.env.get("MARCHA_POSTIZ_REVIEW_WINDOW_HOURS") || "72");
+  const reviewWindowHours = Number.isFinite(reviewWindowHoursParsed) && reviewWindowHoursParsed > 0 ? reviewWindowHoursParsed : 72;
+  const reviewWindowMs = reviewWindowHours * 3600000;
+  const eligibilityHorizonMs = Date.now() + reviewWindowMs;
+  const eligibilityHorizonIso = new Date(eligibilityHorizonMs).toISOString();
 
   if (!postizKey) {
     slog("missing_postiz_api_key");
@@ -1072,9 +1106,17 @@ Deno.serve(async (req) => {
   }
 
   const supabase = createClient(supabaseUrl, serviceKey);
-  const nowIso = new Date().toISOString();
+  const minReviewHoursEffective = Number.isFinite(postizMinReviewHours) ? postizMinReviewHours : 72;
   const backoffMs = 15 * 60 * 1000;
   const retryBefore = new Date(Date.now() - backoffMs).toISOString();
+
+  slog("queue_eligibility_config", {
+    review_window_hours: reviewWindowHours,
+    eligibility_horizon_iso: eligibilityHorizonIso,
+    postiz_mode: postizPostMode,
+    postiz_mode_env: postizPostModeEnv || "draft",
+    min_review_hours: minReviewHoursEffective
+  });
 
   let body: { queue_id?: string; limit?: number } = {};
   try {
@@ -1090,7 +1132,7 @@ Deno.serve(async (req) => {
   let query = supabase
     .from("social_queue")
     .select("*")
-    .lte("scheduled_at", nowIso)
+    .lte("scheduled_at", eligibilityHorizonIso)
     .lt("retry_count", 5)
     .order("scheduled_at", { ascending: true })
     .limit(limit);
@@ -1273,14 +1315,17 @@ Deno.serve(async (req) => {
       eventStartMs,
       nowMs,
       envModeRaw: postizPostMode,
-      minReviewHours: Number.isFinite(postizMinReviewHours) ? postizMinReviewHours : 24
+      minReviewHours: minReviewHoursEffective
     });
     const postizPublishIso = new Date(postizPlan.publishMs).toISOString();
+    const eligibleForReview = Date.parse(claimed.scheduled_at) <= eligibilityHorizonMs;
     if (postizPlan.usedScheduleFallbackToDraft) {
       slog("postiz_schedule_fallback_draft", {
         queue_id: claimed.id,
         event_id: ev.id,
-        reason: "cannot_meet_min_review_hours_before_event"
+        reason: postizPlan.scheduleFallbackReason || "schedule_mode_unmet",
+        postiz_mode: postizPostMode,
+        min_review_hours: minReviewHoursEffective
       });
     }
 
@@ -1289,6 +1334,10 @@ Deno.serve(async (req) => {
       event_id: ev.id,
       event_title: ev.name ?? "",
       queue_scheduled_at: claimed.scheduled_at,
+      review_window_hours: reviewWindowHours,
+      eligible_for_review: eligibleForReview,
+      postiz_mode: postizPostMode,
+      created_as_draft_or_schedule: postizPlan.postType,
       effective_post_at: effectivePostIso,
       postiz_root_type: postizPlan.postType,
       postiz_api_date_utc: postizPublishIso,
@@ -1381,6 +1430,10 @@ Deno.serve(async (req) => {
       event_title: ev.name ?? "",
       platform: claimed.platform,
       queue_scheduled_at: claimed.scheduled_at,
+      review_window_hours: reviewWindowHours,
+      eligible_for_review: eligibleForReview,
+      postiz_mode: postizPostMode,
+      created_as_draft_or_schedule: postizPlan.postType,
       effective_post_at: effectivePostIso,
       postiz_root_type: postizPlan.postType,
       postiz_api_date_utc: postizPublishIso,
@@ -1499,6 +1552,17 @@ Deno.serve(async (req) => {
       })
       .eq("id", claimed.id);
 
+    slog("postiz_create_ok", {
+      queue_id: claimed.id,
+      event_id: ev.id,
+      queue_scheduled_at: claimed.scheduled_at,
+      review_window_hours: reviewWindowHours,
+      eligible_for_review: eligibleForReview,
+      postiz_mode: postizPostMode,
+      created_as_draft_or_schedule: postizPlan.postType,
+      postiz_post_ids: createdPostIds
+    });
+
     results.push({
       queue_id: claimed.id,
       ok: true,
@@ -1507,11 +1571,23 @@ Deno.serve(async (req) => {
       postiz_image_url: resolvedPostizUrl,
       image_source: imageLoggedSource,
       caption_template_id: template_id,
-      postiz_status: postizRes.status
+      postiz_status: postizRes.status,
+      postiz_mode: postizPostMode,
+      created_as_draft_or_schedule: postizPlan.postType
     });
   }
 
-  return new Response(JSON.stringify({ processed: results.length, results }), {
-    headers: { ...CORS, "Content-Type": "application/json" }
-  });
+  return new Response(
+    JSON.stringify({
+      processed: results.length,
+      review_window_hours: reviewWindowHours,
+      eligibility_horizon_iso: eligibilityHorizonIso,
+      postiz_mode: postizPostMode,
+      min_review_hours: minReviewHoursEffective,
+      results
+    }),
+    {
+      headers: { ...CORS, "Content-Type": "application/json" }
+    }
+  );
 });
