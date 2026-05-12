@@ -483,6 +483,13 @@ const I18N = {
     admin_notes_placeholder: "Optional: Grund / Hinweis",
     admin_action_approve: "Freigeben",
     admin_action_reject: "Ablehnen",
+    admin_replace_image: "Bild ersetzen",
+    admin_replace_image_loading: "Wird hochgeladen…",
+    admin_replace_image_success: "Bild wurde ersetzt.",
+    admin_replace_image_error: "Bild konnte nicht ersetzt werden.",
+    admin_replace_image_invalid_type: "Nur JPG, PNG oder WEBP sind erlaubt.",
+    admin_replace_image_too_large: "Datei ist zu groß (max. 8 MB).",
+    admin_replace_image_error_empty: "Keine gültige Bilddatei ausgewählt.",
     admin_update_success_approved: "Event wurde freigegeben.",
     admin_update_success_rejected: "Event wurde abgelehnt.",
     admin_update_error: "Moderation konnte nicht gespeichert werden.",
@@ -765,6 +772,13 @@ const I18N = {
     admin_notes_placeholder: "Optional: reason / note",
     admin_action_approve: "Approve",
     admin_action_reject: "Reject",
+    admin_replace_image: "Replace image",
+    admin_replace_image_loading: "Uploading…",
+    admin_replace_image_success: "Image replaced.",
+    admin_replace_image_error: "Could not replace image.",
+    admin_replace_image_invalid_type: "Only JPG, PNG, or WEBP are allowed.",
+    admin_replace_image_too_large: "File is too large (max 8 MB).",
+    admin_replace_image_error_empty: "No valid image file selected.",
     admin_update_success_approved: "Event approved.",
     admin_update_success_rejected: "Event rejected.",
     admin_update_error: "Moderation update failed.",
@@ -1047,6 +1061,13 @@ const I18N = {
     admin_notes_placeholder: "Opcional: motivo / nota",
     admin_action_approve: "Aprobar",
     admin_action_reject: "Rechazar",
+    admin_replace_image: "Cambiar imagen",
+    admin_replace_image_loading: "Subiendo…",
+    admin_replace_image_success: "Imagen actualizada.",
+    admin_replace_image_error: "No se pudo cambiar la imagen.",
+    admin_replace_image_invalid_type: "Solo se permiten JPG, PNG o WEBP.",
+    admin_replace_image_too_large: "El archivo es demasiado grande (máx. 8 MB).",
+    admin_replace_image_error_empty: "No se seleccionó una imagen válida.",
     admin_update_success_approved: "Evento aprobado.",
     admin_update_success_rejected: "Evento rechazado.",
     admin_update_error: "No se pudo guardar la moderación.",
@@ -3274,6 +3295,134 @@ async function deleteUploadedEventImage(client, storagePath) {
   if (error) throw error;
 }
 
+const ADMIN_REPLACE_IMAGE_MAX_BYTES = 8 * 1024 * 1024;
+const ADMIN_REPLACE_ALLOWED_EXT = new Set(["jpg", "jpeg", "png", "webp"]);
+
+function escapeHtmlAttribute(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;");
+}
+
+function sanitizeEventIdForStoragePath(eventId) {
+  const raw = String(eventId || "").trim();
+  const safe = raw.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
+  return safe || "event";
+}
+
+function buildAdminReplacementImagePath(eventId, file) {
+  const date = new Date();
+  const yyyy = date.getUTCFullYear();
+  const mm = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(date.getUTCDate()).padStart(2, "0");
+  const idPart = sanitizeEventIdForStoragePath(eventId);
+  const ext = fileExtension(file?.name);
+  const safeExt = ADMIN_REPLACE_ALLOWED_EXT.has(ext) ? ext : "jpg";
+  const random = Math.random().toString(36).slice(2, 10);
+  return `admin-replacements/${yyyy}/${mm}/${dd}/${idPart}-${random}.${safeExt}`;
+}
+
+function validateAdminReplacementImageFile(file) {
+  if (!file || !Number.isFinite(file.size) || file.size <= 0) {
+    return { ok: false, messageKey: "admin_replace_image_error_empty" };
+  }
+  if (file.size > ADMIN_REPLACE_IMAGE_MAX_BYTES) {
+    return { ok: false, messageKey: "admin_replace_image_too_large" };
+  }
+  const ext = fileExtension(file.name);
+  if (!ADMIN_REPLACE_ALLOWED_EXT.has(ext)) {
+    return { ok: false, messageKey: "admin_replace_image_invalid_type" };
+  }
+  const mime = String(file.type || "").trim().toLowerCase();
+  if (mime) {
+    const allowedMime = new Set(["image/jpeg", "image/png", "image/webp"]);
+    if (!allowedMime.has(mime)) {
+      return { ok: false, messageKey: "admin_replace_image_invalid_type" };
+    }
+  }
+  return { ok: true };
+}
+
+/**
+ * New image as featured; previous main and gallery URLs kept (not featured), not deleted.
+ * @returns {Array<{ url: string; featured: boolean }>}
+ */
+function buildImageUrlsAfterAdminReplacement(event, newPublicUrl) {
+  const newMain = String(newPublicUrl || "").trim();
+  const oldMain = String(event.image_url || "").trim();
+  const out = [];
+  const seen = new Set();
+
+  const pushUnique = (url, featured) => {
+    const u = String(url || "").trim();
+    if (!u) return;
+    const key = u.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ url: u, featured: Boolean(featured) });
+  };
+
+  pushUnique(newMain, true);
+
+  if (oldMain && oldMain.toLowerCase() !== newMain.toLowerCase()) {
+    pushUnique(oldMain, false);
+  }
+
+  const raw = event.image_urls;
+  if (Array.isArray(raw)) {
+    for (const entry of raw) {
+      const u =
+        typeof entry === "string"
+          ? entry.trim()
+          : String(entry?.url || entry?.image_url || "").trim();
+      if (!u || u.toLowerCase() === newMain.toLowerCase()) continue;
+      pushUnique(u, false);
+    }
+  }
+
+  return out;
+}
+
+async function uploadAdminReplacementEventImage(client, eventId, file) {
+  const path = buildAdminReplacementImagePath(eventId, file);
+  const contentType = String(file.type || "").trim() || "application/octet-stream";
+  const { error: uploadError } = await client.storage.from(EVENT_IMAGES_BUCKET).upload(path, file, {
+    contentType,
+    upsert: false
+  });
+  if (uploadError) throw uploadError;
+  const {
+    data: { publicUrl }
+  } = client.storage.from(EVENT_IMAGES_BUCKET).getPublicUrl(path);
+  if (!publicUrl) {
+    throw new Error("Could not resolve public image URL");
+  }
+  return { path, publicUrl };
+}
+
+async function replaceAdminEventMainImage(eventId, file) {
+  const session = await checkAdminSession();
+  if (!isSessionAdmin(session)) {
+    throw new Error("Admin session required");
+  }
+  const v = validateAdminReplacementImageFile(file);
+  if (!v.ok) {
+    throw new Error(t(v.messageKey));
+  }
+  const event = state.moderationEvents.find((e) => String(e.id) === String(eventId));
+  if (!event) {
+    throw new Error("Event not found in moderation list");
+  }
+  const client = supabaseClient();
+  const { publicUrl } = await uploadAdminReplacementEventImage(client, eventId, file);
+  const nextImageUrls = buildImageUrlsAfterAdminReplacement(event, publicUrl);
+  const tableName = state.debug.tableName || "events";
+  const { error } = await client.from(tableName).update({ image_url: publicUrl, image_urls: nextImageUrls }).eq("id", eventId);
+  if (error) throw error;
+  return { publicUrl, nextImageUrls };
+}
+
 async function geocodeAddressWithNominatim(query) {
   const endpoint = new URL("https://nominatim.openstreetmap.org/search");
   endpoint.searchParams.set("format", "jsonv2");
@@ -5371,8 +5520,20 @@ function renderModerationPanel() {
       geoStatusClass = "admin-geo-badge--missing";
     }
     const artistLine = String(event.artist_name || "").trim();
+    const thumbSrc = String(event.image_url || "").trim();
+    const thumbAttr = thumbSrc ? ` src="${escapeHtmlAttribute(thumbSrc)}"` : "";
     card.innerHTML = `
       <h4>${event.name}</h4>
+      <div class="admin-card__media">
+        <div class="admin-card__thumb-wrap">
+          <img class="admin-card__thumb"${thumbAttr} alt="" loading="lazy" decoding="async" ${thumbSrc ? "" : "hidden"} />
+          ${thumbSrc ? "" : `<span class="admin-card__thumb-placeholder" aria-hidden="true">🖼</span>`}
+        </div>
+        <div class="admin-card__media-actions">
+          <button type="button" class="button-secondary button-secondary--replace-image" data-action="replace-image">${t("admin_replace_image")}</button>
+          <input type="file" class="admin-card__replace-input" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" data-admin-replace-input tabindex="-1" aria-hidden="true" />
+        </div>
+      </div>
       <div class="admin-card__meta">
         ${artistLine ? `<span>🎤 ${artistLine}</span>` : ""}
         <span>${formatEventPlace(event)}</span>
@@ -8201,6 +8362,14 @@ function bindEvents() {
       const eventId = card.dataset.eventId;
       if (!eventId) return;
 
+      if (action === "replace-image") {
+        const input = card.querySelector("input[data-admin-replace-input]");
+        if (input && !actionButton.disabled) {
+          input.click();
+        }
+        return;
+      }
+
       const notesInput = card.querySelector("textarea[data-notes]");
       const verificationNotes = notesInput ? notesInput.value.trim() : "";
       const nextStatus = action === "approve" ? "approved" : "rejected";
@@ -8219,6 +8388,46 @@ function bindEvents() {
         setModerationFeedback(`${t("admin_update_error")} ${error.message || ""}`.trim(), "error");
       } finally {
         actionButton.disabled = false;
+      }
+    });
+
+    dom.moderationList.addEventListener("change", async (event) => {
+      const input = event.target.closest("input[data-admin-replace-input]");
+      if (!input) return;
+      const file = input.files && input.files[0];
+      input.value = "";
+      if (!file) return;
+
+      const card = input.closest(".admin-card");
+      const replaceBtn = card?.querySelector("button[data-action='replace-image']");
+      const thumb = card?.querySelector(".admin-card__thumb");
+      const eventId = card?.dataset.eventId;
+      if (!eventId) return;
+
+      if (replaceBtn) {
+        replaceBtn.disabled = true;
+        replaceBtn.textContent = t("admin_replace_image_loading");
+      }
+      setModerationFeedback("");
+      try {
+        const { publicUrl } = await replaceAdminEventMainImage(eventId, file);
+        if (thumb) {
+          thumb.removeAttribute("hidden");
+          const sep = publicUrl.includes("?") ? "&" : "?";
+          thumb.src = `${publicUrl}${sep}t=${Date.now()}`;
+        }
+        const ph = card?.querySelector(".admin-card__thumb-placeholder");
+        if (ph) ph.remove();
+        setModerationFeedback(t("admin_replace_image_success"), "success");
+        await reloadEventsAndRender();
+      } catch (error) {
+        console.error("Admin image replace failed:", error);
+        setModerationFeedback(`${t("admin_replace_image_error")} ${error.message || ""}`.trim(), "error");
+      } finally {
+        if (replaceBtn) {
+          replaceBtn.disabled = false;
+          replaceBtn.textContent = t("admin_replace_image");
+        }
       }
     });
   }
