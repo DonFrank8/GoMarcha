@@ -865,6 +865,12 @@ function safeHost(url: string): string {
   }
 }
 
+function resolvedPostizImageFromQueue(row: QueueRow): { url: string; source: string } | null {
+  const resolved = String(row.resolved_image_url || "").trim();
+  if (!resolved || !isPostizUploadsHost(resolved)) return null;
+  return { url: resolved, source: "social_queue.resolved_image_url" };
+}
+
 function integrationForRow(row: QueueRow, envIg: string, envFb: string): string | null {
   if (row.postiz_integration_id && row.postiz_integration_id.trim()) return row.postiz_integration_id.trim();
   if (row.platform === "instagram") return envIg || null;
@@ -1363,7 +1369,16 @@ Deno.serve(async (req) => {
       timezone: eventTimeZone
     });
 
-    const pickedImage = await selectBestReachableEventImage(ev, fallbackImage);
+    const reusableResolvedImage = resolvedPostizImageFromQueue(claimed);
+    if (reusableResolvedImage) {
+      slog("event_image_reusing_resolved_postiz", {
+        queue_id: claimed.id,
+        event_id: ev.id,
+        resolved_image_url: reusableResolvedImage.url
+      });
+    }
+
+    const pickedImage = reusableResolvedImage ?? (await selectBestReachableEventImage(ev, fallbackImage));
     const nonGenericCandidates = orderedEventImageCandidates(ev, fallbackImage).length;
 
     const finalImage = pickedImage.url;
@@ -1393,15 +1408,18 @@ Deno.serve(async (req) => {
             ? JSON.stringify(uploadResult.body)
             : uploadResult.error;
       slog("post_aborted_after_upload_failure", { queue_id: claimed.id, error: uploadResult.error });
+      const uploadFailureUpdate: Record<string, unknown> = {
+        status: "failed",
+        last_error: `postiz_upload:${uploadResult.error}:${String(errText).slice(0, 400)}`,
+        retry_count: claimed.retry_count + 1,
+        updated_at: new Date().toISOString()
+      };
+      if (claimed.resolved_image_url && !isPostizUploadsHost(claimed.resolved_image_url)) {
+        uploadFailureUpdate.resolved_image_url = null;
+      }
       await supabase
         .from("social_queue")
-        .update({
-          status: "failed",
-          resolved_image_url: finalImage,
-          last_error: `postiz_upload:${uploadResult.error}:${String(errText).slice(0, 400)}`,
-          retry_count: claimed.retry_count + 1,
-          updated_at: new Date().toISOString()
-        })
+        .update(uploadFailureUpdate)
         .eq("id", claimed.id);
       results.push({ queue_id: claimed.id, ok: false, phase: "upload", error: uploadResult.error });
       continue;
@@ -1416,6 +1434,24 @@ Deno.serve(async (req) => {
       uploaded_postiz_image_url: resolvedPostizUrl,
       postiz_media_id: publishMedia.id
     });
+
+    if (String(claimed.resolved_image_url || "").trim() !== resolvedPostizUrl) {
+      const { error: resolvedImageErr } = await supabase
+        .from("social_queue")
+        .update({ resolved_image_url: resolvedPostizUrl, updated_at: new Date().toISOString() })
+        .eq("id", claimed.id);
+      if (resolvedImageErr) {
+        slog("postiz_upload_resolved_image_update_failed", {
+          queue_id: claimed.id,
+          error: resolvedImageErr.message
+        });
+      } else {
+        slog("postiz_upload_resolved_image_persisted", {
+          queue_id: claimed.id,
+          resolved_image_url: resolvedPostizUrl
+        });
+      }
+    }
 
     const hook = await pickHook(supabase, claimed.event_id);
     const { caption, template_id } = buildCaption(hook, ev, {
