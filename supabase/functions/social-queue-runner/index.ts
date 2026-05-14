@@ -761,6 +761,12 @@ function filenameForPostizUpload(sourceUrl: string, contentType: string): string
   return `marcha-event${ext}`;
 }
 
+function arrayBufferFromBytes(bytes: Uint8Array): ArrayBuffer {
+  const copy = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(copy).set(bytes);
+  return copy;
+}
+
 async function downloadImageBytes(
   url: string
 ): Promise<{ ok: true; bytes: Uint8Array; contentType: string } | { ok: false; error: string }> {
@@ -819,7 +825,7 @@ async function ensurePostizHostedMedia(args: {
   const filename = filenameForPostizUpload(args.sourceUrl, dl.contentType);
   const uploadUrl = `${args.apiBase.replace(/\/$/, "")}/upload`;
   const form = new FormData();
-  form.append("file", new Blob([dl.bytes], { type: dl.contentType }), filename);
+  form.append("file", new Blob([arrayBufferFromBytes(dl.bytes)], { type: dl.contentType }), filename);
 
   slog("postiz_upload_multipart_start", {
     queue_id: args.queueId,
