@@ -2,13 +2,15 @@ name = "gomarcha-event-share"
 main = "worker.js"
 compatibility_date = "2026-05-15"
 workers_dev = true
+<<<<<<< Updated upstream
 
 # This route keeps crawler-facing share URLs on gomarcha.com instead of
 # functions.supabase.co.
+=======
+>>>>>>> Stashed changes
 routes = [
-  { pattern = "www.gomarcha.com/e/*", zone_name = "gomarcha.com" }
+ { pattern = "www.gomarcha.com/e/*", zone_name = "gomarcha.com" }
 ]
-
 [vars]
 SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co"
 PUBLIC_SITE_URL = "https://www.gomarcha.com"
@@ -18,3 +20,4 @@ DEFAULT_OG_IMAGE_URL = "https://www.gomarcha.com/social-preview.png"
 #   wrangler secret put SUPABASE_ANON_KEY
 # or, if RLS does not allow public approved-event reads:
 #   wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+
