@@ -36,6 +36,7 @@ const state = {
   city: "",
   genre: "",
   statusFilter: "",
+  socialQueueFilter: "all",
   adminSession: null,
   geoBusyEventIds: new Set(),
   geoPulseEventIds: new Set(),
@@ -67,6 +68,8 @@ const dom = {
   genreFilter: document.getElementById("filterGenre"),
   statusFilter: document.getElementById("filterStatus"),
   resetFiltersButton: document.getElementById("resetFiltersButton"),
+  socialQueuePanel: document.getElementById("adminSocialQueuePanel"),
+  socialQueueFilters: [...document.querySelectorAll("[data-social-filter]")],
   eventGrid: document.getElementById("adminEventGrid"),
   emptyState: document.getElementById("adminEmptyState")
 };
@@ -250,6 +253,36 @@ function socialQueueSummary(eventId) {
     { total: 0, ready: 0, failed: 0, processing: 0, pending: 0, skipped: 0 }
   );
   return counts;
+}
+
+function isEventPast(event) {
+  const start = dateFromAdminEventWallTime(event);
+  return Boolean(start && !Number.isNaN(start.getTime()) && start < new Date());
+}
+
+function buildEventValidationBadges(event) {
+  const badges = [];
+  const hasCoords = hasValidMarkerCoordinates(event);
+  const socialSummary = socialQueueSummary(event.id);
+  const shortNotice = shortNoticeInfoForEvent(event);
+  const push = (tone, label) => badges.push({ tone, label });
+
+  if (!hasCoords) push("error", "No coordinates");
+  if (!String(event.image_url || "").trim()) push("error", "Missing image");
+  if (!String(event.genre || event.category || "").trim()) push("warning", "Missing category");
+  if (!String(event.event_date || "").trim()) push("error", "Missing date");
+  if (isEventPast(event)) push("error", "Event in the past");
+  if (shortNotice.urgent) push("warning", "Urgent event");
+  else if (shortNotice.active) push("warning", "Short-notice event");
+  if (event.status === "approved" && socialSummary.total === 0) push("warning", "Missing social drafts");
+  if (!badges.length) push("ok", "Ready");
+  return badges;
+}
+
+function renderValidationBadges(event) {
+  return `<div class="event-card__validation-badges">${buildEventValidationBadges(event)
+    .map((badge) => `<span class="event-validation-badge event-validation-badge--${badge.tone}">${escapeHtml(badge.label)}</span>`)
+    .join("")}</div>`;
 }
 
 function normalizeCountryForGeocoding(countryValue) {
@@ -888,6 +921,10 @@ function normalizeEvent(event) {
   return {
     id: event.id,
     name: event.name || "-",
+    title: event.title || event.name || "",
+    title_es: event.title_es || "",
+    title_de: event.title_de || "",
+    title_en: event.title_en || "",
     location_name: event.location_name || "",
     address: event.address || event.street || "",
     street: event.street || event.address || "",
@@ -898,9 +935,16 @@ function normalizeEvent(event) {
     geocoding_query: event.geocoding_query || "",
     event_date: event.event_date || "",
     event_time: event.event_time || "",
+    end_time: event.end_time || "",
     genre: event.genre || "",
+    category: event.category || event.genre || "",
     price_text: event.price_text || "",
     description: event.description || "",
+    description_es: event.description_es || event.descrption_es || "",
+    description_de: event.description_de || event.descrption_de || "",
+    description_en: event.description_en || event.descrption_en || "",
+    artist_name: event.artist_name || "",
+    tags: event.tags ?? null,
     submitted_by: event.submitted_by || "",
     contact_email: event.contact_email || "",
     status: VALID_STATUS.has(status) ? status : "pending",
@@ -1128,6 +1172,7 @@ function renderEventCard(event) {
         }</p>
       </section>`
     : "";
+  const validationMarkup = renderValidationBadges(event);
   card.innerHTML = `
     <div class="event-card__layout">
       <div class="event-card__media-column">
@@ -1142,6 +1187,7 @@ function renderEventCard(event) {
           </div>
           <span class="${statusPillClass(event.status)}">${escapeHtml(statusLabel(event.status))}</span>
         </header>
+        ${validationMarkup}
 
         <ul class="event-meta">
           <li><strong>Datum:</strong> ${escapeHtml(formatDateTime(event))}</li>
@@ -1190,6 +1236,7 @@ function renderEventCard(event) {
     ${geoWarningMarkup}
 
     <div class="card-actions">
+      <button type="button" class="button-secondary button-secondary--primary" data-action="edit-event">Edit</button>
       <button type="button" class="button-secondary button-secondary--approve" data-action="approved">Approve</button>
       <button type="button" class="button-secondary" data-action="pending">Set pending</button>
       <button type="button" class="button-secondary button-secondary--reject" data-action="rejected">Reject</button>
@@ -1214,7 +1261,82 @@ function render() {
   updateCounts();
   renderTabs();
   applyFilters();
+  renderSocialQueuePanel();
   renderEvents();
+}
+
+function isSameLocalDay(a, b) {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+function socialQueueRowsFlat() {
+  return [...state.socialQueueByEvent.values()].flat();
+}
+
+function socialQueueRowMatchesFilter(row) {
+  const filter = state.socialQueueFilter;
+  const status = String(row.status || "pending").toLowerCase();
+  if (filter === "all") return true;
+  if (filter === "draft") return status === "posted";
+  if (filter === "today") {
+    const scheduled = new Date(row.scheduled_at);
+    return !Number.isNaN(scheduled.getTime()) && scheduled >= new Date() && isSameLocalDay(scheduled, new Date());
+  }
+  return status === filter;
+}
+
+function socialQueueEventTitle(eventId) {
+  return state.allEvents.find((event) => String(event.id) === String(eventId))?.name || String(eventId || "-");
+}
+
+function formatAdminDateTime(raw) {
+  if (!raw) return "-";
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? String(raw) : parsed.toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" });
+}
+
+function renderSocialQueuePanel() {
+  if (!dom.socialQueuePanel) return;
+  dom.socialQueueFilters.forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.socialFilter === state.socialQueueFilter);
+  });
+  const rows = socialQueueRowsFlat().filter(socialQueueRowMatchesFilter);
+  if (!rows.length) {
+    dom.socialQueuePanel.innerHTML = `<p class="empty-state">Keine Social-Queue-Einträge für diesen Filter.</p>`;
+    return;
+  }
+  dom.socialQueuePanel.innerHTML = `
+    <table class="admin-social-table">
+      <thead>
+        <tr>
+          <th>Event</th><th>Plattform</th><th>Scheduled</th><th>Status</th><th>Retry</th><th>Caption</th><th>Error</th><th>Created</th><th>Posted</th><th>Aktionen</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map((row) => `
+          <tr data-queue-id="${escapeHtml(row.id)}" data-event-id="${escapeHtml(row.event_id)}">
+            <td>${escapeHtml(socialQueueEventTitle(row.event_id))}</td>
+            <td>${escapeHtml(row.platform || "-")}</td>
+            <td>${escapeHtml(formatAdminDateTime(row.scheduled_at))}</td>
+            <td>${escapeHtml(row.status || "-")}</td>
+            <td>${escapeHtml(String(row.retry_count ?? 0))}</td>
+            <td class="admin-social-table__caption">${escapeHtml(String(row.caption || "").slice(0, 120) || "-")}</td>
+            <td class="admin-social-table__error">${escapeHtml(row.last_error || "-")}</td>
+            <td>${escapeHtml(formatAdminDateTime(row.created_at))}</td>
+            <td>${escapeHtml(formatAdminDateTime(row.posted_at))}</td>
+            <td class="admin-social-table__actions">
+              <button type="button" class="button-secondary" data-queue-action="open-event">Event</button>
+              <button type="button" class="button-secondary" data-queue-action="retry">Retry</button>
+              <button type="button" class="button-secondary" data-queue-action="regenerate">Regenerate</button>
+              <button type="button" class="button-secondary" data-queue-action="copy-caption">Copy</button>
+              <button type="button" class="button-secondary" data-queue-action="open-image">Image</button>
+              <button type="button" class="button-secondary button-secondary--reject" data-queue-action="delete">Delete</button>
+            </td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
 }
 
 function parseMissingColumn(error) {
@@ -1266,7 +1388,7 @@ async function loadSocialQueueRows() {
   const client = supabaseClient();
   const { data, error } = await client
     .from("social_queue")
-    .select("id,event_id,platform,scheduled_at,status,last_error,posted_at,caption_template_id")
+    .select("id,event_id,platform,scheduled_at,status,last_error,posted_at,created_at,retry_count,caption,caption_template_id,resolved_image_url")
     .order("scheduled_at", { ascending: true });
   if (error) {
     console.warn("Social queue konnte nicht geladen werden:", error);
@@ -1318,6 +1440,101 @@ async function ensureSocialReviewQueueForEvent(event) {
   const { error } = await client.from("social_queue").insert(insertRows);
   if (error) throw new Error(error.message || "Social Queue konnte nicht erstellt werden.");
   return missing.length;
+}
+
+async function regenerateSocialDraftsForEvent(event) {
+  const client = supabaseClient();
+  await client
+    .from("social_queue")
+    .delete()
+    .eq("event_id", event.id)
+    .in("status", ["pending", "failed", "skipped"]);
+  return ensureSocialReviewQueueForEvent(event);
+}
+
+async function retrySocialQueueRow(queueId) {
+  const client = supabaseClient();
+  const { error } = await client
+    .from("social_queue")
+    .update({
+      status: "pending",
+      last_error: null,
+      last_attempt_at: null,
+      updated_at: new Date().toISOString()
+    })
+    .eq("id", queueId);
+  if (error) throw new Error(error.message || "Retry failed.");
+}
+
+async function deleteSocialQueueRow(queueId) {
+  const client = supabaseClient();
+  const { error } = await client.from("social_queue").delete().eq("id", queueId);
+  if (error) throw new Error(error.message || "Delete failed.");
+}
+
+function findSocialQueueRow(queueId) {
+  return socialQueueRowsFlat().find((row) => String(row.id) === String(queueId));
+}
+
+function readJsonField(rawValue, fallback = null) {
+  const value = String(rawValue || "").trim();
+  if (!value) return fallback;
+  try {
+    return JSON.parse(value);
+  } catch {
+    throw new Error("JSON field is invalid.");
+  }
+}
+
+function hasLocationChanged(event, payload) {
+  return ["location_name", "address", "postal_code", "city", "country"].some((key) =>
+    String(event?.[key] || "").trim() !== String(payload?.[key] || "").trim()
+  );
+}
+
+function eventEditPayloadFromForm(form) {
+  const formData = new FormData(form);
+  const latRaw = String(formData.get("lat") || "").trim();
+  const lngRaw = String(formData.get("lng") || "").trim();
+  const tagsRaw = String(formData.get("tags") || "").trim();
+  const payload = {
+    name: String(formData.get("title") || "").trim(),
+    title: String(formData.get("title") || "").trim(),
+    title_es: String(formData.get("title_es") || "").trim() || null,
+    title_de: String(formData.get("title_de") || "").trim() || null,
+    title_en: String(formData.get("title_en") || "").trim() || null,
+    description: String(formData.get("description") || "").trim() || null,
+    description_es: String(formData.get("description_es") || "").trim() || null,
+    description_de: String(formData.get("description_de") || "").trim() || null,
+    description_en: String(formData.get("description_en") || "").trim() || null,
+    genre: String(formData.get("category") || "").trim() || null,
+    category: String(formData.get("category") || "").trim() || null,
+    event_date: String(formData.get("event_date") || "").trim() || null,
+    event_time: String(formData.get("event_time") || "").trim() || null,
+    end_time: String(formData.get("end_time") || "").trim() || null,
+    location_name: String(formData.get("location_name") || "").trim() || null,
+    address: String(formData.get("address") || "").trim() || null,
+    street: String(formData.get("address") || "").trim() || null,
+    postal_code: String(formData.get("postal_code") || "").trim() || null,
+    city: String(formData.get("city") || "").trim() || null,
+    country: String(formData.get("country") || "").trim() || null,
+    artist_name: String(formData.get("artist_name") || "").trim() || null,
+    price_text: String(formData.get("price_text") || "").trim() || null,
+    image_url: String(formData.get("image_url") || "").trim() || null,
+    image_urls: readJsonField(formData.get("image_urls"), null),
+    tags: tagsRaw ? tagsRaw.split(",").map((tag) => tag.trim()).filter(Boolean) : null
+  };
+  if (latRaw || lngRaw) {
+    const lat = parseCoordinate(latRaw);
+    const lng = parseCoordinate(lngRaw);
+    if (lat === null || lng === null) throw new Error("Coordinates are invalid.");
+    payload.lat = lat;
+    payload.lng = lng;
+  } else {
+    payload.lat = null;
+    payload.lng = null;
+  }
+  return payload;
 }
 
 async function loadEvents() {
@@ -1525,6 +1742,113 @@ function openAdminLocationModal(eventData) {
   btnSubmit?.focus();
 }
 
+function openEventEditorModal(eventData) {
+  const overlay = document.createElement("div");
+  overlay.className = "admin-editor-overlay";
+  overlay.setAttribute("role", "dialog");
+  overlay.setAttribute("aria-modal", "true");
+  overlay.setAttribute("aria-label", "Event bearbeiten");
+  overlay.innerHTML = `
+    <aside class="admin-editor-panel">
+      <header class="admin-editor-header">
+        <div>
+          <h3>Event bearbeiten</h3>
+          <p>Änderungen wirken auch auf bereits freigegebene Events.</p>
+        </div>
+        <button type="button" class="button button--ghost" data-editor-close>Schließen</button>
+      </header>
+      <form class="admin-editor-form" autocomplete="off">
+        <div class="admin-editor-grid">
+          <label class="field"><span>Titel</span><input name="title" value="${escapeHtml(eventData.title || eventData.name)}" required></label>
+          <label class="field"><span>Kategorie</span><input name="category" value="${escapeHtml(eventData.genre || eventData.category)}"></label>
+          <label class="field"><span>Datum</span><input name="event_date" type="date" value="${escapeHtml(eventData.event_date)}"></label>
+          <label class="field"><span>Start</span><input name="event_time" type="time" value="${escapeHtml(String(eventData.event_time || "").slice(0, 5))}"></label>
+          <label class="field"><span>Ende</span><input name="end_time" type="time" value="${escapeHtml(String(eventData.end_time || "").slice(0, 5))}"></label>
+          <label class="field"><span>Artist</span><input name="artist_name" value="${escapeHtml(eventData.artist_name)}"></label>
+          <label class="field"><span>Preis</span><input name="price_text" value="${escapeHtml(eventData.price_text)}"></label>
+          <label class="field"><span>Tags (Komma-getrennt)</span><input name="tags" value="${escapeHtml(Array.isArray(eventData.tags) ? eventData.tags.join(", ") : String(eventData.tags || ""))}"></label>
+          <label class="field"><span>Venue</span><input name="location_name" value="${escapeHtml(eventData.location_name)}"></label>
+          <label class="field"><span>Adresse</span><input name="address" value="${escapeHtml(eventData.address)}"></label>
+          <label class="field"><span>PLZ</span><input name="postal_code" value="${escapeHtml(eventData.postal_code)}"></label>
+          <label class="field"><span>Stadt</span><input name="city" value="${escapeHtml(eventData.city)}"></label>
+          <label class="field"><span>Land</span><input name="country" value="${escapeHtml(eventData.country)}"></label>
+          <label class="field"><span>Latitude</span><input name="lat" value="${eventData.lat ?? ""}"></label>
+          <label class="field"><span>Longitude</span><input name="lng" value="${eventData.lng ?? ""}"></label>
+          <label class="field admin-editor-span-2"><span>Bild URL</span><input name="image_url" value="${escapeHtml(eventData.image_url)}"></label>
+          <label class="field admin-editor-span-2"><span>Weitere Bilder JSON</span><textarea name="image_urls" rows="3">${escapeHtml(eventData.image_urls ? JSON.stringify(eventData.image_urls, null, 2) : "")}</textarea></label>
+          <label class="field admin-editor-span-2"><span>Beschreibung</span><textarea name="description" rows="4">${escapeHtml(eventData.description)}</textarea></label>
+          <label class="field admin-editor-span-2"><span>Titel ES</span><input name="title_es" value="${escapeHtml(eventData.title_es)}"></label>
+          <label class="field admin-editor-span-2"><span>Titel DE</span><input name="title_de" value="${escapeHtml(eventData.title_de)}"></label>
+          <label class="field admin-editor-span-2"><span>Titel EN</span><input name="title_en" value="${escapeHtml(eventData.title_en)}"></label>
+          <label class="field admin-editor-span-2"><span>Beschreibung ES</span><textarea name="description_es" rows="3">${escapeHtml(eventData.description_es)}</textarea></label>
+          <label class="field admin-editor-span-2"><span>Beschreibung DE</span><textarea name="description_de" rows="3">${escapeHtml(eventData.description_de)}</textarea></label>
+          <label class="field admin-editor-span-2"><span>Beschreibung EN</span><textarea name="description_en" rows="3">${escapeHtml(eventData.description_en)}</textarea></label>
+        </div>
+        <p class="admin-editor-status" data-editor-status hidden></p>
+        <div class="admin-editor-actions">
+          <button type="button" class="button-secondary" data-editor-cancel>Abbrechen</button>
+          <button type="submit" class="button-secondary" data-editor-save>Save</button>
+          <button type="submit" class="button-secondary button-secondary--primary" data-editor-save-social>Save + regenerate social drafts</button>
+        </div>
+      </form>
+    </aside>
+  `;
+
+  const form = overlay.querySelector(".admin-editor-form");
+  const status = overlay.querySelector("[data-editor-status]");
+  const close = () => {
+    document.removeEventListener("keydown", onKeyDown);
+    overlay.remove();
+  };
+  const onKeyDown = (e) => {
+    if (e.key === "Escape" && !overlay.classList.contains("is-busy")) close();
+  };
+  const setBusy = (busy, message = "") => {
+    overlay.classList.toggle("is-busy", busy);
+    form?.querySelectorAll("input, textarea, button").forEach((control) => {
+      control.disabled = busy;
+    });
+    if (status) {
+      status.hidden = !message;
+      status.textContent = message;
+    }
+  };
+  overlay.querySelector("[data-editor-close]")?.addEventListener("click", close);
+  overlay.querySelector("[data-editor-cancel]")?.addEventListener("click", close);
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay && !overlay.classList.contains("is-busy")) close();
+  });
+  form?.addEventListener("submit", async (submitEvent) => {
+    submitEvent.preventDefault();
+    const regenerate = Boolean(submitEvent.submitter?.hasAttribute("data-editor-save-social"));
+    try {
+      setBusy(true, "Speichern...");
+      const payload = eventEditPayloadFromForm(form);
+      if (hasLocationChanged(eventData, payload)) {
+        const coords = await resolveAdminCoordinates({ ...eventData, ...payload });
+        payload.lat = coords.lat;
+        payload.lng = coords.lng;
+        payload.geocoding_query = coords.geocoding_query;
+        if (coords.formatted_address) payload.formatted_address = coords.formatted_address;
+      }
+      await updateEventWithFallback(eventData.id, payload);
+      if (regenerate) {
+        await regenerateSocialDraftsForEvent({ ...eventData, ...payload, id: eventData.id });
+      }
+      setGlobalFeedback(regenerate ? "Event gespeichert und Social Drafts erneuert." : "Event gespeichert.", "success");
+      close();
+      await loadEvents();
+    } catch (error) {
+      console.error("Event edit failed:", error);
+      setBusy(false, error.message || "Speichern fehlgeschlagen.");
+      setGlobalFeedback(`Speichern fehlgeschlagen: ${error.message || ""}`.trim(), "error");
+    }
+  });
+  document.body.appendChild(overlay);
+  document.addEventListener("keydown", onKeyDown);
+  form?.querySelector("input[name='title']")?.focus();
+}
+
 async function handleCardAction(clickEvent) {
   const button = clickEvent.target.closest("button[data-action]");
   if (!button) return;
@@ -1546,6 +1870,11 @@ async function handleCardAction(clickEvent) {
 
   if (button.dataset.action === "edit-location") {
     openAdminLocationModal(eventData);
+    return;
+  }
+
+  if (button.dataset.action === "edit-event") {
+    openEventEditorModal(eventData);
     return;
   }
 
@@ -1622,6 +1951,58 @@ function bindEvents() {
   dom.statusFilter?.addEventListener("change", () => {
     state.statusFilter = dom.statusFilter.value || "";
     render();
+  });
+
+  dom.socialQueueFilters.forEach((button) => {
+    button.addEventListener("click", () => {
+      state.socialQueueFilter = button.dataset.socialFilter || "all";
+      renderSocialQueuePanel();
+    });
+  });
+
+  dom.socialQueuePanel?.addEventListener("click", async (event) => {
+    const button = event.target.closest("button[data-queue-action]");
+    if (!button) return;
+    const rowEl = button.closest("[data-queue-id]");
+    const queueId = rowEl?.dataset.queueId;
+    const eventId = rowEl?.dataset.eventId;
+    const row = findSocialQueueRow(queueId);
+    const eventData = state.allEvents.find((item) => String(item.id) === String(eventId));
+    button.disabled = true;
+    try {
+      if (button.dataset.queueAction === "open-event" && eventData) {
+        state.search = eventData.name || "";
+        if (dom.searchInput) dom.searchInput.value = state.search;
+        render();
+        const escapedEventId = window.CSS?.escape ? window.CSS.escape(String(eventId)) : String(eventId).replace(/"/g, '\\"');
+        document
+          .querySelector(`.event-card[data-event-id="${escapedEventId}"]`)
+          ?.scrollIntoView({ behavior: "smooth", block: "center" });
+      } else if (button.dataset.queueAction === "retry") {
+        await retrySocialQueueRow(queueId);
+        setGlobalFeedback("Social Queue Retry geplant.", "success");
+        await loadEvents();
+      } else if (button.dataset.queueAction === "delete") {
+        await deleteSocialQueueRow(queueId);
+        setGlobalFeedback("Social Queue Eintrag gelöscht.", "success");
+        await loadEvents();
+      } else if (button.dataset.queueAction === "regenerate" && eventData) {
+        const count = await regenerateSocialDraftsForEvent(eventData);
+        setGlobalFeedback(`Social Drafts regeneriert (${count}).`, "success");
+        await loadEvents();
+      } else if (button.dataset.queueAction === "copy-caption") {
+        await navigator.clipboard?.writeText(String(row?.caption || ""));
+        setGlobalFeedback("Caption kopiert.", "success");
+      } else if (button.dataset.queueAction === "open-image") {
+        const imageUrl = row?.resolved_image_url || eventData?.image_url;
+        if (imageUrl) window.open(imageUrl, "_blank", "noopener,noreferrer");
+      }
+    } catch (error) {
+      console.error("Social queue action failed:", error);
+      setGlobalFeedback(`Social Queue Aktion fehlgeschlagen: ${error.message || ""}`.trim(), "error");
+    } finally {
+      button.disabled = false;
+    }
   });
 
   dom.resetFiltersButton?.addEventListener("click", () => {
