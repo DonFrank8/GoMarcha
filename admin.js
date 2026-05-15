@@ -14,6 +14,10 @@ const CROP_PREVIEW_BASE_W = 360;
 const ADMIN_GEOCODING_PROVIDER = "nominatim";
 const ADMIN_GEOCODING_MIN_INTERVAL_MS = 850;
 const ADMIN_GEOCODING_MAX_RETRIES = 2;
+const ADMIN_EDITOR_PLACES_DEBOUNCE_MS = 220;
+const ADMIN_EDITOR_PLACES_MIN_CHARS = 3;
+let editorLocationAutocompleteDispose = null;
+let editorPlacesHideSuggestionsFn = null;
 const ADMIN_MAPBOX_ACCESS_TOKEN = (window.PARTYRADAR_MAPBOX_TOKEN || "").toString().trim();
 const SOCIAL_REVIEW_PLATFORMS = ["instagram", "facebook"];
 const SOCIAL_REVIEW_SLOTS = [
@@ -143,9 +147,32 @@ function sleep(ms) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
+function debounceAdmin(fn, waitMs) {
+  let timeoutId = null;
+  return (...args) => {
+    if (timeoutId) window.clearTimeout(timeoutId);
+    timeoutId = window.setTimeout(() => {
+      timeoutId = null;
+      fn(...args);
+    }, waitMs);
+  };
+}
+
 function parseCoordinate(value) {
-  if (value === null || value === undefined || value === "") return null;
-  const parsed = Number(value);
+  if (value === null || value === undefined) return null;
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+  let s = String(value).trim();
+  if (!s) return null;
+  s = s.replace(/\s+/g, "");
+  if (/^nan$/i.test(s)) return null;
+  if (/^-?\d+,\d+([eE][+-]?\d+)?$/.test(s)) {
+    s = s.replace(",", ".");
+  } else {
+    s = s.replace(/,/g, "");
+  }
+  const parsed = Number(s);
   return Number.isFinite(parsed) ? parsed : null;
 }
 
@@ -1914,7 +1941,824 @@ function openAdminLocationModal(eventData) {
   btnSubmit?.focus();
 }
 
+function disposeEditorLocationAutocomplete() {
+  if (typeof editorLocationAutocompleteDispose === "function") {
+    try {
+      editorLocationAutocompleteDispose();
+    } catch (_err) {
+      /* ignore */
+    }
+  }
+  editorLocationAutocompleteDispose = null;
+  editorPlacesHideSuggestionsFn = null;
+}
+
+function getGooglePlacesApiKeyForAdmin() {
+  return (
+    window.VITE_GOOGLE_MAPS_API_KEY
+    || window.__ENV__?.VITE_GOOGLE_MAPS_API_KEY
+    || window.PARTYRADAR_GOOGLE_PLACES_KEY
+    || window.PARTYRADAR_GOOGLE_MAPS_KEY
+    || document.querySelector('meta[name="vite-google-maps-api-key"]')?.getAttribute("content")
+    || document.querySelector('meta[name="partyradar-google-places-key"]')?.getAttribute("content")
+    || ""
+  ).toString().trim();
+}
+
+function normalizeGooglePlaceIdAdmin(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return "";
+  return s.startsWith("places/") ? s.slice("places/".length) : s;
+}
+
+function getPlacesTextAdmin(tv) {
+  if (!tv) return "";
+  if (typeof tv === "string") return tv.trim();
+  if (typeof tv?.text === "string") return tv.text.trim();
+  return "";
+}
+
+function buildPlacesSuggestionsAdmin(predictions) {
+  return (Array.isArray(predictions) ? predictions : [])
+    .map((prediction) => {
+      if (!prediction || typeof prediction !== "object") return null;
+      const suggestionText =
+        getPlacesTextAdmin(prediction.text)
+        || getPlacesTextAdmin(prediction.structuredFormat?.mainText)
+        || String(prediction.description || "").trim();
+      const secondaryText = getPlacesTextAdmin(prediction.structuredFormat?.secondaryText);
+      const rawId =
+        prediction.placeId
+        || prediction.place_id
+        || prediction.place
+        || prediction.placeResource
+        || "";
+      const placeId = normalizeGooglePlaceIdAdmin(rawId);
+      if (!suggestionText || !placeId) return null;
+      return { placeId, suggestionText, secondaryText };
+    })
+    .filter(Boolean);
+}
+
+async function fetchGooglePlacesAutocompletePredictionsAdmin(searchInput, sessionToken) {
+  const apiKey = getGooglePlacesApiKeyForAdmin();
+  if (!apiKey) return [];
+  const endpoint = "https://places.googleapis.com/v1/places:autocomplete";
+  console.log("admin autocomplete request", { len: String(searchInput || "").length });
+  const fieldMasks = [
+    "suggestions.placePrediction",
+    "suggestions.placePrediction.placeId,suggestions.placePrediction.place,suggestions.placePrediction.text,suggestions.placePrediction.structuredFormat"
+  ];
+  let lastRaw = "";
+  let lastResponse = null;
+  for (let maskIndex = 0; maskIndex < fieldMasks.length; maskIndex += 1) {
+    const fieldMask = fieldMasks[maskIndex];
+    lastResponse = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": apiKey,
+        "X-Goog-FieldMask": fieldMask
+      },
+      body: JSON.stringify({
+        input: searchInput,
+        languageCode: "de",
+        sessionToken
+      })
+    });
+    lastRaw = await lastResponse.text();
+    if (lastResponse.ok) break;
+    if (lastResponse.status === 400 && maskIndex === 0) {
+      console.warn("admin autocomplete error", "Places autocomplete 400 — retrying with explicit field mask");
+      continue;
+    }
+    break;
+  }
+  let data = {};
+  try {
+    data = lastRaw ? JSON.parse(lastRaw) : {};
+  } catch (_err) {
+    console.warn("admin autocomplete error", "Places autocomplete: invalid JSON body");
+    throw new Error(`Places autocomplete HTTP ${lastResponse?.status || 0}`);
+  }
+  if (!lastResponse?.ok) {
+    console.warn("admin autocomplete error", lastResponse?.status, lastRaw.slice(0, 400));
+    throw new Error(`Places autocomplete HTTP ${lastResponse?.status || 0}`);
+  }
+  const preds = Array.isArray(data?.suggestions)
+    ? data.suggestions
+        .map((entry) => entry?.placePrediction || entry?.place_prediction)
+        .filter(Boolean)
+    : [];
+  const built = buildPlacesSuggestionsAdmin(preds);
+  console.log("admin autocomplete results", { count: built.length });
+  return built;
+}
+
+function extractAddressPartAdmin(addressComponents, type) {
+  const match = (Array.isArray(addressComponents) ? addressComponents : []).find(
+    (part) => Array.isArray(part?.types) && part.types.includes(type)
+  );
+  return String(match?.longText || match?.shortText || "").trim();
+}
+
+function resolveCityFromAddressComponentsAdmin(addressComponents) {
+  return (
+    extractAddressPartAdmin(addressComponents, "locality")
+    || extractAddressPartAdmin(addressComponents, "postal_town")
+    || extractAddressPartAdmin(addressComponents, "administrative_area_level_2")
+    || extractAddressPartAdmin(addressComponents, "administrative_area_level_1")
+  );
+}
+
+function resolveProvinceFromAddressComponentsAdmin(addressComponents) {
+  return (
+    extractAddressPartAdmin(addressComponents, "administrative_area_level_2")
+    || extractAddressPartAdmin(addressComponents, "administrative_area_level_1")
+  );
+}
+
+function resolveRegionFromAddressComponentsAdmin(addressComponents) {
+  return extractAddressPartAdmin(addressComponents, "administrative_area_level_1");
+}
+
+function resolveStreetFromAddressComponentsAdmin(addressComponents) {
+  const route = extractAddressPartAdmin(addressComponents, "route");
+  const streetNumber = extractAddressPartAdmin(addressComponents, "street_number");
+  const premise = extractAddressPartAdmin(addressComponents, "premise");
+  const subpremise = extractAddressPartAdmin(addressComponents, "subpremise");
+  const street = [route, streetNumber].filter(Boolean).join(" ").trim();
+  if (street) return street;
+  return [premise, subpremise].filter(Boolean).join(" ").trim();
+}
+
+function splitFormattedAddressPartsAdmin(formattedAddress) {
+  return String(formattedAddress || "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function parsePostalCodeAndCityFromFormattedAddressAdmin(formattedAddress) {
+  const parts = splitFormattedAddressPartsAdmin(formattedAddress);
+  if (!parts.length) return { postal_code: "", city: "" };
+  const candidates = [...parts].reverse();
+  const cityPart = candidates.find((part) => /\d/.test(part));
+  if (!cityPart) {
+    return { postal_code: "", city: parts[parts.length - 2] || "" };
+  }
+  const postalMatch = cityPart.match(/\b(?:\d{4,6}|[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b/i);
+  const postal_code = postalMatch ? postalMatch[0] : "";
+  const city = cityPart.replace(postal_code, "").replace(/\s{2,}/g, " ").trim();
+  return { postal_code, city: city || parts[parts.length - 2] || "" };
+}
+
+function resolveFallbackCountryFromFormattedAddressAdmin(formattedAddress) {
+  const parts = splitFormattedAddressPartsAdmin(formattedAddress);
+  if (!parts.length) return "";
+  return parts[parts.length - 1] || "";
+}
+
+function resolveFallbackCityFromFormattedAddressAdmin(formattedAddress) {
+  return parsePostalCodeAndCityFromFormattedAddressAdmin(formattedAddress).city || "";
+}
+
+function normalizeCountryNameAdmin(countryValue) {
+  const raw = String(countryValue || "").trim();
+  if (!raw) return "";
+  const aliases = {
+    espana: "Spain",
+    "españa": "Spain",
+    spain: "Spain",
+    germany: "Germany",
+    deutschland: "Germany",
+    france: "France",
+    portugal: "Portugal",
+    italia: "Italy",
+    italy: "Italy",
+    uk: "United Kingdom",
+    "united kingdom": "United Kingdom",
+    usa: "United States",
+    "united states": "United States",
+    osterreich: "Austria",
+    österreich: "Austria",
+    austria: "Austria",
+    schweiz: "Switzerland",
+    switzerland: "Switzerland",
+    nederland: "Netherlands",
+    netherlands: "Netherlands",
+    holland: "Netherlands"
+  };
+  const normalized = raw.toLowerCase();
+  return aliases[normalized] || raw;
+}
+
+async function fetchAddressDetailsWithNominatimAdmin(queryText) {
+  const query = String(queryText || "").trim();
+  if (!query) return null;
+  const endpoint = new URL("https://nominatim.openstreetmap.org/search");
+  endpoint.searchParams.set("format", "jsonv2");
+  endpoint.searchParams.set("limit", "1");
+  endpoint.searchParams.set("addressdetails", "1");
+  endpoint.searchParams.set("q", query);
+  const response = await fetch(endpoint.toString(), {
+    headers: {
+      Accept: "application/json",
+      "Accept-Language": "de,en,es",
+      "User-Agent": "Marcha/1.0 (admin places enrich)"
+    }
+  });
+  if (!response.ok) return null;
+  const data = await response.json();
+  const first = Array.isArray(data) ? data[0] : null;
+  if (!first || typeof first !== "object") return null;
+  const address = first.address || {};
+  const postalCode = String(address.postcode || "").trim();
+  const country = normalizeCountryNameAdmin(String(address.country || "").trim());
+  const city = String(
+    address.city || address.town || address.village || address.municipality || address.county || ""
+  ).trim();
+  const street = String(
+    address.road || address.pedestrian || address.footway || address.cycleway || address.path || ""
+  ).trim();
+  return { postal_code: postalCode, country, city, street };
+}
+
+async function enrichPlaceDataWithFallbackAddressDetailsAdmin(placeData) {
+  if (!placeData || typeof placeData !== "object") return placeData;
+  const missingPostal = !String(placeData.postal_code || "").trim();
+  const missingCountry = !String(placeData.country || "").trim();
+  const missingCity = !String(placeData.city || "").trim();
+  if (!missingPostal && !missingCountry && !missingCity) return placeData;
+  const query = [placeData.formatted_address, placeData.location_name, placeData.street].filter(Boolean).join(", ");
+  if (!query) return placeData;
+  try {
+    const fallbackDetails = await fetchAddressDetailsWithNominatimAdmin(query);
+    if (!fallbackDetails) return placeData;
+    return {
+      ...placeData,
+      postal_code: placeData.postal_code || fallbackDetails.postal_code || "",
+      country: placeData.country || fallbackDetails.country || "",
+      city: placeData.city || fallbackDetails.city || "",
+      street: placeData.street || fallbackDetails.street || ""
+    };
+  } catch (_error) {
+    return placeData;
+  }
+}
+
+async function fetchGooglePlaceDetailsAdmin(placeId) {
+  const apiKey = getGooglePlacesApiKeyForAdmin();
+  if (!apiKey) throw new Error("Google Places API key missing");
+  const normalizedPlaceId = normalizeGooglePlaceIdAdmin(placeId);
+  if (!normalizedPlaceId) throw new Error("Google place id missing");
+  const endpoint = new URL(`https://places.googleapis.com/v1/places/${encodeURIComponent(normalizedPlaceId)}`);
+  endpoint.searchParams.set("key", apiKey);
+  endpoint.searchParams.set("fields", "id,displayName,formattedAddress,addressComponents,location");
+  const response = await fetch(endpoint.toString(), {
+    headers: { Accept: "application/json" }
+  });
+  if (!response.ok) {
+    throw new Error(`Place details HTTP ${response.status}`);
+  }
+  const place = await response.json();
+  const lat = Number(place?.location?.latitude);
+  const lng = Number(place?.location?.longitude);
+  const addressComponents = place?.addressComponents || [];
+  const street = resolveStreetFromAddressComponentsAdmin(addressComponents);
+  const formattedAddress = String(place?.formattedAddress || "").trim();
+  const fallbackPostalCity = parsePostalCodeAndCityFromFormattedAddressAdmin(formattedAddress);
+  const cityFromComponents = resolveCityFromAddressComponentsAdmin(addressComponents);
+  const countryFromComponents = extractAddressPartAdmin(addressComponents, "country");
+  return {
+    place_id: normalizeGooglePlaceIdAdmin(place?.id || normalizedPlaceId),
+    location_name: String(place?.displayName?.text || "").trim(),
+    formatted_address: formattedAddress,
+    street,
+    city: cityFromComponents || resolveFallbackCityFromFormattedAddressAdmin(formattedAddress),
+    postal_code: extractAddressPartAdmin(addressComponents, "postal_code") || fallbackPostalCity.postal_code,
+    province: resolveProvinceFromAddressComponentsAdmin(addressComponents),
+    region: resolveRegionFromAddressComponentsAdmin(addressComponents),
+    country: countryFromComponents || resolveFallbackCountryFromFormattedAddressAdmin(formattedAddress),
+    lat: Number.isFinite(lat) ? lat : null,
+    lng: Number.isFinite(lng) ? lng : null
+  };
+}
+
+function buildFallbackPlaceDataFromSuggestionAdmin(map, placeId) {
+  const suggestion = map.get(placeId);
+  if (!suggestion) return null;
+  const primary = String(suggestion.suggestionText || "").trim();
+  const secondary = String(suggestion.secondaryText || "").trim();
+  const primaryParts = primary.split(",").map((p) => p.trim()).filter(Boolean);
+  const venueName = primaryParts[0] || primary;
+  const streetFromPrimary = primaryParts.slice(1).join(", ").trim();
+  const formattedAddress = [primary, secondary].filter(Boolean).join(", ");
+  const parsed = parsePostalCodeAndCityFromFormattedAddressAdmin(secondary || formattedAddress);
+  const city = parsed.city || "";
+  const country = resolveFallbackCountryFromFormattedAddressAdmin(formattedAddress);
+  const street = streetFromPrimary || primary;
+  return {
+    place_id: String(placeId || "").trim(),
+    location_name: venueName,
+    formatted_address: formattedAddress,
+    street,
+    city,
+    postal_code: parsed.postal_code || "",
+    province: "",
+    region: "",
+    country,
+    lat: null,
+    lng: null
+  };
+}
+
+function pickAdminEditorFormField(form, name) {
+  if (!form?.querySelector) return "";
+  const el = form.querySelector(`input[name="${name}"], textarea[name="${name}"]`);
+  return String(el?.value ?? "").trim();
+}
+
+function buildAdminEditorLocationSearchText(form) {
+  if (!form) return "";
+  const parts = [
+    pickAdminEditorFormField(form, "location_name"),
+    pickAdminEditorFormField(form, "address"),
+    pickAdminEditorFormField(form, "postal_code"),
+    pickAdminEditorFormField(form, "city"),
+    pickAdminEditorFormField(form, "country")
+  ].filter(Boolean);
+  return parts.join(" ").trim();
+}
+
+function buildAdminEditorMapIframeHtml(lat, lng) {
+  const latN = Number(lat);
+  const lngN = Number(lng);
+  if (!Number.isFinite(latN) || !Number.isFinite(lngN)) {
+    throw new Error("admin editor map: lat/lng not finite");
+  }
+  if (Math.abs(latN) > 90 || Math.abs(lngN) > 180) {
+    throw new Error("admin editor map: lat/lng out of range");
+  }
+  const half = 0.02;
+  const minLng = lngN - half;
+  const minLat = latN - half;
+  const maxLng = lngN + half;
+  const maxLat = latN + half;
+  const bbox = `${minLng},${minLat},${maxLng},${maxLat}`;
+  const marker = `${latN},${lngN}`;
+  return `<iframe class="admin-editor-map" loading="lazy" referrerpolicy="no-referrer-when-downgrade" title="Karte"
+          src="https://www.openstreetmap.org/export/embed.html?bbox=${encodeURIComponent(bbox)}&layer=mapnik&marker=${encodeURIComponent(marker)}"></iframe>`;
+}
+
+function setAdminEditorCoordsWarning(form, visible) {
+  const el = form?.querySelector?.("[data-editor-coords-warning]");
+  if (!el) return;
+  el.hidden = !visible;
+}
+
+function refreshAdminEditorMapInForm(form) {
+  const wrap = form?.querySelector?.("[data-editor-map-wrap]");
+  if (!wrap) return;
+  const latEl = form?.elements?.namedItem?.("lat");
+  const lngEl = form?.elements?.namedItem?.("lng");
+  const rawLat = latEl?.value;
+  const rawLng = lngEl?.value;
+  try {
+    const lat = parseCoordinate(rawLat);
+    const lng = parseCoordinate(rawLng);
+    console.log("admin editor map coords", { rawLat, rawLng, lat, lng });
+    const ok = lat !== null && lng !== null && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
+    if (!ok) {
+      setAdminEditorCoordsWarning(form, true);
+      wrap.innerHTML =
+        '<p class="card__intro">Keine gültige Kartenvorschau — Koordinaten ergänzen oder „Adresse suchen“.</p>';
+      return;
+    }
+    setAdminEditorCoordsWarning(form, false);
+    wrap.innerHTML = buildAdminEditorMapIframeHtml(lat, lng);
+  } catch (err) {
+    console.warn("admin editor map refresh failed", err);
+    setAdminEditorCoordsWarning(form, true);
+    wrap.innerHTML = '<p class="card__intro">Karte konnte nicht geladen werden.</p>';
+  }
+}
+
+function readAdminEditorLocationSnapshot(form, eventData) {
+  const pick = (name) => String(form?.elements?.namedItem(name)?.value ?? "").trim();
+  return {
+    ...eventData,
+    location_name: pick("location_name") || null,
+    address: pick("address") || null,
+    street: pick("address") || null,
+    postal_code: pick("postal_code") || null,
+    city: pick("city") || null,
+    country: pick("country") || null
+  };
+}
+
+function applyGooglePlaceToAdminEditorForm(form, placeData) {
+  const locName = form.elements.namedItem("location_name");
+  const addr = form.elements.namedItem("address");
+  const city = form.elements.namedItem("city");
+  const postal = form.elements.namedItem("postal_code");
+  const country = form.elements.namedItem("country");
+  const latEl = form.elements.namedItem("lat");
+  const lngEl = form.elements.namedItem("lng");
+  if (locName && placeData.location_name) locName.value = placeData.location_name;
+  if (addr && (placeData.street || placeData.formatted_address)) {
+    addr.value = placeData.street || placeData.formatted_address;
+  }
+  if (city && placeData.city) city.value = placeData.city;
+  if (postal && placeData.postal_code) postal.value = placeData.postal_code;
+  if (country && placeData.country) country.value = placeData.country;
+  if (latEl && placeData.lat != null && Number.isFinite(Number(placeData.lat))) latEl.value = String(placeData.lat);
+  if (lngEl && placeData.lng != null && Number.isFinite(Number(placeData.lng))) lngEl.value = String(placeData.lng);
+  refreshAdminEditorMapInForm(form);
+}
+
+function initEditorLocationAutocomplete(overlay, form, eventData) {
+  console.log("CALLING AUTOCOMPLETE INIT (inside initEditorLocationAutocomplete)");
+  try {
+    disposeEditorLocationAutocomplete();
+  } catch (disposeErr) {
+    console.warn("disposeEditorLocationAutocomplete failed", disposeErr);
+  }
+
+  if (!overlay) console.error("editor overlay missing");
+  if (!form) console.error("editor form missing");
+
+  const drawer =
+    overlay?.querySelector?.(".admin-editor-drawer")
+    || overlay?.querySelector?.("aside.admin-editor-drawer")
+    || (overlay?.firstElementChild?.classList?.contains("admin-editor-drawer") ? overlay.firstElementChild : null);
+
+  if (!drawer) console.error("editor drawer missing (.admin-editor-drawer)");
+
+  const venueInput = form?.querySelector?.("[data-editor-venue-input]");
+  const addressInput = form?.querySelector?.("[data-editor-address-input]");
+  if (!venueInput) console.error("venue input missing");
+  if (!addressInput) console.error("address input missing");
+
+  if (!form || !drawer) {
+    console.error("AUTOCOMPLETE INIT ABORTED: form or drawer missing");
+    return;
+  }
+
+  const hasViteKey = Boolean(String(window.VITE_GOOGLE_MAPS_API_KEY || "").trim());
+  const hasPartyKey = Boolean(String(window.PARTYRADAR_GOOGLE_PLACES_KEY || "").trim());
+  const resolvedKey = Boolean(getGooglePlacesApiKeyForAdmin());
+  console.log("admin places key loaded", {
+    hasViteKey,
+    hasPartyRadarKey: hasPartyKey,
+    resolvedKey
+  });
+
+  const locInputs = form.querySelectorAll("[data-editor-loc-field]");
+  const manualBtn = form.querySelector("[data-editor-geocode-manual]");
+  const searchBtn = form.querySelector("[data-editor-geocode-search]");
+  const hintEl = form.querySelector("[data-editor-places-hint]");
+
+  console.log("admin autocomplete init", {
+    venue: Boolean(venueInput),
+    address: Boolean(addressInput),
+    locFieldCount: locInputs.length
+  });
+
+  const latInput = form.elements.namedItem("lat");
+  const lngInput = form.elements.namedItem("lng");
+  let coordTimer = null;
+
+  const onLatLngInput = () => {
+    if (coordTimer) window.clearTimeout(coordTimer);
+    coordTimer = window.setTimeout(() => refreshAdminEditorMapInForm(form), 120);
+  };
+
+  latInput?.addEventListener("input", onLatLngInput);
+  lngInput?.addEventListener("input", onLatLngInput);
+
+  const runManualGeocode = async () => {
+    const busyBtns = [manualBtn, searchBtn].filter(Boolean);
+    busyBtns.forEach((b) => {
+      b.disabled = true;
+    });
+    try {
+      const snapshot = readAdminEditorLocationSnapshot(form, eventData);
+      const coords = await resolveAdminCoordinates(snapshot);
+      if (latInput) latInput.value = String(coords.lat);
+      if (lngInput) lngInput.value = String(coords.lng);
+      refreshAdminEditorMapInForm(form);
+      setGlobalFeedback("Koordinaten aus Adresse berechnet.", "success");
+    } catch (error) {
+      console.warn("admin autocomplete error", error);
+      setGlobalFeedback(error.message || "Geocoding fehlgeschlagen.", "error");
+    } finally {
+      busyBtns.forEach((b) => {
+        b.disabled = false;
+      });
+    }
+  };
+
+  manualBtn?.addEventListener("click", runManualGeocode);
+  searchBtn?.addEventListener("click", runManualGeocode);
+
+  if (hintEl && !resolvedKey) {
+    hintEl.hidden = false;
+    hintEl.textContent =
+      "Google Places API-Key fehlt oder ist leer — kein Autocomplete. „Adresse suchen“ / „Adresse neu berechnen“ nutzen OpenStreetMap.";
+  }
+
+  if (!addressInput) {
+    console.warn("admin autocomplete error", new Error("Editor: address input [data-editor-address-input] not found"));
+    editorLocationAutocompleteDispose = () => {
+      latInput?.removeEventListener("input", onLatLngInput);
+      lngInput?.removeEventListener("input", onLatLngInput);
+      manualBtn?.removeEventListener("click", runManualGeocode);
+      searchBtn?.removeEventListener("click", runManualGeocode);
+      if (coordTimer) window.clearTimeout(coordTimer);
+    };
+    editorPlacesHideSuggestionsFn = null;
+    return;
+  }
+
+  const suggestionRoot = document.createElement("div");
+  suggestionRoot.className = "admin-editor-address-suggestions-root";
+  suggestionRoot.setAttribute("role", "listbox");
+  suggestionRoot.id = `admin-editor-ac-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  suggestionRoot.hidden = true;
+  document.body.appendChild(suggestionRoot);
+
+  let anchorInput = addressInput;
+  const ariaTargets = [venueInput, addressInput].filter(Boolean);
+  ariaTargets.forEach((el) => el.setAttribute("aria-controls", suggestionRoot.id));
+
+  const inputTargets = new Set([venueInput, addressInput, ...locInputs].filter(Boolean));
+
+  const st = {
+    sessionToken: "",
+    lastSearchText: "",
+    searchCounter: 0,
+    activeRequestCounter: 0,
+    suggestionsByPlaceId: new Map(),
+    suppressNextInput: false,
+    isPointerDownOnSuggestions: false,
+    disposed: false
+  };
+
+  let searchTimer = null;
+
+  const ensureSessionToken = () => {
+    if (st.sessionToken) return st.sessionToken;
+    st.sessionToken =
+      window.crypto && typeof window.crypto.randomUUID === "function"
+        ? window.crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+    return st.sessionToken;
+  };
+
+  const resetSessionToken = () => {
+    st.sessionToken = "";
+    st.lastSearchText = "";
+  };
+
+  const setExpandedAll = (expanded) => {
+    ariaTargets.forEach((el) => el.setAttribute("aria-expanded", expanded ? "true" : "false"));
+  };
+
+  const clearSuggestionsUi = () => {
+    st.suggestionsByPlaceId.clear();
+    suggestionRoot.innerHTML = "";
+    suggestionRoot.hidden = true;
+    setExpandedAll(false);
+  };
+
+  const hideSuggestionsUi = () => {
+    if (st.isPointerDownOnSuggestions) return;
+    clearSuggestionsUi();
+  };
+
+  editorPlacesHideSuggestionsFn = hideSuggestionsUi;
+
+  const positionSuggestions = () => {
+    if (suggestionRoot.hidden || !suggestionRoot.children.length) return;
+    const el = anchorInput || addressInput;
+    const r = el.getBoundingClientRect();
+    const w = Math.min(Math.max(r.width, 220), window.innerWidth - 16);
+    const left = Math.min(Math.max(8, r.left), Math.max(8, window.innerWidth - w - 8));
+    suggestionRoot.style.position = "fixed";
+    suggestionRoot.style.left = `${left}px`;
+    suggestionRoot.style.top = `${r.bottom + 6}px`;
+    suggestionRoot.style.width = `${w}px`;
+    suggestionRoot.style.zIndex = "2147483000";
+    suggestionRoot.style.pointerEvents = "auto";
+  };
+
+  const renderStatus = (message, isError = false) => {
+    st.suggestionsByPlaceId.clear();
+    suggestionRoot.innerHTML = "";
+    const row = document.createElement("div");
+    row.className = `location-autocomplete__status${isError ? " is-error" : ""}`;
+    row.textContent = message;
+    suggestionRoot.append(row);
+    suggestionRoot.hidden = false;
+    positionSuggestions();
+    setExpandedAll(true);
+  };
+
+  const renderSuggestions = (items) => {
+    st.suggestionsByPlaceId.clear();
+    suggestionRoot.innerHTML = "";
+    if (!items.length) {
+      suggestionRoot.hidden = true;
+      setExpandedAll(false);
+      return;
+    }
+    const frag = document.createDocumentFragment();
+    items.forEach((item) => {
+      st.suggestionsByPlaceId.set(item.placeId, item);
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "location-autocomplete__item";
+      btn.dataset.placeId = item.placeId;
+      btn.setAttribute("role", "option");
+      const name = document.createElement("span");
+      name.className = "location-autocomplete__name";
+      name.textContent = item.suggestionText;
+      btn.append(name);
+      if (item.secondaryText) {
+        const sec = document.createElement("span");
+        sec.className = "location-autocomplete__address";
+        sec.textContent = item.secondaryText;
+        btn.append(sec);
+      }
+      frag.append(btn);
+    });
+    suggestionRoot.append(frag);
+    suggestionRoot.hidden = false;
+    positionSuggestions();
+    setExpandedAll(true);
+  };
+
+  suggestionRoot.addEventListener("pointerdown", () => {
+    st.isPointerDownOnSuggestions = true;
+  });
+  suggestionRoot.addEventListener("pointerup", () => {
+    window.setTimeout(() => {
+      st.isPointerDownOnSuggestions = false;
+    }, 0);
+  });
+  suggestionRoot.addEventListener("click", (e) => {
+    const opt = e.target instanceof Element ? e.target.closest(".location-autocomplete__item") : null;
+    if (!opt) return;
+    const placeId = String(opt.dataset.placeId || "").trim();
+    if (placeId) selectPlace(placeId);
+  });
+
+  const selectPlace = async (placeId) => {
+    if (!placeId || st.disposed) return;
+    renderStatus("Adresse wird geladen…");
+    try {
+      const placeData = await fetchGooglePlaceDetailsAdmin(placeId);
+      const enriched = await enrichPlaceDataWithFallbackAddressDetailsAdmin(placeData);
+      st.suppressNextInput = true;
+      applyGooglePlaceToAdminEditorForm(form, enriched);
+      hideSuggestionsUi();
+      resetSessionToken();
+    } catch (error) {
+      console.warn("admin autocomplete error", error);
+      const fallback = buildFallbackPlaceDataFromSuggestionAdmin(st.suggestionsByPlaceId, placeId);
+      if (fallback) {
+        const enrichedFb = await enrichPlaceDataWithFallbackAddressDetailsAdmin(fallback);
+        st.suppressNextInput = true;
+        applyGooglePlaceToAdminEditorForm(form, enrichedFb);
+        hideSuggestionsUi();
+        resetSessionToken();
+        renderStatus("Auswahl übernommen (Details ergänzt wo möglich).");
+        window.setTimeout(() => {
+          if (!st.disposed) hideSuggestionsUi();
+        }, 1400);
+        return;
+      }
+      renderStatus(String(error?.message || "Adresse konnte nicht geladen werden."), true);
+    }
+  };
+
+  const scheduleAutocompleteSearch = () => {
+    if (st.disposed) return;
+    if (searchTimer) window.clearTimeout(searchTimer);
+    searchTimer = window.setTimeout(async () => {
+      searchTimer = null;
+      if (st.disposed) return;
+
+      const searchText = buildAdminEditorLocationSearchText(form);
+      if (searchText.length < ADMIN_EDITOR_PLACES_MIN_CHARS) {
+        resetSessionToken();
+        hideSuggestionsUi();
+        return;
+      }
+
+      if (!getGooglePlacesApiKeyForAdmin()) {
+        console.warn("admin autocomplete error", new Error("Google Places API key missing"));
+        if (hintEl) {
+          hintEl.hidden = false;
+          hintEl.textContent =
+            "Google Places API-Key fehlt — Autocomplete nicht möglich. „Adresse suchen“ nutzt OpenStreetMap.";
+        }
+        renderStatus("Google Places API-Key fehlt — siehe Hinweis unter den Buttons.", true);
+        return;
+      }
+
+      if (!st.lastSearchText) resetSessionToken();
+
+      const requestId = ++st.searchCounter;
+      st.activeRequestCounter = requestId;
+      try {
+        const sessionToken = ensureSessionToken();
+        const suggestions = await fetchGooglePlacesAutocompletePredictionsAdmin(searchText, sessionToken);
+        if (st.disposed || requestId !== st.activeRequestCounter) return;
+        st.lastSearchText = searchText;
+        if (!suggestions.length) {
+          renderStatus("Keine Treffer — genauer eingeben oder „Adresse suchen“.");
+          return;
+        }
+        renderSuggestions(suggestions);
+      } catch (error) {
+        if (st.disposed || requestId !== st.activeRequestCounter) return;
+        console.warn("admin autocomplete error", error);
+        const msg = String(error?.message || "");
+        if (msg.includes("403")) {
+          renderStatus("Google Places für diese Domain gesperrt (API-Key / Website-Restriction).", true);
+        } else if (msg.includes("429")) {
+          renderStatus("Google Places Rate-Limit — kurz warten.", true);
+        } else {
+          renderStatus("Vorschläge aktuell nicht verfügbar.", true);
+        }
+      }
+    }, ADMIN_EDITOR_PLACES_DEBOUNCE_MS);
+  };
+
+  const onLocInput = () => {
+    if (st.suppressNextInput) {
+      st.suppressNextInput = false;
+      return;
+    }
+    scheduleAutocompleteSearch();
+  };
+
+  const onPlacesFieldFocus = (ev) => {
+    if (st.disposed) return;
+    const t = ev.target;
+    if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) anchorInput = t;
+    scheduleAutocompleteSearch();
+  };
+
+  inputTargets.forEach((el) => {
+    el.addEventListener("input", onLocInput);
+    el.addEventListener("focus", onPlacesFieldFocus);
+  });
+
+  const onDocClick = (e) => {
+    if (st.disposed || suggestionRoot.hidden) return;
+    const t = e.target;
+    if (!(t instanceof Element)) return;
+    if (t.closest(".admin-editor-address-suggestions-root")) return;
+    if (t.closest(".admin-editor-places-field")) return;
+    hideSuggestionsUi();
+  };
+  document.addEventListener("click", onDocClick);
+
+  const onScrollOrResize = () => {
+    if (!st.disposed) positionSuggestions();
+  };
+  drawer.addEventListener("scroll", onScrollOrResize, { passive: true });
+  window.addEventListener("resize", onScrollOrResize);
+
+  const dispose = () => {
+    if (st.disposed) return;
+    st.disposed = true;
+    if (searchTimer) window.clearTimeout(searchTimer);
+    if (coordTimer) window.clearTimeout(coordTimer);
+    inputTargets.forEach((el) => {
+      el.removeEventListener("input", onLocInput);
+      el.removeEventListener("focus", onPlacesFieldFocus);
+    });
+    latInput?.removeEventListener("input", onLatLngInput);
+    lngInput?.removeEventListener("input", onLatLngInput);
+    document.removeEventListener("click", onDocClick);
+    drawer.removeEventListener("scroll", onScrollOrResize);
+    window.removeEventListener("resize", onScrollOrResize);
+    manualBtn?.removeEventListener("click", runManualGeocode);
+    searchBtn?.removeEventListener("click", runManualGeocode);
+    suggestionRoot.remove();
+    ariaTargets.forEach((el) => el.removeAttribute("aria-controls"));
+    if (editorPlacesHideSuggestionsFn === hideSuggestionsUi) editorPlacesHideSuggestionsFn = null;
+  };
+
+  editorLocationAutocompleteDispose = dispose;
+}
+
 function openEventEditorModal(eventData) {
+  disposeEditorLocationAutocomplete();
   const overlay = document.createElement("div");
   overlay.className = "admin-editor-overlay admin-editor-overlay--drawer";
   overlay.setAttribute("role", "dialog");
@@ -1936,15 +2780,19 @@ function openEventEditorModal(eventData) {
           .join("")}</ul>`
       : '<p class="card__intro">Noch keine Einträge in der Social Queue.</p>';
 
-  const latN = parseCoordinate(eventData.lat);
-  const lngN = parseCoordinate(eventData.lng);
-  const mapEmbed =
-    latN !== null && lngN !== null && Math.abs(latN) <= 90 && Math.abs(lngN) <= 180
-      ? `<iframe class="admin-editor-map" loading="lazy" referrerpolicy="no-referrer-when-downgrade" title="Karte"
-          src="https://www.openstreetmap.org/export/embed.html?bbox=${encodeURIComponent(
-            `${lngN - 0.02},${latN - 0.02},${lngN + 0.02},${latN + 0.02}`
-          )}&layer=mapnik&marker=${encodeURIComponent(`${latN}%2C${lngN}`)}"></iframe>`
-      : '<p class="card__intro">Keine Koordinaten — „Fix“ auf der Event-Karte oder Ort speichern.</p>';
+  let mapEmbed = '<p class="card__intro">Keine Koordinaten — „Fix“ auf der Event-Karte oder Ort speichern.</p>';
+  try {
+    const latN = parseCoordinate(eventData.lat);
+    const lngN = parseCoordinate(eventData.lng);
+    const rawLat = eventData.lat;
+    const rawLng = eventData.lng;
+    console.log("admin editor map coords", { rawLat, rawLng, lat: latN, lng: lngN });
+    if (latN !== null && lngN !== null && Math.abs(latN) <= 90 && Math.abs(lngN) <= 180) {
+      mapEmbed = buildAdminEditorMapIframeHtml(latN, lngN);
+    }
+  } catch (err) {
+    console.warn("admin editor map embed build failed", err);
+  }
 
   overlay.innerHTML = `
     <aside class="admin-editor-drawer">
@@ -1984,15 +2832,21 @@ function openEventEditorModal(eventData) {
         </div>
         <div class="admin-editor-panel-page" data-editor-panel="location" hidden>
           <div class="admin-editor-fields">
-          <label class="field"><span>Venue</span><input name="location_name" value="${escapeHtml(eventData.location_name)}"></label>
-          <label class="field admin-editor-span-2"><span>Adresse</span><input name="address" value="${escapeHtml(eventData.address)}"></label>
-          <label class="field"><span>PLZ</span><input name="postal_code" value="${escapeHtml(eventData.postal_code)}"></label>
-          <label class="field"><span>Stadt</span><input name="city" value="${escapeHtml(eventData.city)}"></label>
-          <label class="field"><span>Land</span><input name="country" value="${escapeHtml(eventData.country)}"></label>
-          <label class="field"><span>Latitude</span><input name="lat" value="${eventData.lat ?? ""}"></label>
-          <label class="field"><span>Longitude</span><input name="lng" value="${eventData.lng ?? ""}"></label>
-          <div class="admin-editor-map-wrap admin-editor-span-2">${mapEmbed}</div>
-          <p class="card__intro admin-editor-span-2">Bei geänderter Adresse: Speichern recodiert automatisch (wie bisher).</p>
+          <label class="field admin-editor-places-field"><span>Venue</span><input name="location_name" data-editor-venue-input data-editor-loc-field autocomplete="off" value="${escapeHtml(eventData.location_name)}"></label>
+          <label class="field admin-editor-span-2 admin-editor-location-autocomplete-field admin-editor-places-field"><span>Adresse</span><input name="address" data-editor-address-input autocomplete="off" aria-expanded="false" aria-haspopup="listbox" value="${escapeHtml(eventData.address)}"></label>
+          <label class="field"><span>PLZ</span><input name="postal_code" data-editor-loc-field autocomplete="off" value="${escapeHtml(eventData.postal_code)}"></label>
+          <label class="field"><span>Stadt</span><input name="city" data-editor-loc-field autocomplete="off" value="${escapeHtml(eventData.city)}"></label>
+          <label class="field"><span>Land</span><input name="country" data-editor-loc-field autocomplete="off" value="${escapeHtml(eventData.country)}"></label>
+          <label class="field"><span>Latitude</span><input name="lat" type="text" inputmode="decimal" autocomplete="off" value="${eventData.lat ?? ""}"></label>
+          <label class="field"><span>Longitude</span><input name="lng" type="text" inputmode="decimal" autocomplete="off" value="${eventData.lng ?? ""}"></label>
+          <div class="admin-editor-span-2 admin-editor-location-toolbar">
+            <button type="button" class="btn-pill btn-pill--soft" data-editor-geocode-search>Adresse suchen</button>
+            <button type="button" class="btn-pill btn-pill--soft" data-editor-geocode-manual>📍 Adresse neu berechnen</button>
+            <span class="card__intro admin-editor-places-hint" data-editor-places-hint hidden></span>
+          </div>
+          <p class="card__intro admin-editor-span-2" data-editor-coords-warning hidden role="status">Koordinaten ungültig oder fehlen</p>
+          <div class="admin-editor-map-wrap admin-editor-span-2" data-editor-map-wrap>${mapEmbed}</div>
+          <p class="card__intro admin-editor-span-2">Bei geänderter Adresse aktualisiert Speichern die Koordinaten wie bisher (Geocoding). Adress-Vorschläge wie auf der Hauptseite (Google Places API).</p>
           </div>
         </div>
         <div class="admin-editor-panel-page" data-editor-panel="media" hidden>
@@ -2026,6 +2880,7 @@ function openEventEditorModal(eventData) {
     </aside>
   `;
 
+  console.log("DRAWER HTML INSERTED");
   const form = overlay.querySelector(".admin-editor-form");
   const status = overlay.querySelector("[data-editor-status]");
   const tabs = overlay.querySelectorAll("[data-editor-tab]");
@@ -2045,6 +2900,7 @@ function openEventEditorModal(eventData) {
   });
 
   const close = () => {
+    disposeEditorLocationAutocomplete();
     document.removeEventListener("keydown", onKeyDown);
     overlay.remove();
   };
@@ -2052,6 +2908,7 @@ function openEventEditorModal(eventData) {
     if (e.key === "Escape" && !overlay.classList.contains("is-busy")) close();
   };
   const setBusy = (busy, message = "") => {
+    if (busy && typeof editorPlacesHideSuggestionsFn === "function") editorPlacesHideSuggestionsFn();
     overlay.classList.toggle("is-busy", busy);
     form?.querySelectorAll("input, textarea, button").forEach((control) => {
       if (control.hasAttribute("data-editor-close")) return;
@@ -2109,7 +2966,36 @@ function openEventEditorModal(eventData) {
     }
   });
   document.body.appendChild(overlay);
+  console.log("DRAWER RENDERED", {
+    overlayOk: Boolean(overlay),
+    formOk: Boolean(form),
+    drawerOk: Boolean(overlay?.querySelector?.(".admin-editor-drawer"))
+  });
   document.addEventListener("keydown", onKeyDown);
+
+  const runAutocompleteInit = () => {
+    console.log("CALLING AUTOCOMPLETE INIT");
+    try {
+      initEditorLocationAutocomplete(overlay, form, eventData);
+      console.log("AUTOCOMPLETE INIT COMPLETE");
+    } catch (err) {
+      console.error("AUTOCOMPLETE INIT FAILED", err);
+    }
+    try {
+      refreshAdminEditorMapInForm(form);
+    } catch (mapErr) {
+      console.warn("admin editor map refresh (post-init) failed", mapErr);
+    }
+  };
+
+  if (typeof window.requestAnimationFrame === "function") {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(runAutocompleteInit);
+    });
+  } else {
+    window.setTimeout(runAutocompleteInit, 0);
+  }
+
   form?.querySelector("input[name='title']")?.focus();
 }
 

@@ -75,37 +75,53 @@ body {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
-.admin-header__brand {
-  display: inline-flex;
-  align-items: center;
-  gap: 0;
+.admin-header__brand-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.38rem;
   min-width: 0;
-  padding: 0.06rem 0;
-  border: 0;
-  background: transparent;
-  position: relative;
-  z-index: 2;
+}
+
+.admin-header__brand-wrap .admin-header__subtitle {
+  margin-top: 0;
 }
 
 .brand-logo {
   display: none !important;
 }
 
-.admin-brand__logo--header {
-  display: block;
-  width: auto;
-  height: 54px;
-  min-width: 54px;
-  min-height: 54px;
-  object-fit: contain;
+.hero__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  min-width: 0;
+  padding: 0;
   background: transparent;
   border: 0;
   box-shadow: none;
-  opacity: 1;
-  visibility: visible;
+  position: relative;
+  z-index: 4;
+}
+
+.brand-logo--header {
+  display: block !important;
+  width: auto;
+  height: 52px;
+  max-width: 300px;
+  object-fit: contain;
   filter:
-    drop-shadow(0 1px 0 rgba(255, 255, 255, 0.12))
-    drop-shadow(0 0 12px rgba(124, 58, 237, 0.14));
+    drop-shadow(0 1px 0 rgba(255, 255, 255, 0.2))
+    drop-shadow(0 0 14px rgba(236, 72, 153, 0.16));
+  opacity: 0.98;
+}
+
+.sidebar-logo {
+  width: 170px;
+  height: auto;
+  max-width: 100%;
+  display: block;
+  object-fit: contain;
 }
 
 .admin-header__eyebrow {
@@ -1196,17 +1212,13 @@ body {
     padding: 0.74rem 0.8rem;
   }
 
-  .admin-header__brand {
+  .admin-header__brand-wrap {
     align-self: flex-start;
-    padding: 0.05rem 0;
-    gap: 0;
   }
 
-  .admin-brand__logo--header {
-    width: auto;
+  .admin-header .brand-logo--header:not(.sidebar-logo) {
     height: 48px;
-    min-width: 48px;
-    min-height: 48px;
+    max-width: min(260px, 72vw);
   }
 
   .filter-grid {
@@ -1326,15 +1338,9 @@ body {
     border-radius: 16px;
   }
 
-  .admin-header__brand {
-    padding: 0.04rem 0;
-  }
-
-  .admin-brand__logo--header {
-    width: auto;
+  .admin-header .brand-logo--header:not(.sidebar-logo) {
     height: 38px;
-    min-width: 38px;
-    min-height: 38px;
+    max-width: min(220px, 78vw);
   }
 }
 
@@ -1383,34 +1389,12 @@ body.admin-is-logged-in .admin-shell {
 }
 
 .admin-sidebar__brand {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
+  width: 100%;
+  min-width: 0;
 }
 
-.admin-sidebar__mark {
-  width: 42px;
-  height: 42px;
-  border-radius: 14px;
-  display: grid;
-  place-items: center;
-  font-weight: 800;
-  font-family: Poppins, sans-serif;
-  background: linear-gradient(135deg, rgba(124, 58, 237, 0.55), rgba(236, 72, 153, 0.45));
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow: var(--glow-purple);
-}
-
-.admin-sidebar__title {
-  display: block;
-  font-size: 1rem;
-}
-
-.admin-sidebar__tag {
-  font-size: 0.68rem;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
+.admin-sidebar__brand .hero__brand {
+  width: 100%;
 }
 
 .admin-sidebar__nav {
@@ -1838,4 +1822,77 @@ body.admin-is-logged-in .admin-shell {
   width: 100%;
   height: 220px;
   border: 0;
+}
+
+.admin-editor-location-toolbar {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.admin-editor-places-hint {
+  margin: 0;
+  flex: 1 1 220px;
+}
+
+.admin-editor-location-autocomplete-field {
+  position: relative;
+}
+
+.admin-editor-address-suggestions-root {
+  margin: 0;
+  padding: 0.28rem;
+  max-height: min(240px, 40vh);
+  overflow-y: auto;
+  border-radius: 12px;
+  border: 1px solid rgba(155, 183, 255, 0.34);
+  background: rgba(8, 12, 24, 0.98);
+  box-shadow: 0 18px 34px rgba(2, 6, 18, 0.48);
+}
+
+.admin-editor-address-suggestions-root[hidden] {
+  display: none !important;
+}
+
+.admin-editor-address-suggestions-root .location-autocomplete__status {
+  margin: 0.24rem 0.32rem;
+  font-size: 0.74rem;
+  color: #b7c9ec;
+}
+
+.admin-editor-address-suggestions-root .location-autocomplete__status.is-error {
+  color: #ff9bb7;
+}
+
+.admin-editor-address-suggestions-root .location-autocomplete__item {
+  width: 100%;
+  appearance: none;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #dbe8ff;
+  text-align: left;
+  padding: 0.46rem 0.52rem;
+  cursor: pointer;
+  display: grid;
+  gap: 0.14rem;
+}
+
+.admin-editor-address-suggestions-root .location-autocomplete__item:hover,
+.admin-editor-address-suggestions-root .location-autocomplete__item:focus-visible {
+  background: rgba(124, 58, 237, 0.2);
+  outline: none;
+}
+
+.admin-editor-address-suggestions-root .location-autocomplete__name {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #f1f7ff;
+}
+
+.admin-editor-address-suggestions-root .location-autocomplete__address {
+  font-size: 0.74rem;
+  color: #b7c9ec;
 }
