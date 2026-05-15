@@ -10,6 +10,10 @@ const ADMIN_REPLACE_ALLOWED_EXT = new Set(["jpg", "jpeg", "png", "webp"]);
 const CROP_EXPORT_MAX_WIDTH = 1600;
 const CROP_EXPORT_QUALITY = 0.82;
 const CROP_PREVIEW_BASE_W = 360;
+const ADMIN_GEOCODING_PROVIDER = "nominatim";
+const ADMIN_GEOCODING_MIN_INTERVAL_MS = 850;
+const ADMIN_GEOCODING_MAX_RETRIES = 2;
+const ADMIN_MAPBOX_ACCESS_TOKEN = (window.PARTYRADAR_MAPBOX_TOKEN || "").toString().trim();
 
 const VALID_STATUS = new Set(["pending", "approved", "rejected"]);
 
@@ -22,6 +26,8 @@ const state = {
   genre: "",
   statusFilter: "",
   adminSession: null,
+  geoBusyEventIds: new Set(),
+  geoPulseEventIds: new Set(),
   featureColumns: {
     featured: true,
     promoted: true
@@ -96,6 +102,76 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function parseCoordinate(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function hasValidMarkerCoordinates(event) {
+  const lat = parseCoordinate(event?.lat);
+  const lng = parseCoordinate(event?.lng);
+  return lat !== null && lng !== null && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
+}
+
+function normalizeCountryForGeocoding(countryValue) {
+  const raw = String(countryValue || "").trim();
+  if (!raw) return "";
+
+  const normalized = raw.toLowerCase();
+  if (["deutschland", "germany", "alemania"].includes(normalized)) return "Germany";
+  if (["spanien", "spain", "espana", "españa"].includes(normalized)) return "Spain";
+  if (["frankreich", "france", "francia"].includes(normalized)) return "France";
+  if (["italien", "italy", "italia"].includes(normalized)) return "Italy";
+  if (["österreich", "oesterreich", "austria", "austria"].includes(normalized)) return "Austria";
+  if (["schweiz", "switzerland", "suiza"].includes(normalized)) return "Switzerland";
+  if (["niederlande", "netherlands", "paises bajos", "países bajos", "holland"].includes(normalized)) {
+    return "Netherlands";
+  }
+  return raw;
+}
+
+function composeAdminGeocodingQuery(payload) {
+  return [
+    payload.address,
+    payload.postal_code,
+    payload.city,
+    normalizeCountryForGeocoding(payload.country)
+  ]
+    .map((part) => String(part || "").trim())
+    .filter(Boolean)
+    .join(", ");
+}
+
+function buildAdminGeocodingQueries(payload) {
+  const existingQuery = String(payload.geocoding_query || "").trim();
+  const locationName = String(payload.location_name || "").trim();
+  const address = String(payload.address || payload.street || "").trim();
+  const postalCode = String(payload.postal_code || "").trim();
+  const city = String(payload.city || "").trim();
+  const country = normalizeCountryForGeocoding(payload.country);
+
+  const queries = [
+    existingQuery,
+    [address, postalCode, city, country],
+    [address, city, country],
+    [locationName, address, postalCode, city, country],
+    [locationName, city, country],
+    [postalCode, city, country],
+    [city, postalCode, country],
+    [city, country]
+  ]
+    .map((entry) => (Array.isArray(entry) ? entry.filter(Boolean).join(", ") : entry))
+    .map((query) => String(query || "").trim())
+    .filter(Boolean);
+
+  return [...new Set(queries)];
 }
 
 function sanitizeFileName(fileName) {
@@ -535,6 +611,140 @@ async function replaceAdminEventMainImageBlob(eventId, blob) {
   return publicUrl;
 }
 
+async function geocodeAddressWithNominatim(query) {
+  const endpoint = new URL("https://nominatim.openstreetmap.org/search");
+  endpoint.searchParams.set("format", "jsonv2");
+  endpoint.searchParams.set("limit", "1");
+  endpoint.searchParams.set("q", query);
+
+  const response = await fetch(endpoint.toString(), {
+    headers: {
+      Accept: "application/json",
+      "Accept-Language": "de,en,es",
+      "User-Agent": "Marcha/1.0 (admin geocoding)"
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(`Geocoding HTTP ${response.status}`);
+  }
+
+  const data = await response.json();
+  const first = Array.isArray(data) ? data[0] : null;
+  if (!first) return null;
+
+  const lat = Number(first.lat);
+  const lng = Number(first.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return {
+    lat,
+    lng,
+    formatted_address: String(first.display_name || "").trim()
+  };
+}
+
+async function geocodeAddressWithMapbox(query) {
+  if (!ADMIN_MAPBOX_ACCESS_TOKEN) return null;
+
+  const endpoint = new URL(
+    `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json`
+  );
+  endpoint.searchParams.set("access_token", ADMIN_MAPBOX_ACCESS_TOKEN);
+  endpoint.searchParams.set("limit", "1");
+  endpoint.searchParams.set("types", "address,place,poi");
+  endpoint.searchParams.set("language", "de,en,es");
+
+  const response = await fetch(endpoint.toString(), {
+    headers: { Accept: "application/json" }
+  });
+
+  if (!response.ok) {
+    throw new Error(`Mapbox geocoding HTTP ${response.status}`);
+  }
+
+  const data = await response.json();
+  const first = Array.isArray(data?.features) ? data.features[0] : null;
+  if (!first || !Array.isArray(first.center) || first.center.length < 2) return null;
+
+  const lng = Number(first.center[0]);
+  const lat = Number(first.center[1]);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return {
+    lat,
+    lng,
+    formatted_address: String(first.place_name || "").trim()
+  };
+}
+
+const ADMIN_GEOCODING_PROVIDERS = {
+  nominatim: geocodeAddressWithNominatim,
+  mapbox: geocodeAddressWithMapbox
+};
+
+let lastAdminGeocodingRequestAt = 0;
+
+async function adminGeocodingRateLimitWait() {
+  if (!ADMIN_GEOCODING_MIN_INTERVAL_MS) return;
+  const elapsed = Date.now() - lastAdminGeocodingRequestAt;
+  if (elapsed >= ADMIN_GEOCODING_MIN_INTERVAL_MS) return;
+  await sleep(ADMIN_GEOCODING_MIN_INTERVAL_MS - elapsed);
+}
+
+async function geocodeAdminWithRetry(provider, query) {
+  const maxAttempts = Math.max(1, ADMIN_GEOCODING_MAX_RETRIES + 1);
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      await adminGeocodingRateLimitWait();
+      const result = await provider(query);
+      lastAdminGeocodingRequestAt = Date.now();
+      return result;
+    } catch (error) {
+      lastAdminGeocodingRequestAt = Date.now();
+      if (attempt >= maxAttempts) throw error;
+      await sleep(250 * attempt);
+    }
+  }
+  return null;
+}
+
+async function resolveAdminCoordinates(payload) {
+  const queries = buildAdminGeocodingQueries(payload);
+  if (!queries.length) throw new Error("Missing geocoding address fields");
+
+  const provider = ADMIN_GEOCODING_PROVIDERS[ADMIN_GEOCODING_PROVIDER] || geocodeAddressWithNominatim;
+  for (const query of queries) {
+    const coordinates = await geocodeAdminWithRetry(provider, query);
+    if (!coordinates) continue;
+    return {
+      ...coordinates,
+      geocoding_query: query
+    };
+  }
+
+  throw new Error("No geocoding result");
+}
+
+async function updateEventLocationWithGeocoding(eventData, locationUpdates = {}) {
+  const nextLocation = {
+    ...eventData,
+    ...locationUpdates
+  };
+  const coordinates = await resolveAdminCoordinates(nextLocation);
+  const payload = {
+    ...locationUpdates,
+    geocoding_query: coordinates.geocoding_query,
+    lat: coordinates.lat,
+    lng: coordinates.lng
+  };
+
+  if (coordinates.formatted_address) {
+    payload.formatted_address = coordinates.formatted_address;
+  }
+
+  await updateEventWithFallback(eventData.id, payload);
+  return coordinates;
+}
+
 function normalizeEvent(event) {
   const status = String(event.status || "").toLowerCase();
   const normalizeRecurrenceType = (value) => {
@@ -547,9 +757,13 @@ function normalizeEvent(event) {
     id: event.id,
     name: event.name || "-",
     location_name: event.location_name || "",
-    address: event.address || "",
+    address: event.address || event.street || "",
+    street: event.street || event.address || "",
+    postal_code: event.postal_code || "",
     city: event.city || "",
     country: event.country || "",
+    formatted_address: event.formatted_address || "",
+    geocoding_query: event.geocoding_query || "",
     event_date: event.event_date || "",
     event_time: event.event_time || "",
     genre: event.genre || "",
@@ -561,8 +775,8 @@ function normalizeEvent(event) {
     verification_notes: event.verification_notes || "",
     image_url: resolvePrimaryImageUrl(event),
     image_urls: event.image_urls ?? null,
-    lat: Number.isFinite(event.lat) ? event.lat : null,
-    lng: Number.isFinite(event.lng) ? event.lng : null,
+    lat: parseCoordinate(event.lat),
+    lng: parseCoordinate(event.lng),
     recurrence_type: recurrenceType,
     recurrence_start_date: String(event.recurrence_start_date || "").trim(),
     recurrence_end_date: String(event.recurrence_end_date || "").trim(),
@@ -726,6 +940,38 @@ function renderEventCard(event) {
           <input type="file" class="event-card__replace-input" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" data-admin-replace-input tabindex="-1" aria-hidden="true" />
         </div>`
       : "";
+  const hasMarker = hasValidMarkerCoordinates(event);
+  const isGeoBusy = state.geoBusyEventIds.has(String(event.id));
+  const markerStatusClass = [
+    "event-card__marker-status",
+    hasMarker ? "event-card__marker-status--active" : "event-card__marker-status--missing",
+    hasMarker && state.geoPulseEventIds.has(String(event.id)) ? "event-card__marker-status--success" : ""
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const geoWarningMarkup = hasMarker
+    ? ""
+    : `<section class="event-card__geo-warning" aria-live="polite">
+        <div class="event-card__geo-warning-main">
+          <span class="event-card__geo-warning-icon" aria-hidden="true">⚠️</span>
+          <div>
+            <strong>Kein Karten-Marker</strong>
+            <p>Dieses Event hat keine gültigen Koordinaten und erscheint nicht auf der Map.</p>
+          </div>
+        </div>
+        <div class="event-card__geo-actions">
+          <button type="button" class="event-card__geo-btn" data-action="regeocode" data-geo-action ${
+            isGeoBusy ? "disabled" : ""
+          }>Koordinaten neu berechnen</button>
+          <button type="button" class="event-card__geo-btn" data-action="edit-location" data-geo-action ${
+            isGeoBusy ? "disabled" : ""
+          }>Standort bearbeiten</button>
+        </div>
+        <p class="event-card__geo-progress" data-geo-status ${isGeoBusy ? "" : "hidden"}>
+          <span class="event-card__geo-spinner" aria-hidden="true"></span>
+          Standort wird geprüft...
+        </p>
+      </section>`;
   card.innerHTML = `
     <div class="event-card__layout">
       <div class="event-card__media-column">
@@ -754,6 +1000,9 @@ function renderEventCard(event) {
       ? `${escapeHtml(String(event.lat))}, ${escapeHtml(String(event.lng))}`
       : "-"
   }</li>
+          <li><strong>Marker Status:</strong> <span class="${markerStatusClass}">${
+    hasMarker ? "Aktiv" : "Nicht sichtbar"
+  }</span></li>
         </ul>
       </div>
     </div>
@@ -778,6 +1027,8 @@ function renderEventCard(event) {
         Promoted
       </label>
     </div>
+
+    ${geoWarningMarkup}
 
     <div class="card-actions">
       <button type="button" class="button-secondary button-secondary--approve" data-action="approved">Approve</button>
@@ -897,6 +1148,165 @@ function findEventByCard(cardElement) {
   return state.allEvents.find((event) => String(event.id) === String(eventId));
 }
 
+function setCardGeoBusy(card, eventId, busy) {
+  const id = String(eventId || "");
+  if (busy) state.geoBusyEventIds.add(id);
+  else state.geoBusyEventIds.delete(id);
+  if (!card) return;
+  card.classList.toggle("is-geo-busy", busy);
+  card.querySelectorAll("[data-geo-action]").forEach((geoButton) => {
+    geoButton.disabled = busy;
+  });
+  const status = card.querySelector("[data-geo-status]");
+  if (status) status.hidden = !busy;
+}
+
+function markGeoPulse(eventId) {
+  const id = String(eventId || "");
+  if (!id) return;
+  state.geoPulseEventIds.add(id);
+  window.setTimeout(() => {
+    state.geoPulseEventIds.delete(id);
+    const escapedId = window.CSS?.escape ? window.CSS.escape(id) : id.replace(/"/g, '\\"');
+    document
+      .querySelector(`.event-card[data-event-id="${escapedId}"] .event-card__marker-status`)
+      ?.classList.remove("event-card__marker-status--success");
+  }, 2400);
+}
+
+async function handleRegeocodeEvent(eventData, card, button) {
+  setCardGeoBusy(card, eventData.id, true);
+  if (button) button.disabled = true;
+  setGlobalFeedback("Standort wird geprüft...", "info");
+  try {
+    await updateEventLocationWithGeocoding(eventData);
+    setCardGeoBusy(card, eventData.id, false);
+    markGeoPulse(eventData.id);
+    setGlobalFeedback("Koordinaten aktualisiert.", "success");
+    await loadEvents();
+  } catch (error) {
+    console.error("Admin geocoding failed:", error);
+    setGlobalFeedback("Standort konnte nicht gefunden werden.", "error");
+  } finally {
+    setCardGeoBusy(card, eventData.id, false);
+  }
+}
+
+function openAdminLocationModal(eventData) {
+  const overlay = document.createElement("div");
+  overlay.className = "admin-location-overlay";
+  overlay.setAttribute("role", "dialog");
+  overlay.setAttribute("aria-modal", "true");
+  overlay.setAttribute("aria-label", "Standort bearbeiten");
+
+  overlay.innerHTML = `
+    <div class="admin-location-dialog">
+      <h3 class="admin-location-title">Standort bearbeiten</h3>
+      <p class="admin-location-hint">Aktualisiere die Location-Daten und berechne danach den Karten-Marker neu.</p>
+      <form class="admin-location-form" autocomplete="off">
+        <label class="field">
+          <span>Venue / Location</span>
+          <input name="location_name" type="text" value="${escapeHtml(eventData.location_name)}" placeholder="z. B. Beach Club">
+        </label>
+        <label class="field">
+          <span>Straße</span>
+          <input name="address" type="text" value="${escapeHtml(eventData.address)}" placeholder="z. B. Paseo Marítimo 1">
+        </label>
+        <div class="admin-location-grid">
+          <label class="field">
+            <span>PLZ</span>
+            <input name="postal_code" type="text" value="${escapeHtml(eventData.postal_code)}" placeholder="29660">
+          </label>
+          <label class="field">
+            <span>Stadt</span>
+            <input name="city" type="text" value="${escapeHtml(eventData.city)}" placeholder="Marbella">
+          </label>
+        </div>
+        <label class="field">
+          <span>Land</span>
+          <input name="country" type="text" value="${escapeHtml(eventData.country)}" placeholder="Spain">
+        </label>
+        <p class="admin-location-status" data-location-status hidden>
+          <span class="event-card__geo-spinner" aria-hidden="true"></span>
+          Standort wird geprüft...
+        </p>
+        <div class="admin-location-actions">
+          <button type="button" class="button-secondary" data-location-cancel>Abbrechen</button>
+          <button type="submit" class="button-secondary button-secondary--primary" data-location-submit>Speichern &amp; neu geocoden</button>
+        </div>
+      </form>
+    </div>
+  `;
+
+  const form = overlay.querySelector(".admin-location-form");
+  const btnCancel = overlay.querySelector("[data-location-cancel]");
+  const btnSubmit = overlay.querySelector("[data-location-submit]");
+  const status = overlay.querySelector("[data-location-status]");
+
+  const setModalBusy = (busy) => {
+    overlay.classList.toggle("is-busy", busy);
+    form?.querySelectorAll("input, button").forEach((control) => {
+      control.disabled = busy;
+    });
+    if (status) status.hidden = !busy;
+  };
+
+  const close = () => {
+    document.removeEventListener("keydown", onKeyDown);
+    overlay.remove();
+  };
+
+  const onKeyDown = (e) => {
+    if (e.key === "Escape" && !overlay.classList.contains("is-busy")) {
+      e.preventDefault();
+      close();
+    }
+  };
+
+  btnCancel?.addEventListener("click", close);
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay && !overlay.classList.contains("is-busy")) close();
+  });
+
+  form?.addEventListener("submit", async (submitEvent) => {
+    submitEvent.preventDefault();
+    const formData = new FormData(form);
+    const locationUpdates = {
+      location_name: String(formData.get("location_name") || "").trim(),
+      address: String(formData.get("address") || "").trim(),
+      street: String(formData.get("address") || "").trim(),
+      postal_code: String(formData.get("postal_code") || "").trim(),
+      city: String(formData.get("city") || "").trim(),
+      country: String(formData.get("country") || "").trim()
+    };
+    locationUpdates.geocoding_query =
+      composeAdminGeocodingQuery(locationUpdates)
+      || [locationUpdates.location_name, locationUpdates.city, locationUpdates.country].filter(Boolean).join(", ");
+
+    setModalBusy(true);
+    state.geoBusyEventIds.add(String(eventData.id));
+    setGlobalFeedback("Standort wird geprüft...", "info");
+    try {
+      await updateEventLocationWithGeocoding(eventData, locationUpdates);
+      state.geoBusyEventIds.delete(String(eventData.id));
+      markGeoPulse(eventData.id);
+      setGlobalFeedback("Koordinaten aktualisiert.", "success");
+      close();
+      await loadEvents();
+    } catch (error) {
+      console.error("Admin location save/geocoding failed:", error);
+      setGlobalFeedback("Standort konnte nicht gefunden werden.", "error");
+    } finally {
+      state.geoBusyEventIds.delete(String(eventData.id));
+      setModalBusy(false);
+    }
+  });
+
+  document.body.appendChild(overlay);
+  document.addEventListener("keydown", onKeyDown);
+  btnSubmit?.focus();
+}
+
 async function handleCardAction(clickEvent) {
   const button = clickEvent.target.closest("button[data-action]");
   if (!button) return;
@@ -910,6 +1320,16 @@ async function handleCardAction(clickEvent) {
   if (!card) return;
   const eventData = findEventByCard(card);
   if (!eventData) return;
+
+  if (button.dataset.action === "regeocode") {
+    await handleRegeocodeEvent(eventData, card, button);
+    return;
+  }
+
+  if (button.dataset.action === "edit-location") {
+    openAdminLocationModal(eventData);
+    return;
+  }
 
   const notes = card.querySelector("textarea[data-notes]")?.value.trim() || "";
   const featuredInput = card.querySelector("input[data-featured]");
