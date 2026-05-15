@@ -945,7 +945,7 @@ function renderEventCard(event) {
   const markerStatusClass = [
     "event-card__marker-status",
     hasMarker ? "event-card__marker-status--active" : "event-card__marker-status--missing",
-    hasMarker && state.geoPulseEventIds.has(String(event.id)) ? "is-pulsing" : ""
+    hasMarker && state.geoPulseEventIds.has(String(event.id)) ? "event-card__marker-status--success" : ""
   ]
     .filter(Boolean)
     .join(" ");
@@ -1168,7 +1168,9 @@ function markGeoPulse(eventId) {
   window.setTimeout(() => {
     state.geoPulseEventIds.delete(id);
     const escapedId = window.CSS?.escape ? window.CSS.escape(id) : id.replace(/"/g, '\\"');
-    document.querySelector(`.event-card[data-event-id="${escapedId}"] .event-card__marker-status`)?.classList.remove("is-pulsing");
+    document
+      .querySelector(`.event-card[data-event-id="${escapedId}"] .event-card__marker-status`)
+      ?.classList.remove("event-card__marker-status--success");
   }, 2400);
 }
 
