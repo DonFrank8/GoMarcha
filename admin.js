@@ -1812,10 +1812,21 @@ function removeMissingColumnFromPayload(payload, error) {
   return true;
 }
 
+/** Insert-only: drop unknown column from error without mutating feature-column UI state. */
+function removeUnknownInsertColumn(payload, error) {
+  const missing = parseMissingColumn(error);
+  if (!missing || !Object.prototype.hasOwnProperty.call(payload, missing)) return false;
+  delete payload[missing];
+  return true;
+}
+
 async function updateEventWithFallback(eventId, updates) {
   const client = supabaseClient();
-  const payload = { ...updates };
-  const maxAttempts = Object.keys(payload).length + 1;
+  const idKey = String(eventId ?? "").trim();
+  if (!idKey) throw new Error("Event-ID fehlt.");
+
+  let payload = sanitizeEventPayloadForDb({ ...updates });
+  const maxAttempts = Math.max(48, Object.keys(payload).length + 8);
   let lastError = null;
   let lastData = null;
 
@@ -1823,7 +1834,7 @@ async function updateEventWithFallback(eventId, updates) {
     const { data, error } = await client
       .from("events")
       .update(payload)
-      .eq("id", eventId)
+      .eq("id", idKey)
       .select("id,status")
       .limit(1);
     lastData = data;
@@ -1834,6 +1845,14 @@ async function updateEventWithFallback(eventId, updates) {
       return data[0];
     }
     lastError = error;
+    console.error("admin save error", {
+      attempt,
+      eventId: idKey,
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      hint: error.hint
+    }, error);
     if (!removeMissingColumnFromPayload(payload, error)) break;
   }
 
@@ -1954,7 +1973,7 @@ async function deleteEventById(eventId, eventSnapshot) {
 
 function duplicateInsertPayloadFromEvent(source) {
   const sid = source?.id ?? null;
-  return {
+  const payload = {
     name: source.name || source.title || "Event",
     title: source.title || source.name || null,
     title_es: source.title_es || null,
@@ -1990,34 +2009,102 @@ function duplicateInsertPayloadFromEvent(source) {
     featured: false,
     promoted: false,
     verification_notes: null,
-    event_date: null,
-    event_time: null,
-    end_time: null,
     recurrence_type: "none",
     recurrence_start_date: null,
     recurrence_end_date: null,
     recurrence_weekday: null,
     recurrence_day_of_month: null,
-    original_event_id: sid,
-    archived_at: null
+    event_date: null,
+    event_time: null,
+    end_time: null,
+    is_featured: false
   };
+  if (isLikelyUuidForOriginalEventRef(sid)) {
+    payload.original_event_id = sid;
+  }
+  return sanitizeEventPayloadForDb(payload);
+}
+
+function isLikelyUuidForOriginalEventRef(value) {
+  const s = String(value || "").trim();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s);
+}
+
+function todayLocalYmd() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function stripUndefinedValues(obj) {
+  const out = { ...obj };
+  for (const k of Object.keys(out)) {
+    if (out[k] === undefined) delete out[k];
+  }
+  return out;
+}
+
+function logDuplicateInsertSupabaseError(error, phase) {
+  const e = error && typeof error === "object" ? error : {};
+  console.error("[duplicate-event] supabase", phase, {
+    code: e.code,
+    message: e.message,
+    details: e.details,
+    hint: e.hint
+  }, error);
 }
 
 async function insertDuplicateEventRow(payload) {
   const client = supabaseClient();
-  const run = async (body) => client.from("events").insert(body).select("id").limit(1);
-  let { data, error } = await run(payload);
-  if (error) {
-    const hint = `${error.message || ""} ${error.details || ""} ${error.hint || ""}`;
-    if (/original_event_id|archived_at|column/i.test(hint)) {
-      const { original_event_id: _oid, archived_at: _arch, ...rest } = payload;
-      ({ data, error } = await run(rest));
+  const run = async (body) => {
+    const cleaned = stripUndefinedValues(body);
+    return client.from("events").insert(cleaned).select("id").limit(1);
+  };
+
+  let body = { ...sanitizeEventPayloadForDb(payload) };
+  console.log("admin reuse payload", { keys: Object.keys(body), body });
+  let lastError = null;
+
+  for (let attempt = 0; attempt < 28; attempt += 1) {
+    const { data, error } = await run(body);
+    if (!error) {
+      const row = Array.isArray(data) ? data[0] : data;
+      if (row?.id) return row.id;
+      logDuplicateInsertSupabaseError({ message: "Insert returned no row (empty select)", data }, `attempt-${attempt}`);
+      throw new Error("Duplikat: keine ID zurück — bitte RLS/SELECT für neue Events prüfen.");
     }
+    lastError = error;
+    logDuplicateInsertSupabaseError(error, `attempt-${attempt}`);
+
+    const msg = `${error.message || ""} ${error.details || ""} ${error.hint || ""}`;
+
+    if (/original_event_id|archived_at/i.test(msg) && ("original_event_id" in body || "archived_at" in body)) {
+      delete body.original_event_id;
+      delete body.archived_at;
+      continue;
+    }
+
+    if (removeUnknownInsertColumn(body, error)) continue;
+
+    const needsDate =
+      /event_date/i.test(msg)
+      && (/not null|null value|violates/i.test(msg) || /23502/i.test(String(error.code || "")));
+    if (needsDate && (body.event_date === undefined || body.event_date === null || body.event_date === "")) {
+      body.event_date = todayLocalYmd();
+      body.event_time = body.event_time ?? null;
+      body.end_time = body.end_time ?? null;
+      continue;
+    }
+
+    break;
   }
-  if (error) throw new Error(error.message || "Duplikat konnte nicht angelegt werden.");
-  const row = Array.isArray(data) ? data[0] : data;
-  if (!row?.id) throw new Error("Keine ID nach Insert.");
-  return row.id;
+
+  console.error("admin reuse error", {
+    code: lastError?.code,
+    message: lastError?.message,
+    details: lastError?.details,
+    hint: lastError?.hint
+  }, lastError);
+  throw new Error(lastError?.message || "Duplikat konnte nicht angelegt werden.");
 }
 
 async function duplicateEventForReuse(sourceEvent) {
@@ -2032,14 +2119,60 @@ function findSocialQueueRow(queueId) {
   return socialQueueRowsFlat().find((row) => String(row.id) === String(queueId));
 }
 
-function readJsonField(rawValue, fallback = null) {
-  const value = String(rawValue || "").trim();
+/** Parse JSON from form field; never throws — invalid JSON → null + console warning. */
+function readJsonFieldFromFormLoose(rawValue, fallback = null) {
+  const value = String(rawValue ?? "").trim();
   if (!value) return fallback;
   try {
     return JSON.parse(value);
-  } catch {
-    throw new Error("JSON field is invalid.");
+  } catch (err) {
+    console.warn("admin form JSON parse failed, using null:", err?.message || err);
+    return fallback;
   }
+}
+
+/** HTML time → Postgres-friendly HH:MM:SS; empty → null */
+function normalizeAdminTimeForDb(raw) {
+  const s = String(raw ?? "").trim();
+  if (!s) return null;
+  const m = s.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (!m) return null;
+  const hh = Math.min(23, Math.max(0, parseInt(m[1], 10)));
+  const mm = Math.min(59, Math.max(0, parseInt(m[2], 10)));
+  const ss = m[3] !== undefined && m[3] !== "" ? Math.min(59, Math.max(0, parseInt(m[3], 10))) : 0;
+  return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+}
+
+/** Empty string → null; trim strings; drop undefined; normalize date/time keys. */
+function sanitizeEventPayloadForDb(payload) {
+  const out = { ...payload };
+  if ("event_date" in out) {
+    const raw = out.event_date;
+    if (raw === null || raw === undefined || raw === "") {
+      out.event_date = null;
+    } else {
+      const d = String(raw).trim();
+      out.event_date = d || null;
+    }
+  }
+  if ("event_time" in out) out.event_time = normalizeAdminTimeForDb(out.event_time);
+  if ("end_time" in out) out.end_time = normalizeAdminTimeForDb(out.end_time);
+  for (const key of Object.keys(out)) {
+    const v = out[key];
+    if (v === undefined) {
+      delete out[key];
+      continue;
+    }
+    if (key === "name" || key === "title") {
+      if (typeof v === "string") out[key] = v.trim();
+      continue;
+    }
+    if (typeof v === "string") {
+      const t = v.trim();
+      out[key] = t === "" ? null : t;
+    }
+  }
+  return out;
 }
 
 function hasLocationChanged(event, payload) {
@@ -2077,7 +2210,7 @@ function eventEditPayloadFromForm(form) {
     artist_name: String(formData.get("artist_name") || "").trim() || null,
     price_text: String(formData.get("price_text") || "").trim() || null,
     image_url: String(formData.get("image_url") || "").trim() || null,
-    image_urls: readJsonField(formData.get("image_urls"), null),
+    image_urls: readJsonFieldFromFormLoose(formData.get("image_urls"), null),
     tags: tagsRaw ? tagsRaw.split(",").map((tag) => tag.trim()).filter(Boolean) : null,
     verification_notes: String(formData.get("verification_notes") || "").trim() || null
   };
@@ -3245,6 +3378,8 @@ function openEventEditorModal(eventData) {
   const tabs = overlay.querySelectorAll("[data-editor-tab]");
   const panels = overlay.querySelectorAll("[data-editor-panel]");
 
+  document.body.appendChild(overlay);
+
   const activateTab = (name) => {
     tabs.forEach((t) => t.classList.toggle("is-active", t.dataset.editorTab === name));
     panels.forEach((p) => {
@@ -3321,28 +3456,54 @@ function openEventEditorModal(eventData) {
     const regenerate = Boolean(submitEvent.submitter?.hasAttribute("data-editor-save-social"));
     try {
       setBusy(true, "Speichern…");
-      const payload = eventEditPayloadFromForm(form);
+      const rawPayload = eventEditPayloadFromForm(form);
+      let payload = sanitizeEventPayloadForDb(rawPayload);
       if (hasLocationChanged(eventData, payload)) {
-        const coords = await resolveAdminCoordinates({ ...eventData, ...payload });
-        payload.lat = coords.lat;
-        payload.lng = coords.lng;
-        payload.geocoding_query = coords.geocoding_query;
-        if (coords.formatted_address) payload.formatted_address = coords.formatted_address;
+        if (hasValidMarkerCoordinates(payload)) {
+          console.log("admin save skip geocode existing coords", {
+            lat: payload.lat,
+            lng: payload.lng
+          });
+        } else {
+          try {
+            const coords = await resolveAdminCoordinates({ ...eventData, ...payload });
+            payload.lat = coords.lat;
+            payload.lng = coords.lng;
+            payload.geocoding_query = coords.geocoding_query;
+            if (coords.formatted_address) payload.formatted_address = coords.formatted_address;
+          } catch (geoErr) {
+            if (hasValidMarkerCoordinates(eventData)) {
+              payload.lat = parseCoordinate(eventData.lat);
+              payload.lng = parseCoordinate(eventData.lng);
+              console.warn("admin save geocode failed, using stored coordinates", geoErr);
+            } else {
+              throw geoErr;
+            }
+          }
+          payload = sanitizeEventPayloadForDb(payload);
+        }
       }
+      console.log("admin save payload", { eventId: eventData.id, payload });
       await updateEventWithFallback(eventData.id, payload);
       if (regenerate) {
         await regenerateSocialDraftsForEvent({ ...eventData, ...payload, id: eventData.id });
       }
-      setGlobalFeedback(regenerate ? "Gespeichert & Social neu geplant." : "Gespeichert.", "success");
+      setGlobalFeedback(regenerate ? "Event gespeichert · Social Queue aktualisiert." : "Event gespeichert", "success");
       close();
       await loadEvents();
     } catch (error) {
-      console.error("Event edit failed:", error);
+      const raw = error && typeof error === "object" ? error : {};
+      console.error("admin save error", {
+        eventId: eventData?.id,
+        code: raw.code,
+        message: raw.message,
+        details: raw.details,
+        hint: raw.hint
+      }, error);
       setBusy(false, error.message || "Speichern fehlgeschlagen.");
       setGlobalFeedback(`Speichern fehlgeschlagen: ${error.message || ""}`.trim(), "error");
     }
   });
-  document.body.appendChild(overlay);
   console.log("DRAWER RENDERED", {
     overlayOk: Boolean(overlay),
     formOk: Boolean(form),
@@ -3460,17 +3621,29 @@ async function handleCardAction(clickEvent) {
 
   if (button.dataset.action === "reuse-event") {
     if (!isSessionAdmin(state.adminSession)) return;
+    const sourceId = eventData?.id;
+    if (!sourceId) {
+      setGlobalFeedback("Duplikat: Event-ID fehlt.", "error");
+      return;
+    }
     button.disabled = true;
     setGlobalFeedback("");
     try {
       const newId = await duplicateEventForReuse(eventData);
-      setGlobalFeedback("Kopie angelegt — bitte Datum und Zeit setzen.", "success");
+      setGlobalFeedback("Event als Entwurf kopiert", "success");
       await loadEvents();
       const fresh = state.allEvents.find((e) => String(e.id) === String(newId));
       if (fresh) openEventEditorModal(fresh);
     } catch (error) {
-      console.error("Reuse event failed:", error);
-      setGlobalFeedback(error.message || "Duplikat fehlgeschlagen.", "error");
+      const raw = error && typeof error === "object" ? error : {};
+      console.error("admin reuse error", {
+        code: raw.code,
+        message: raw.message,
+        details: raw.details,
+        hint: raw.hint
+      }, error);
+      const msg = String(raw.message || error || "Duplikat fehlgeschlagen.").trim();
+      setGlobalFeedback(`Duplikat fehlgeschlagen: ${msg}`, "error");
     } finally {
       button.disabled = false;
     }
