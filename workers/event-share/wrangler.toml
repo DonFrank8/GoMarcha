@@ -2,15 +2,11 @@ name = "gomarcha-event-share"
 main = "worker.js"
 compatibility_date = "2026-05-15"
 
-# Configure this route in Cloudflare after the Worker is deployed.
-# The route keeps crawler-facing share URLs on gomarcha.com instead of
-# functions.supabase.co:
-#   www.gomarcha.com/e/*
-#
-# If this zone is managed in the same Cloudflare account, uncomment:
-# routes = [
-#   { pattern = "www.gomarcha.com/e/*", zone_name = "gomarcha.com" }
-# ]
+# This route keeps crawler-facing share URLs on gomarcha.com instead of
+# functions.supabase.co.
+routes = [
+  { pattern = "www.gomarcha.com/e/*", zone_name = "gomarcha.com" }
+]
 
 [vars]
 SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co"
