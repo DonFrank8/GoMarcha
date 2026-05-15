@@ -123,7 +123,7 @@ end $$;
 
 -- 2b) Ensure table privileges exist for public submit/read flow
 grant select, insert on table public.events to anon, authenticated;
-grant update on table public.events to authenticated;
+grant update, delete on table public.events to authenticated;
 
 -- 3) Public read-only access to approved events
 create policy "Public can read approved events"
@@ -169,6 +169,15 @@ using (
   auth.jwt() -> 'app_metadata' ->> 'role' = 'admin'
 )
 with check (
+  auth.jwt() -> 'app_metadata' ->> 'role' = 'admin'
+);
+
+-- 5b) Authenticated admins can delete events (dashboard; children handled in app or via FK)
+create policy "Admins can delete events via role"
+on public.events
+for delete
+to authenticated
+using (
   auth.jwt() -> 'app_metadata' ->> 'role' = 'admin'
 );
 

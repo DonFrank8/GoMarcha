@@ -85,3 +85,65 @@ create index if not exists social_queue_event_platform_posted_day_idx
 
 alter table public.social_caption_usage enable row level security;
 alter table public.social_queue enable row level security;
+
+-- Admin dashboard: JWT app_metadata.role = admin (anon key + user session).
+grant select, insert, update, delete on table public.social_queue to authenticated;
+grant select, insert, update, delete on table public.social_caption_usage to authenticated;
+
+drop policy if exists "Admins can read social_queue via role" on public.social_queue;
+create policy "Admins can read social_queue via role"
+on public.social_queue
+for select
+to authenticated
+using (auth.jwt() -> 'app_metadata' ->> 'role' = 'admin');
+
+drop policy if exists "Admins can insert social_queue via role" on public.social_queue;
+create policy "Admins can insert social_queue via role"
+on public.social_queue
+for insert
+to authenticated
+with check (auth.jwt() -> 'app_metadata' ->> 'role' = 'admin');
+
+drop policy if exists "Admins can update social_queue via role" on public.social_queue;
+create policy "Admins can update social_queue via role"
+on public.social_queue
+for update
+to authenticated
+using (auth.jwt() -> 'app_metadata' ->> 'role' = 'admin')
+with check (auth.jwt() -> 'app_metadata' ->> 'role' = 'admin');
+
+drop policy if exists "Admins can delete social_queue via role" on public.social_queue;
+create policy "Admins can delete social_queue via role"
+on public.social_queue
+for delete
+to authenticated
+using (auth.jwt() -> 'app_metadata' ->> 'role' = 'admin');
+
+drop policy if exists "Admins can read social_caption_usage via role" on public.social_caption_usage;
+create policy "Admins can read social_caption_usage via role"
+on public.social_caption_usage
+for select
+to authenticated
+using (auth.jwt() -> 'app_metadata' ->> 'role' = 'admin');
+
+drop policy if exists "Admins can insert social_caption_usage via role" on public.social_caption_usage;
+create policy "Admins can insert social_caption_usage via role"
+on public.social_caption_usage
+for insert
+to authenticated
+with check (auth.jwt() -> 'app_metadata' ->> 'role' = 'admin');
+
+drop policy if exists "Admins can update social_caption_usage via role" on public.social_caption_usage;
+create policy "Admins can update social_caption_usage via role"
+on public.social_caption_usage
+for update
+to authenticated
+using (auth.jwt() -> 'app_metadata' ->> 'role' = 'admin')
+with check (auth.jwt() -> 'app_metadata' ->> 'role' = 'admin');
+
+drop policy if exists "Admins can delete social_caption_usage via role" on public.social_caption_usage;
+create policy "Admins can delete social_caption_usage via role"
+on public.social_caption_usage
+for delete
+to authenticated
+using (auth.jwt() -> 'app_metadata' ->> 'role' = 'admin');
