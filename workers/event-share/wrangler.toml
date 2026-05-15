@@ -1,6 +1,7 @@
 name = "gomarcha-event-share"
 main = "worker.js"
 compatibility_date = "2026-05-15"
+workers_dev = true
 
 # This route keeps crawler-facing share URLs on gomarcha.com instead of
 # functions.supabase.co.
