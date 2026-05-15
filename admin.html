@@ -7,10 +7,13 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
   <link rel="icon" type="image/png" href="/assets/favicon-v4.png">
-  <title>Marcha Admin | Moderation &amp; Curation</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@600;700&display=swap" rel="stylesheet">
+  <title>Marcha Admin | Moderation Studio</title>
   <meta
     name="description"
-    content="Marcha Admin für Moderation, Qualitätssicherung und Curation von Live-Events und Locations."
+    content="Marcha Admin — visuelles Moderations-Dashboard für Events und Social Automation."
   >
   <script>
     (function () {
@@ -24,9 +27,9 @@
   </script>
 </head>
 <body>
-  <header class="admin-header">
+  <header class="admin-header admin-header--login-only">
     <div class="admin-header__inner">
-      <div>
+      <div class="admin-header__brand-wrap">
         <div class="admin-header__brand" aria-label="Marcha">
           <img
             class="admin-brand__logo--header"
@@ -38,14 +41,11 @@
             decoding="async"
           >
         </div>
-        <h1>Marcha Admin</h1>
-        <p class="admin-header__subtitle">Moderation, Qualitätssicherung und Curation für Live-Musik, Events und Locations.</p>
+        <p class="admin-header__subtitle admin-header__subtitle--compact">Event-Moderation &amp; Social Queue</p>
       </div>
       <div class="admin-header__actions">
-        <a class="button button--ghost" href="./index.html">Zur Marcha Discover-Seite</a>
-        <button id="adminHeaderSignOutButton" type="button" class="button button--ghost" hidden>
-          Abmelden
-        </button>
+        <a class="button button--ghost" href="./index.html">Discover</a>
+        <button id="adminHeaderSignOutButton" type="button" class="button button--ghost" hidden>Abmelden</button>
       </div>
     </div>
   </header>
@@ -53,11 +53,11 @@
   <main class="admin-shell">
     <section id="adminAuthCard" class="card card--auth">
       <h2>Admin Login</h2>
-      <p class="card__intro">Nur freigegebene Admin-E-Mails können Moderation und Statusänderungen im Marcha Feed durchführen.</p>
+      <p class="card__intro">Nur freigegebene Admin-Konten können Events moderieren.</p>
       <form id="adminLoginForm" class="auth-form" novalidate>
         <label class="field">
           <span>E-Mail</span>
-          <input id="adminEmail" type="email" placeholder="admin@deinedomain.com" required>
+          <input id="adminEmail" type="email" placeholder="admin@example.com" required>
         </label>
         <label class="field">
           <span>Passwort</span>
@@ -68,65 +68,186 @@
       <p id="adminAuthFeedback" class="message" hidden></p>
     </section>
 
-    <section id="adminWorkspace" class="workspace" hidden>
-      <section class="card card--toolbar">
-        <div class="toolbar-top">
+    <div id="adminWorkspace" class="admin-app" hidden>
+      <aside class="admin-sidebar" aria-label="Navigation">
+        <div class="admin-sidebar__brand">
+          <span class="admin-sidebar__mark">M</span>
           <div>
-            <h2>Moderation Queue</h2>
-            <p id="adminSessionInfo" class="card__intro">-</p>
+            <strong class="admin-sidebar__title">Marcha Studio</strong>
+            <span class="admin-sidebar__tag">Admin</span>
           </div>
-          <button id="adminSignOutButton" type="button" class="button button--ghost">Abmelden</button>
         </div>
-
-        <div class="status-tabs" role="tablist" aria-label="Status Filter">
-          <button type="button" class="status-tab is-active" data-status-filter="all">
-            Alle <span id="countAll" class="count-badge">0</span>
+        <nav class="admin-sidebar__nav" role="navigation">
+          <button type="button" class="admin-nav-item is-active" data-admin-nav="dashboard">
+            <span class="admin-nav-item__icon" aria-hidden="true">▣</span>
+            Dashboard
           </button>
-          <button type="button" class="status-tab status-tab--pending" data-status-filter="pending">
-            Ausstehend <span id="countPending" class="count-badge">0</span>
+          <button type="button" class="admin-nav-item" data-admin-nav="events">
+            <span class="admin-nav-item__icon" aria-hidden="true">◎</span>
+            Events
           </button>
-          <button type="button" class="status-tab status-tab--approved" data-status-filter="approved">
-            Freigegeben <span id="countApproved" class="count-badge">0</span>
+          <button type="button" class="admin-nav-item" data-admin-nav="social">
+            <span class="admin-nav-item__icon" aria-hidden="true">↗</span>
+            Social Queue
           </button>
-          <button type="button" class="status-tab status-tab--rejected" data-status-filter="rejected">
-            Abgelehnt <span id="countRejected" class="count-badge">0</span>
+          <button type="button" class="admin-nav-item" data-admin-nav="analytics">
+            <span class="admin-nav-item__icon" aria-hidden="true">◇</span>
+            Analytics
           </button>
+          <button type="button" class="admin-nav-item" data-admin-nav="settings">
+            <span class="admin-nav-item__icon" aria-hidden="true">⚙</span>
+            Settings
+          </button>
+        </nav>
+        <div class="admin-sidebar__footer">
+          <p id="adminSessionInfo" class="admin-session-line">–</p>
+          <button id="adminSignOutButton" type="button" class="button button--ghost admin-sidebar__logout">Abmelden</button>
         </div>
+      </aside>
 
-        <form id="adminFiltersForm" class="filter-grid" autocomplete="off">
-          <label class="field">
-            <span>Suche</span>
-            <input id="filterSearch" type="search" placeholder="Suche Event, Venue, Stadt oder Beschreibung...">
-          </label>
-          <label class="field">
-            <span>Stadt</span>
-            <select id="filterCity">
-              <option value="">Alle Städte</option>
-            </select>
-          </label>
-          <label class="field">
-            <span>Genre</span>
-            <select id="filterGenre">
-              <option value="">Alle Genres</option>
-            </select>
-          </label>
-          <label class="field">
-            <span>Status</span>
-            <select id="filterStatus">
-              <option value="">Alle</option>
-              <option value="pending">ausstehend</option>
-              <option value="approved">freigegeben</option>
-              <option value="rejected">abgelehnt</option>
-            </select>
-          </label>
-          <button id="resetFiltersButton" type="button" class="button button--ghost">Filter zurücksetzen</button>
-        </form>
-      </section>
+      <div class="admin-main">
+        <header class="admin-topbar">
+          <div class="admin-topbar__search">
+            <span class="admin-topbar__search-icon" aria-hidden="true">⌕</span>
+            <input
+              id="filterSearch"
+              type="search"
+              placeholder="Events durchsuchen…"
+              class="admin-topbar__input"
+              autocomplete="off"
+              aria-label="Suche"
+            >
+          </div>
+          <div class="admin-topbar__counters" role="group" aria-label="Moderation">
+            <span class="admin-counter admin-counter--pending" title="Ausstehend">
+              <span class="admin-counter__n" id="countPending">0</span>
+              <span class="admin-counter__l">Pending</span>
+            </span>
+            <span class="admin-counter admin-counter--approved">
+              <span class="admin-counter__n" id="countApproved">0</span>
+              <span class="admin-counter__l">OK</span>
+            </span>
+            <span class="admin-counter admin-counter--rejected">
+              <span class="admin-counter__n" id="countRejected">0</span>
+              <span class="admin-counter__l">Nein</span>
+            </span>
+            <span class="admin-counter admin-counter--all">
+              <span class="admin-counter__n" id="countAll">0</span>
+              <span class="admin-counter__l">Alle</span>
+            </span>
+          </div>
+          <div class="admin-topbar__actions">
+            <a class="button-secondary admin-topbar__chip" href="./index.html">Discover</a>
+            <button type="button" class="button-secondary admin-topbar__chip" data-admin-quick-pending>Pending</button>
+          </div>
+        </header>
 
-      <p id="adminGlobalFeedback" class="message" hidden></p>
-      <section id="adminEventGrid" class="event-grid"></section>
-      <p id="adminEmptyState" class="empty-state" hidden>Keine Events für die aktuelle Auswahl.</p>
-    </section>
+        <p id="adminGlobalFeedback" class="feedback" hidden></p>
+
+        <section id="adminViewDashboard" class="admin-view admin-view--dashboard">
+          <div id="adminDashboardGrid" class="admin-dash-grid"></div>
+          <div class="admin-dash-shortcuts">
+            <h3 class="admin-dash-shortcuts__title">Schnellzugriff</h3>
+            <div class="admin-dash-shortcuts__row">
+              <button type="button" class="button-secondary" data-admin-shortcut="events-pending">Pending moderieren</button>
+              <button type="button" class="button-secondary" data-admin-shortcut="social-failed">Fehler in Social Queue</button>
+              <button type="button" class="button-secondary" data-admin-shortcut="missing-coords">Koordinaten fehlen</button>
+            </div>
+          </div>
+        </section>
+
+        <section id="adminViewEvents" class="admin-view" hidden>
+          <div class="admin-events-toolbar card card--glass">
+            <div class="admin-events-toolbar__tabs" role="tablist" aria-label="Status">
+              <button type="button" class="admin-status-tab is-active" data-status-filter="all">
+                Alle <span id="countTabAll" class="count-pill">0</span>
+              </button>
+              <button type="button" class="admin-status-tab" data-status-filter="pending">
+                Ausstehend <span class="count-pill count-pill--pending" id="countTabPending">0</span>
+              </button>
+              <button type="button" class="admin-status-tab" data-status-filter="approved">
+                Freigegeben <span class="count-pill count-pill--ok" id="countTabApproved">0</span>
+              </button>
+              <button type="button" class="admin-status-tab" data-status-filter="rejected">
+                Abgelehnt <span class="count-pill count-pill--no" id="countTabRejected">0</span>
+              </button>
+            </div>
+            <form id="adminFiltersForm" class="admin-filters-compact" autocomplete="off">
+              <label class="admin-filter-field">
+                <span class="visually-hidden">Stadt</span>
+                <select id="filterCity" class="admin-select" aria-label="Stadt">
+                  <option value="">Alle Städte</option>
+                </select>
+              </label>
+              <label class="admin-filter-field">
+                <span class="visually-hidden">Genre</span>
+                <select id="filterGenre" class="admin-select" aria-label="Genre">
+                  <option value="">Alle Genres</option>
+                </select>
+              </label>
+              <label class="admin-filter-field">
+                <span class="visually-hidden">Status Filter</span>
+                <select id="filterStatus" class="admin-select" aria-label="Detail-Status">
+                  <option value="">Status: alle</option>
+                  <option value="pending">ausstehend</option>
+                  <option value="approved">freigegeben</option>
+                  <option value="rejected">abgelehnt</option>
+                </select>
+              </label>
+              <button id="resetFiltersButton" type="button" class="button-secondary admin-filter-reset">Reset</button>
+            </form>
+          </div>
+          <div id="adminEventGrid" class="event-grid event-grid--premium"></div>
+          <div id="adminEventSentinel" class="admin-event-sentinel" aria-hidden="true"></div>
+          <p id="adminEmptyState" class="empty-state empty-state--premium" hidden>Keine Events für diese Auswahl.</p>
+        </section>
+
+        <section id="adminViewSocial" class="admin-view" hidden>
+          <div class="card card--glass admin-social-head">
+            <div>
+              <h2 class="admin-view__h">Social Queue</h2>
+              <p class="card__intro">Geplante Posts, Drafts und Fehler — getrennt vom Event-Feed.</p>
+            </div>
+            <div class="admin-social-filters" role="group" aria-label="Queue Filter">
+              <button type="button" class="admin-social-filter is-active" data-social-filter="all">Alle</button>
+              <button type="button" class="admin-social-filter" data-social-filter="pending">Pending</button>
+              <button type="button" class="admin-social-filter" data-social-filter="draft">Draft</button>
+              <button type="button" class="admin-social-filter" data-social-filter="failed">Failed</button>
+              <button type="button" class="admin-social-filter" data-social-filter="posted">Posted</button>
+              <button type="button" class="admin-social-filter" data-social-filter="today">Heute</button>
+            </div>
+          </div>
+          <div id="adminSocialQueuePanel" class="admin-social-cards"></div>
+        </section>
+
+        <section id="adminViewAnalytics" class="admin-view" hidden>
+          <div class="card card--glass">
+            <h2 class="admin-view__h">Analytics</h2>
+            <p class="card__intro">Aggregierte Kennzahlen aus euren Events — erweiterbar (Postiz, Traffic).</p>
+            <div id="adminAnalyticsBody" class="admin-analytics-placeholder"></div>
+          </div>
+        </section>
+
+        <section id="adminViewSettings" class="admin-view" hidden>
+          <div class="card card--glass">
+            <h2 class="admin-view__h">Settings</h2>
+            <p class="card__intro">Sicherheit: weiterhin nur Supabase Auth + RLS, kein Service-Role im Browser.</p>
+            <ul class="admin-settings-list">
+              <li>Build: <code id="adminSettingsBuild"></code></li>
+              <li>Discover: <a href="./index.html">index.html</a></li>
+            </ul>
+          </div>
+        </section>
+      </div>
+
+      <nav class="admin-bottom-nav" aria-label="Mobil Navigation">
+        <button type="button" class="admin-bottom-nav__btn is-active" data-admin-nav="dashboard">▣</button>
+        <button type="button" class="admin-bottom-nav__btn" data-admin-nav="events">◎</button>
+        <button type="button" class="admin-bottom-nav__btn" data-admin-nav="social">↗</button>
+        <button type="button" class="admin-bottom-nav__btn" data-admin-nav="analytics">◇</button>
+        <button type="button" class="admin-bottom-nav__btn" data-admin-nav="settings">⚙</button>
+      </nav>
+    </div>
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>

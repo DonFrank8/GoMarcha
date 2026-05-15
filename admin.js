@@ -2,7 +2,8 @@ const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
 const ADMIN_REQUIRED_ROLE = "admin";
 const ADMIN_ALLOWED_EMAILS = [];
-const ADMIN_DASHBOARD_BUILD = "2026.04.08-admin-2";
+const ADMIN_DASHBOARD_BUILD = "2026.05.15-admin-premium-1";
+const EVENT_LIST_PAGE_SIZE = 22;
 
 const EVENT_IMAGES_BUCKET = "event-images";
 const ADMIN_REPLACE_IMAGE_MAX_BYTES = 8 * 1024 * 1024;
@@ -14,6 +15,17 @@ const ADMIN_GEOCODING_PROVIDER = "nominatim";
 const ADMIN_GEOCODING_MIN_INTERVAL_MS = 850;
 const ADMIN_GEOCODING_MAX_RETRIES = 2;
 const ADMIN_MAPBOX_ACCESS_TOKEN = (window.PARTYRADAR_MAPBOX_TOKEN || "").toString().trim();
+const SOCIAL_REVIEW_PLATFORMS = ["instagram", "facebook"];
+const SOCIAL_REVIEW_SLOTS = [
+  { id: "week", daysBefore: 7, hour: 10, minute: 30 },
+  { id: "three_days", daysBefore: 3, hour: 10, minute: 30 },
+  { id: "one_day", daysBefore: 1, hour: 10, minute: 30 },
+  { id: "final_call", daysBefore: 0, hour: 10, minute: 30 }
+];
+const SHORT_NOTICE_EVENT_HOURS = 96;
+const URGENT_EVENT_HOURS = 24;
+const IMMEDIATE_LAST_CALL_DELAY_MS = 60 * 1000;
+const EVENT_START_SAFETY_MS = 15 * 1000;
 
 const VALID_STATUS = new Set(["pending", "approved", "rejected"]);
 
@@ -25,9 +37,17 @@ const state = {
   city: "",
   genre: "",
   statusFilter: "",
+  socialQueueFilter: "all",
   adminSession: null,
+  navSection: "dashboard",
+  lastFilterSignature: "",
+  eventsVisibleCount: EVENT_LIST_PAGE_SIZE,
+  eventsRendered: 0,
+  eventListReset: true,
+  searchDebounceTimer: null,
   geoBusyEventIds: new Set(),
   geoPulseEventIds: new Set(),
+  socialQueueByEvent: new Map(),
   featureColumns: {
     featured: true,
     promoted: true
@@ -45,18 +65,33 @@ const dom = {
   globalFeedback: document.getElementById("adminGlobalFeedback"),
   sessionInfo: document.getElementById("adminSessionInfo"),
   signOutButton: document.getElementById("adminSignOutButton"),
-  tabs: [...document.querySelectorAll(".status-tab")],
+  statusTabs: [...document.querySelectorAll(".admin-status-tab[data-status-filter]")],
   countAll: document.getElementById("countAll"),
   countPending: document.getElementById("countPending"),
   countApproved: document.getElementById("countApproved"),
   countRejected: document.getElementById("countRejected"),
+  countTabAll: document.getElementById("countTabAll"),
+  countTabPending: document.getElementById("countTabPending"),
+  countTabApproved: document.getElementById("countTabApproved"),
+  countTabRejected: document.getElementById("countTabRejected"),
   searchInput: document.getElementById("filterSearch"),
   cityFilter: document.getElementById("filterCity"),
   genreFilter: document.getElementById("filterGenre"),
   statusFilter: document.getElementById("filterStatus"),
   resetFiltersButton: document.getElementById("resetFiltersButton"),
+  socialQueuePanel: document.getElementById("adminSocialQueuePanel"),
+  socialQueueFilters: [...document.querySelectorAll(".admin-social-filter[data-social-filter]")],
   eventGrid: document.getElementById("adminEventGrid"),
-  emptyState: document.getElementById("adminEmptyState")
+  eventSentinel: document.getElementById("adminEventSentinel"),
+  emptyState: document.getElementById("adminEmptyState"),
+  dashboardGrid: document.getElementById("adminDashboardGrid"),
+  analyticsBody: document.getElementById("adminAnalyticsBody"),
+  settingsBuild: document.getElementById("adminSettingsBuild"),
+  viewDashboard: document.getElementById("adminViewDashboard"),
+  viewEvents: document.getElementById("adminViewEvents"),
+  viewSocial: document.getElementById("adminViewSocial"),
+  viewAnalytics: document.getElementById("adminViewAnalytics"),
+  viewSettings: document.getElementById("adminViewSettings")
 };
 
 function supabaseClient() {
@@ -118,6 +153,162 @@ function hasValidMarkerCoordinates(event) {
   const lat = parseCoordinate(event?.lat);
   const lng = parseCoordinate(event?.lng);
   return lat !== null && lng !== null && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
+}
+
+function parseAdminYmd(rawDate) {
+  const value = String(rawDate || "").trim();
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  return {
+    year: Number(match[1]),
+    month: Number(match[2]),
+    day: Number(match[3])
+  };
+}
+
+function parseAdminTime(rawTime) {
+  const parts = String(rawTime || "23:59").trim().split(":");
+  const hour = Math.min(23, Math.max(0, Number(parts[0]) || 0));
+  const minute = Math.min(59, Math.max(0, Number(parts[1]) || 0));
+  return { hour, minute };
+}
+
+function dateFromAdminEventWallTime(event, fallbackHour = 23, fallbackMinute = 59) {
+  const parts = parseAdminYmd(event?.event_date || event?.recurrence_start_date);
+  if (!parts) return null;
+  const parsedTime = parseAdminTime(event?.event_time || `${fallbackHour}:${String(fallbackMinute).padStart(2, "0")}`);
+  return new Date(parts.year, parts.month - 1, parts.day, parsedTime.hour, parsedTime.minute, 0, 0);
+}
+
+function shortNoticeInfoForEvent(event, now = new Date()) {
+  const eventStart = dateFromAdminEventWallTime(event);
+  if (!eventStart || Number.isNaN(eventStart.getTime()) || eventStart <= now) {
+    return { active: false, urgent: false, eventStart: null, hoursUntilStart: null };
+  }
+  const hoursUntilStart = (eventStart.getTime() - now.getTime()) / 3600000;
+  return {
+    active: hoursUntilStart <= SHORT_NOTICE_EVENT_HOURS,
+    urgent: hoursUntilStart <= URGENT_EVENT_HOURS,
+    eventStart,
+    hoursUntilStart
+  };
+}
+
+function socialSlotDateForEvent(event, slot) {
+  const eventStart = dateFromAdminEventWallTime(event);
+  if (!eventStart || Number.isNaN(eventStart.getTime())) return null;
+  const slotDate = new Date(eventStart);
+  slotDate.setDate(slotDate.getDate() - slot.daysBefore);
+  slotDate.setHours(slot.hour, slot.minute, 0, 0);
+  if (slot.id === "final_call") {
+    const latestSafe = new Date(eventStart.getTime() - 2 * 60 * 60 * 1000);
+    if (slotDate > latestSafe) return latestSafe;
+  }
+  return slotDate;
+}
+
+function immediateLastCallDateForEvent(event, now = new Date()) {
+  const info = shortNoticeInfoForEvent(event, now);
+  if (!info.active || !info.eventStart) return null;
+  const eventStartMs = info.eventStart.getTime();
+  const preferred = new Date(now.getTime() + IMMEDIATE_LAST_CALL_DELAY_MS);
+  if (preferred.getTime() < eventStartMs) return preferred;
+  const safeLatest = new Date(eventStartMs - EVENT_START_SAFETY_MS);
+  return safeLatest > now ? safeLatest : null;
+}
+
+function buildSocialReviewQueueRows(event) {
+  const now = new Date();
+  const eventStart = dateFromAdminEventWallTime(event);
+  if (!eventStart || Number.isNaN(eventStart.getTime()) || eventStart <= now) return [];
+  const rows = [];
+  const immediateLastCall = immediateLastCallDateForEvent(event, now);
+  if (immediateLastCall && immediateLastCall < eventStart) {
+    for (const platform of SOCIAL_REVIEW_PLATFORMS) {
+      rows.push({
+        event_id: event.id,
+        platform,
+        scheduled_at: immediateLastCall.toISOString(),
+        status: "pending",
+        retry_count: 0,
+        _slot_id: "short_notice_last_call"
+      });
+    }
+  }
+  for (const slot of SOCIAL_REVIEW_SLOTS) {
+    const scheduled = socialSlotDateForEvent(event, slot);
+    if (!scheduled || Number.isNaN(scheduled.getTime())) continue;
+    if (scheduled <= now) continue;
+    if (scheduled >= eventStart) continue;
+    for (const platform of SOCIAL_REVIEW_PLATFORMS) {
+      rows.push({
+        event_id: event.id,
+        platform,
+        scheduled_at: scheduled.toISOString(),
+        status: "pending",
+        retry_count: 0
+      });
+    }
+  }
+  return rows;
+}
+
+function socialQueueRowsForEvent(eventId) {
+  return state.socialQueueByEvent.get(String(eventId || "")) || [];
+}
+
+function socialQueueSummary(eventId) {
+  const rows = socialQueueRowsForEvent(eventId);
+  const counts = rows.reduce(
+    (acc, row) => {
+      const status = String(row.status || "pending").toLowerCase();
+      acc.total += 1;
+      if (status === "posted") acc.ready += 1;
+      else if (status === "failed") acc.failed += 1;
+      else if (status === "processing") acc.processing += 1;
+      else if (status === "skipped") acc.skipped += 1;
+      else acc.pending += 1;
+      return acc;
+    },
+    { total: 0, ready: 0, failed: 0, processing: 0, pending: 0, skipped: 0 }
+  );
+  return counts;
+}
+
+function isEventPast(event) {
+  const start = dateFromAdminEventWallTime(event);
+  return Boolean(start && !Number.isNaN(start.getTime()) && start < new Date());
+}
+
+function buildEventValidationBadges(event) {
+  const badges = [];
+  const hasCoords = hasValidMarkerCoordinates(event);
+  const hasImage = Boolean(String(event.image_url || "").trim());
+  const socialSummary = socialQueueSummary(event.id);
+  const shortNotice = shortNoticeInfoForEvent(event);
+  const push = (tone, label) => badges.push({ tone, label });
+
+  if (event.featured) push("featured", "⭐ Featured");
+  if (!hasImage) push("warning", "⚠️ Kein Bild");
+  if (!hasCoords) push("warning", "⚠️ Keine Koordinaten");
+  if (!String(event.genre || event.category || "").trim()) push("warning", "⚠️ Keine Kategorie");
+  if (!String(event.event_date || "").trim()) push("error", "❌ Kein Datum");
+  if (isEventPast(event)) push("error", "❌ Ungültig / Vergangen");
+  if (shortNotice.urgent) push("warning", "⚠️ Eilmeldung");
+  else if (shortNotice.active) push("warning", "⚠️ Kurzfristig");
+  if (event.status === "approved" && socialSummary.total === 0) push("warning", "⚠️ Social Drafts fehlen");
+
+  const hasError = badges.some((b) => b.tone === "error");
+  const hasWarn = badges.some((b) => b.tone === "warning");
+  if (!hasError && !hasWarn) push("ok", "✅ Bereit");
+
+  return badges;
+}
+
+function renderValidationBadges(event) {
+  return `<div class="event-card__validation-badges">${buildEventValidationBadges(event)
+    .map((badge) => `<span class="event-validation-badge event-validation-badge--${badge.tone}">${escapeHtml(badge.label)}</span>`)
+    .join("")}</div>`;
 }
 
 function normalizeCountryForGeocoding(countryValue) {
@@ -756,6 +947,10 @@ function normalizeEvent(event) {
   return {
     id: event.id,
     name: event.name || "-",
+    title: event.title || event.name || "",
+    title_es: event.title_es || "",
+    title_de: event.title_de || "",
+    title_en: event.title_en || "",
     location_name: event.location_name || "",
     address: event.address || event.street || "",
     street: event.street || event.address || "",
@@ -766,9 +961,16 @@ function normalizeEvent(event) {
     geocoding_query: event.geocoding_query || "",
     event_date: event.event_date || "",
     event_time: event.event_time || "",
+    end_time: event.end_time || "",
     genre: event.genre || "",
+    category: event.category || event.genre || "",
     price_text: event.price_text || "",
     description: event.description || "",
+    description_es: event.description_es || event.descrption_es || "",
+    description_de: event.description_de || event.descrption_de || "",
+    description_en: event.description_en || event.descrption_en || "",
+    artist_name: event.artist_name || "",
+    tags: event.tags ?? null,
     submitted_by: event.submitted_by || "",
     contact_email: event.contact_email || "",
     status: VALID_STATUS.has(status) ? status : "pending",
@@ -846,16 +1048,28 @@ function statusPillClass(status) {
 }
 
 function statusLabel(status) {
-  if (status === "approved") return "approved";
-  if (status === "rejected") return "rejected";
-  return "pending";
+  if (status === "approved") return "Freigegeben";
+  if (status === "rejected") return "Abgelehnt";
+  return "Ausstehend";
 }
 
 function updateCounts() {
-  if (dom.countAll) dom.countAll.textContent = String(state.allEvents.length);
-  if (dom.countPending) dom.countPending.textContent = String(state.allEvents.filter((event) => event.status === "pending").length);
-  if (dom.countApproved) dom.countApproved.textContent = String(state.allEvents.filter((event) => event.status === "approved").length);
-  if (dom.countRejected) dom.countRejected.textContent = String(state.allEvents.filter((event) => event.status === "rejected").length);
+  const all = state.allEvents.length;
+  const pend = state.allEvents.filter((event) => event.status === "pending").length;
+  const appr = state.allEvents.filter((event) => event.status === "approved").length;
+  const rej = state.allEvents.filter((event) => event.status === "rejected").length;
+  if (dom.countAll) dom.countAll.textContent = String(all);
+  if (dom.countPending) dom.countPending.textContent = String(pend);
+  if (dom.countApproved) dom.countApproved.textContent = String(appr);
+  if (dom.countRejected) dom.countRejected.textContent = String(rej);
+  if (dom.countTabAll) dom.countTabAll.textContent = String(all);
+  if (dom.countTabPending) dom.countTabPending.textContent = String(pend);
+  if (dom.countTabApproved) dom.countTabApproved.textContent = String(appr);
+  if (dom.countTabRejected) dom.countTabRejected.textContent = String(rej);
+}
+
+function getFilterSignature() {
+  return [state.activeTab, state.search, state.city, state.genre, state.statusFilter].join("\u001e");
 }
 
 function syncFilterOptions() {
@@ -880,6 +1094,12 @@ function syncFilterOptions() {
 
 function applyFilters() {
   const search = state.search.trim().toLowerCase();
+  const nextSig = getFilterSignature();
+  if (nextSig !== state.lastFilterSignature) {
+    state.lastFilterSignature = nextSig;
+    state.eventListReset = true;
+    state.eventsVisibleCount = EVENT_LIST_PAGE_SIZE;
+  }
   state.filteredEvents = state.allEvents.filter((event) => {
     if (state.activeTab !== "all" && event.status !== state.activeTab) return false;
     if (state.statusFilter && event.status !== state.statusFilter) return false;
@@ -904,8 +1124,118 @@ function applyFilters() {
   });
 }
 
-function renderTabs() {
-  dom.tabs.forEach((tab) => {
+function countSocialPostedToday() {
+  const now = new Date();
+  return socialQueueRowsFlat().filter((row) => {
+    if (String(row.status || "").toLowerCase() !== "posted") return false;
+    const p = row.posted_at ? new Date(row.posted_at) : null;
+    return p && !Number.isNaN(p.getTime()) && isSameLocalDay(p, now);
+  }).length;
+}
+
+function countWeekendEventsAhead() {
+  const now = new Date();
+  return state.allEvents.filter((e) => {
+    if (e.status === "rejected") return false;
+    const d = dateFromAdminEventWallTime(e);
+    if (!d || Number.isNaN(d.getTime()) || d < now) return false;
+    const day = d.getDay();
+    const days = (d.getTime() - now.getTime()) / 86400000;
+    return days <= 7 && (day === 0 || day === 6);
+  }).length;
+}
+
+function computeDashboardStats() {
+  const pending = state.allEvents.filter((e) => e.status === "pending").length;
+  const failedSocial = socialQueueRowsFlat().filter((r) => String(r.status || "").toLowerCase() === "failed").length;
+  const missingCoords = state.allEvents.filter(
+    (e) => (e.status === "pending" || e.status === "approved") && !hasValidMarkerCoordinates(e)
+  ).length;
+  const upcomingFeatured = state.allEvents.filter(
+    (e) => e.featured && e.status === "approved" && !isEventPast(e)
+  ).length;
+  return {
+    pending,
+    liveToday: countSocialPostedToday(),
+    failedSocial,
+    weekend: countWeekendEventsAhead(),
+    missingCoords,
+    upcomingFeatured
+  };
+}
+
+function renderDashboard() {
+  if (!dom.dashboardGrid) return;
+  const s = computeDashboardStats();
+  dom.dashboardGrid.innerHTML = `
+    <button type="button" class="admin-dash-card" data-admin-dash="pending">
+      <span class="admin-dash-card__k">${s.pending}</span>
+      <span class="admin-dash-card__t">Ausstehend</span>
+      <span class="admin-dash-card__s">Moderation</span>
+    </button>
+    <button type="button" class="admin-dash-card admin-dash-card--accent" data-admin-dash="live-today">
+      <span class="admin-dash-card__k">${s.liveToday}</span>
+      <span class="admin-dash-card__t">Live heute</span>
+      <span class="admin-dash-card__s">Social · posted</span>
+    </button>
+    <button type="button" class="admin-dash-card admin-dash-card--warn" data-admin-dash="failed">
+      <span class="admin-dash-card__k">${s.failedSocial}</span>
+      <span class="admin-dash-card__t">Social Fehler</span>
+      <span class="admin-dash-card__s">Queue</span>
+    </button>
+    <button type="button" class="admin-dash-card" data-admin-dash="weekend">
+      <span class="admin-dash-card__k">${s.weekend}</span>
+      <span class="admin-dash-card__t">Wochenende</span>
+      <span class="admin-dash-card__s">Events in 7 Tagen</span>
+    </button>
+    <button type="button" class="admin-dash-card admin-dash-card--warn" data-admin-dash="coords">
+      <span class="admin-dash-card__k">${s.missingCoords}</span>
+      <span class="admin-dash-card__t">Ohne Koordinaten</span>
+      <span class="admin-dash-card__s">Pending &amp; OK</span>
+    </button>
+    <button type="button" class="admin-dash-card admin-dash-card--ok" data-admin-dash="featured">
+      <span class="admin-dash-card__k">${s.upcomingFeatured}</span>
+      <span class="admin-dash-card__t">Featured</span>
+      <span class="admin-dash-card__s">Kommende Events</span>
+    </button>
+  `;
+}
+
+function renderAnalyticsBody() {
+  if (!dom.analyticsBody) return;
+  const s = computeDashboardStats();
+  dom.analyticsBody.innerHTML = `
+    <ul class="admin-analytics-list">
+      <li><strong>${state.allEvents.length}</strong> Events gesamt</li>
+      <li><strong>${socialQueueRowsFlat().length}</strong> Social-Queue-Zeilen</li>
+      <li><strong>${s.failedSocial}</strong> fehlgeschlagene Posts</li>
+      <li><strong>${s.missingCoords}</strong> ohne Marker</li>
+    </ul>
+    <p class="card__intro">Erweiterbar um Postiz-Metriken oder Seitenaufrufe, sobald Daten angebunden sind.</p>
+  `;
+}
+
+function renderMainNav() {
+  document.querySelectorAll("[data-admin-nav]").forEach((el) => {
+    const active = el.dataset.adminNav === state.navSection;
+    el.classList.toggle("is-active", active);
+  });
+  if (dom.viewDashboard) dom.viewDashboard.hidden = state.navSection !== "dashboard";
+  if (dom.viewEvents) dom.viewEvents.hidden = state.navSection !== "events";
+  if (dom.viewSocial) dom.viewSocial.hidden = state.navSection !== "social";
+  if (dom.viewAnalytics) dom.viewAnalytics.hidden = state.navSection !== "analytics";
+  if (dom.viewSettings) dom.viewSettings.hidden = state.navSection !== "settings";
+  document.body.classList.toggle("admin-route-social", state.navSection === "social");
+}
+
+function setNavSection(section) {
+  state.navSection = section || "dashboard";
+  renderMainNav();
+  if (state.navSection === "dashboard") renderDashboard();
+}
+
+function renderStatusTabs() {
+  dom.statusTabs.forEach((tab) => {
     const isActive = tab.dataset.statusFilter === state.activeTab;
     tab.classList.toggle("is-active", isActive);
     tab.setAttribute("aria-selected", String(isActive));
@@ -914,7 +1244,7 @@ function renderTabs() {
 
 function renderEventCard(event) {
   const card = document.createElement("article");
-  card.className = "event-card";
+  card.className = "event-card event-card--premium";
   card.dataset.eventId = String(event.id);
   const previewGenre = escapeHtml(String(event.genre || "Event").split(",")[0].trim() || "Event");
   const previewTitle = escapeHtml(event.name || "Untitled Event");
@@ -924,7 +1254,7 @@ function renderEventCard(event) {
     ? `<img class="event-card__image" data-event-preview-img src="${escapeHtml(thumbSrc)}" alt="${previewTitle}" loading="lazy" decoding="async" />`
     : `<img class="event-card__image" data-event-preview-img hidden alt="${previewTitle}" loading="lazy" decoding="async" />`;
   const previewMarkup = `
-    <figure class="event-card__preview${thumbSrc ? "" : " event-card__preview--empty"}">
+    <figure class="event-card__preview event-card__preview--hero${thumbSrc ? "" : " event-card__preview--empty"}">
       ${imgTag}
       <figcaption class="event-card__preview-overlay">
         <span class="event-card__preview-badge">${previewGenre}</span>
@@ -936,105 +1266,106 @@ function renderEventCard(event) {
   const replaceBlock =
     event.status === "pending"
       ? `<div class="event-card__replace-row">
-          <button type="button" class="button-secondary event-card__replace-btn" data-action="replace-image">Bild ersetzen</button>
+          <button type="button" class="btn-pill btn-pill--soft event-card__replace-btn" data-action="replace-image">Bild ersetzen</button>
           <input type="file" class="event-card__replace-input" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" data-admin-replace-input tabindex="-1" aria-hidden="true" />
         </div>`
       : "";
   const hasMarker = hasValidMarkerCoordinates(event);
   const isGeoBusy = state.geoBusyEventIds.has(String(event.id));
-  const markerStatusClass = [
-    "event-card__marker-status",
-    hasMarker ? "event-card__marker-status--active" : "event-card__marker-status--missing",
-    hasMarker && state.geoPulseEventIds.has(String(event.id)) ? "event-card__marker-status--success" : ""
+  const geoWarningMarkup = hasMarker
+    ? ""
+    : `<section class="event-card__geo-strip" aria-live="polite">
+        <span class="event-card__geo-strip-text"><strong>Karte:</strong> keine Koordinaten · nicht auf der Map sichtbar</span>
+        <div class="event-card__geo-strip-actions">
+          <button type="button" class="btn-pill btn-pill--soft" data-action="regeocode" data-geo-action ${isGeoBusy ? "disabled" : ""}>📍 Neu berechnen</button>
+          <button type="button" class="btn-pill btn-pill--soft" data-action="edit-location" data-geo-action ${isGeoBusy ? "disabled" : ""}>Standort</button>
+        </div>
+        <p class="event-card__geo-progress" data-geo-status ${isGeoBusy ? "" : "hidden"}>
+          <span class="event-card__geo-spinner" aria-hidden="true"></span> Geocoding…
+        </p>
+      </section>`;
+  const socialSummary = socialQueueSummary(event.id);
+  const socialClass = [
+    "event-card__social-pill",
+    socialSummary.failed ? "event-card__social-pill--bad" : "",
+    socialSummary.ready && !socialSummary.failed ? "event-card__social-pill--ok" : ""
   ]
     .filter(Boolean)
     .join(" ");
-  const geoWarningMarkup = hasMarker
-    ? ""
-    : `<section class="event-card__geo-warning" aria-live="polite">
-        <div class="event-card__geo-warning-main">
-          <span class="event-card__geo-warning-icon" aria-hidden="true">⚠️</span>
-          <div>
-            <strong>Kein Karten-Marker</strong>
-            <p>Dieses Event hat keine gültigen Koordinaten und erscheint nicht auf der Map.</p>
-          </div>
-        </div>
-        <div class="event-card__geo-actions">
-          <button type="button" class="event-card__geo-btn" data-action="regeocode" data-geo-action ${
-            isGeoBusy ? "disabled" : ""
-          }>Koordinaten neu berechnen</button>
-          <button type="button" class="event-card__geo-btn" data-action="edit-location" data-geo-action ${
-            isGeoBusy ? "disabled" : ""
-          }>Standort bearbeiten</button>
-        </div>
-        <p class="event-card__geo-progress" data-geo-status ${isGeoBusy ? "" : "hidden"}>
-          <span class="event-card__geo-spinner" aria-hidden="true"></span>
-          Standort wird geprüft...
-        </p>
-      </section>`;
+  const socialText = socialSummary.total
+    ? `${socialSummary.ready} ready · ${socialSummary.pending} geplant · ${socialSummary.failed} Fehler`
+    : "Keine Social-Drafts";
+  const shortNoticeInfo = shortNoticeInfoForEvent(event);
+  const shortNoticeMarkup = shortNoticeInfo.active
+    ? `<div class="event-card__urgent ${shortNoticeInfo.urgent ? "event-card__urgent--hot" : ""}" role="status">
+        ${shortNoticeInfo.urgent ? "🔥" : "⏱"} ${shortNoticeInfo.urgent ? "Eilmeldung (<24h)" : "Kurzfristig (<96h)"}
+      </div>`
+    : "";
+  const validationMarkup = renderValidationBadges(event);
+  const metaLine = `${escapeHtml(formatDateTime(event))} · ${escapeHtml(event.city || "–")} · ${escapeHtml(recurrenceLabel(event))}`;
+
+  let primaryRow = "";
+  if (event.status === "pending") {
+    primaryRow = `<div class="event-card__primary-actions">
+      <button type="button" class="btn-pill btn-pill--hero btn-pill--approve" data-action="approved">✅ Freigeben</button>
+      <button type="button" class="btn-pill btn-pill--hero-ghost" data-action="edit-event">✏️ Bearbeiten</button>
+    </div>`;
+  } else if (event.status === "approved") {
+    primaryRow = `<div class="event-card__primary-actions">
+      <button type="button" class="btn-pill btn-pill--hero" data-action="edit-event">✏️ Bearbeiten</button>
+      <button type="button" class="btn-pill btn-pill--hero-ghost" data-action="regenerate-drafts">♻️ Drafts neu</button>
+    </div>`;
+  } else {
+    primaryRow = `<div class="event-card__primary-actions">
+      <button type="button" class="btn-pill btn-pill--hero-ghost" data-action="edit-event">✏️ Bearbeiten</button>
+    </div>`;
+  }
+
   card.innerHTML = `
-    <div class="event-card__layout">
-      <div class="event-card__media-column">
+    <div class="event-card__layout event-card__layout--premium">
+      <div class="event-card__media-col">
         ${previewMarkup}
         ${replaceBlock}
       </div>
-      <div class="event-card__content-column">
-        <header class="event-card__head">
-          <div>
-            <h3>${escapeHtml(event.name)}</h3>
-            <p class="muted">${escapeHtml(eventPlace(event))}</p>
+      <div class="event-card__body-col">
+        <header class="event-card__top">
+          <div class="event-card__titles">
+            <h3 class="event-card__title">${escapeHtml(event.name)}</h3>
+            <p class="event-card__venue">${escapeHtml([event.location_name, event.address].filter(Boolean).join(" · ") || "–")}</p>
+            <p class="event-card__meta-line">${metaLine}</p>
           </div>
-          <span class="${statusPillClass(event.status)}">${escapeHtml(statusLabel(event.status))}</span>
+          <span class="${statusPillClass(event.status)} event-card__status-pill">${escapeHtml(statusLabel(event.status))}</span>
         </header>
-
-        <ul class="event-meta">
-          <li><strong>Datum:</strong> ${escapeHtml(formatDateTime(event))}</li>
-          <li><strong>Wiederholung:</strong> ${escapeHtml(recurrenceLabel(event))}</li>
-          <li><strong>Regel:</strong> ${escapeHtml(recurrenceDetails(event))}</li>
-          <li><strong>Genre:</strong> ${escapeHtml(event.genre || "-")}</li>
-          <li><strong>Preis:</strong> ${escapeHtml(event.price_text || "-")}</li>
-          <li><strong>Eingereicht von:</strong> ${escapeHtml(event.submitted_by || "-")}</li>
-          <li><strong>Kontakt:</strong> ${escapeHtml(event.contact_email || "-")}</li>
-          <li><strong>Koordinaten:</strong> ${
-    event.lat !== null && event.lng !== null
-      ? `${escapeHtml(String(event.lat))}, ${escapeHtml(String(event.lng))}`
-      : "-"
-  }</li>
-          <li><strong>Marker Status:</strong> <span class="${markerStatusClass}">${
-    hasMarker ? "Aktiv" : "Nicht sichtbar"
-  }</span></li>
-        </ul>
+        ${validationMarkup}
+        <div class="event-card__social-row">
+          <span class="${socialClass}">${escapeHtml(socialText)}</span>
+        </div>
+        ${shortNoticeMarkup}
+        <p class="event-card__teaser">${escapeHtml((event.description || "").slice(0, 220))}${String(event.description || "").length > 220 ? "…" : ""}</p>
+        ${geoWarningMarkup}
+        <label class="event-card__notes">
+          <span class="event-card__notes-label">Moderation</span>
+          <textarea data-notes rows="2" placeholder="Interne Notizen…">${escapeHtml(event.verification_notes)}</textarea>
+        </label>
+        <div class="event-card__flags">
+          <label class="chip-toggle ${event.featured ? "is-on" : ""}">
+            <input type="checkbox" data-featured ${event.featured ? "checked" : ""} ${!state.featureColumns.featured ? "disabled" : ""}>
+            Featured
+          </label>
+          <label class="chip-toggle ${event.promoted ? "is-on" : ""}">
+            <input type="checkbox" data-promoted ${event.promoted ? "checked" : ""} ${!state.featureColumns.promoted ? "disabled" : ""}>
+            Promoted
+          </label>
+          <button type="button" class="btn-pill btn-pill--soft" data-action="toggle-featured" title="Featured schnell umschalten">⭐ Feature</button>
+        </div>
+        ${primaryRow}
+        <div class="event-card__secondary-actions">
+          <button type="button" class="btn-pill btn-pill--outline" data-action="pending">⏸ Pending</button>
+          <button type="button" class="btn-pill btn-pill--outline btn-pill--danger" data-action="rejected">❌ Ablehnen</button>
+          <button type="button" class="btn-pill btn-pill--outline" data-action="save-notes">💾 Notizen</button>
+          <button type="button" class="btn-pill btn-pill--outline" data-action="regeocode" data-geo-action ${isGeoBusy ? "disabled" : ""}>📍 Fix</button>
+        </div>
       </div>
-    </div>
-    <p class="event-description">${escapeHtml(event.description || "Keine Beschreibung")}</p>
-
-    <label class="field">
-      <span>Curation notes</span>
-      <textarea data-notes rows="2" placeholder="z. B. Instagram geprüft">${escapeHtml(event.verification_notes)}</textarea>
-    </label>
-
-    <div class="toggle-row">
-      <label class="mini-toggle ${event.featured ? "is-on" : ""}">
-        <input type="checkbox" data-featured ${event.featured ? "checked" : ""} ${
-    !state.featureColumns.featured ? "disabled" : ""
-  }>
-        Featured
-      </label>
-      <label class="mini-toggle ${event.promoted ? "is-on" : ""}">
-        <input type="checkbox" data-promoted ${event.promoted ? "checked" : ""} ${
-    !state.featureColumns.promoted ? "disabled" : ""
-  }>
-        Promoted
-      </label>
-    </div>
-
-    ${geoWarningMarkup}
-
-    <div class="card-actions">
-      <button type="button" class="button-secondary button-secondary--approve" data-action="approved">Approve</button>
-      <button type="button" class="button-secondary" data-action="pending">Set pending</button>
-      <button type="button" class="button-secondary button-secondary--reject" data-action="rejected">Reject</button>
-      <button type="button" class="button-secondary button-secondary--primary" data-action="save-notes">Save notes</button>
     </div>
   `;
   return card;
@@ -1042,20 +1373,141 @@ function renderEventCard(event) {
 
 function renderEvents() {
   if (!dom.eventGrid || !dom.emptyState) return;
-  dom.eventGrid.innerHTML = "";
-  if (!state.filteredEvents.length) {
+  const total = state.filteredEvents.length;
+  if (!total) {
+    dom.eventGrid.innerHTML = "";
     dom.emptyState.hidden = false;
+    if (dom.eventSentinel) dom.eventSentinel.hidden = true;
+    state.eventsRendered = 0;
     return;
   }
   dom.emptyState.hidden = true;
-  state.filteredEvents.forEach((event) => dom.eventGrid.append(renderEventCard(event)));
+  if (state.eventListReset) {
+    dom.eventGrid.innerHTML = "";
+    state.eventsRendered = 0;
+    state.eventListReset = false;
+  }
+  const target = Math.min(total, state.eventsVisibleCount);
+  for (let i = state.eventsRendered; i < target; i++) {
+    dom.eventGrid.append(renderEventCard(state.filteredEvents[i]));
+  }
+  state.eventsRendered = target;
+  if (dom.eventSentinel) dom.eventSentinel.hidden = target >= total;
 }
 
 function render() {
   updateCounts();
-  renderTabs();
   applyFilters();
-  renderEvents();
+  renderStatusTabs();
+  renderMainNav();
+  renderDashboard();
+  renderAnalyticsBody();
+  if (dom.settingsBuild) dom.settingsBuild.textContent = ADMIN_DASHBOARD_BUILD;
+  renderSocialQueuePanel();
+  if (state.navSection === "events") {
+    renderEvents();
+  }
+}
+
+function isSameLocalDay(a, b) {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+function socialQueueRowsFlat() {
+  return [...state.socialQueueByEvent.values()].flat();
+}
+
+function socialQueueRowMatchesFilter(row) {
+  const filter = state.socialQueueFilter;
+  const status = String(row.status || "pending").toLowerCase();
+  if (filter === "all") return true;
+  if (filter === "draft") return status === "posted";
+  if (filter === "today") {
+    const scheduled = new Date(row.scheduled_at);
+    return !Number.isNaN(scheduled.getTime()) && scheduled >= new Date() && isSameLocalDay(scheduled, new Date());
+  }
+  return status === filter;
+}
+
+function socialQueueEventTitle(eventId) {
+  return state.allEvents.find((event) => String(event.id) === String(eventId))?.name || String(eventId || "-");
+}
+
+function formatAdminDateTime(raw) {
+  if (!raw) return "-";
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? String(raw) : parsed.toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" });
+}
+
+function platformVisual(platform) {
+  const p = String(platform || "").toLowerCase();
+  if (p === "instagram") return { icon: "📸", label: "Instagram" };
+  if (p === "facebook") return { icon: "📘", label: "Facebook" };
+  return { icon: "🌐", label: platform || "-" };
+}
+
+function socialQueueStatusTone(status) {
+  const s = String(status || "").toLowerCase();
+  if (s === "posted") return "ok";
+  if (s === "failed") return "bad";
+  if (s === "processing") return "progress";
+  if (s === "skipped") return "muted";
+  return "pending";
+}
+
+function renderSocialQueuePanel() {
+  if (!dom.socialQueuePanel) return;
+  dom.socialQueueFilters.forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.socialFilter === state.socialQueueFilter);
+  });
+  const rows = socialQueueRowsFlat().filter(socialQueueRowMatchesFilter);
+  if (!rows.length) {
+    dom.socialQueuePanel.innerHTML = `<p class="empty-state empty-state--premium">Keine Einträge für diesen Filter.</p>`;
+    return;
+  }
+  dom.socialQueuePanel.innerHTML = rows
+    .map((row) => {
+      const ev = state.allEvents.find((e) => String(e.id) === String(row.event_id));
+      const thumb = String(row.resolved_image_url || ev?.image_url || "").trim();
+      const cap = String(row.caption || "");
+      const pv = platformVisual(row.platform);
+      const tone = socialQueueStatusTone(row.status);
+      const thumbInner = thumb
+        ? `<img src="${escapeHtml(thumb)}" alt="" loading="lazy" class="admin-sq-card__thumb-img" />`
+        : `<span class="admin-sq-card__thumb-fallback">${pv.icon}</span>`;
+      return `
+        <article class="admin-sq-card" data-queue-id="${escapeHtml(row.id)}" data-event-id="${escapeHtml(row.event_id)}">
+          <div class="admin-sq-card__thumb">${thumbInner}</div>
+          <div class="admin-sq-card__main">
+            <header class="admin-sq-card__head">
+              <span class="admin-sq-card__platform" title="${escapeHtml(pv.label)}">${pv.icon} ${escapeHtml(pv.label)}</span>
+              <span class="admin-sq-badge admin-sq-badge--${tone}">${escapeHtml(row.status || "-")}</span>
+            </header>
+            <h3 class="admin-sq-card__title">${escapeHtml(socialQueueEventTitle(row.event_id))}</h3>
+            <p class="admin-sq-card__when">🗓 ${escapeHtml(formatAdminDateTime(row.scheduled_at))}
+              <span class="admin-sq-card__retry"> · Retry ${escapeHtml(String(row.retry_count ?? 0))}</span>
+            </p>
+            <details class="admin-sq-caption">
+              <summary>Caption ${cap.length ? `(${cap.length} Zeichen)` : ""}</summary>
+              <div class="admin-sq-caption__body">${cap ? escapeHtml(cap) : "—"}</div>
+            </details>
+            ${
+              row.last_error
+                ? `<p class="admin-sq-card__err">${escapeHtml(String(row.last_error).slice(0, 280))}</p>`
+                : ""
+      }
+            <div class="admin-sq-card__actions">
+              <button type="button" class="btn-pill btn-pill--soft" data-queue-action="open-event">Event</button>
+              <button type="button" class="btn-pill btn-pill--soft" data-queue-action="copy-caption">Copy</button>
+              <button type="button" class="btn-pill btn-pill--soft" data-queue-action="open-image">Bild</button>
+              <button type="button" class="btn-pill btn-pill--soft" data-queue-action="retry">Retry</button>
+              <button type="button" class="btn-pill btn-pill--soft" data-queue-action="regenerate">Neu</button>
+              <button type="button" class="btn-pill btn-pill--soft btn-pill--danger" data-queue-action="delete">Löschen</button>
+            </div>
+          </div>
+        </article>`;
+    })
+    .join("");
 }
 
 function parseMissingColumn(error) {
@@ -1103,11 +1555,166 @@ async function updateEventWithFallback(eventId, updates) {
   throw new Error(lastError?.message || "Update failed");
 }
 
+async function loadSocialQueueRows() {
+  const client = supabaseClient();
+  const { data, error } = await client
+    .from("social_queue")
+    .select("id,event_id,platform,scheduled_at,status,last_error,posted_at,created_at,retry_count,caption,caption_template_id,resolved_image_url")
+    .order("scheduled_at", { ascending: true });
+  if (error) {
+    console.warn("Social queue konnte nicht geladen werden:", error);
+    state.socialQueueByEvent = new Map();
+    return;
+  }
+  const grouped = new Map();
+  for (const row of data || []) {
+    const key = String(row.event_id || "");
+    if (!key) continue;
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key).push(row);
+  }
+  state.socialQueueByEvent = grouped;
+}
+
+async function ensureSocialReviewQueueForEvent(event) {
+  const candidates = buildSocialReviewQueueRows(event);
+  if (!candidates.length) return 0;
+  const client = supabaseClient();
+  const { data: existing, error: existingError } = await client
+    .from("social_queue")
+    .select("platform,scheduled_at,status")
+    .eq("event_id", event.id);
+  if (existingError) throw new Error(existingError.message || "Social Queue konnte nicht geprüft werden.");
+
+  const existingKeys = new Set(
+    (existing || []).map((row) => `${row.platform}:${new Date(row.scheduled_at).toISOString()}`)
+  );
+  const eventStart = dateFromAdminEventWallTime(event);
+  const now = new Date();
+  const hasRecentLastCall = (candidate) => {
+    if (candidate._slot_id !== "short_notice_last_call" || !eventStart) return false;
+    return (existing || []).some((row) => {
+      if (String(row.platform) !== String(candidate.platform)) return false;
+      if (String(row.status || "").toLowerCase() === "skipped") return false;
+      const scheduled = new Date(row.scheduled_at);
+      if (Number.isNaN(scheduled.getTime())) return false;
+      return scheduled >= new Date(now.getTime() - 6 * 3600000) && scheduled < eventStart;
+    });
+  };
+  const missing = candidates.filter((row) => {
+    if (hasRecentLastCall(row)) return false;
+    return !existingKeys.has(`${row.platform}:${row.scheduled_at}`);
+  });
+  if (!missing.length) return 0;
+
+  const insertRows = missing.map(({ _slot_id, ...row }) => row);
+  const { error } = await client.from("social_queue").insert(insertRows);
+  if (error) throw new Error(error.message || "Social Queue konnte nicht erstellt werden.");
+  return missing.length;
+}
+
+async function regenerateSocialDraftsForEvent(event) {
+  const client = supabaseClient();
+  await client
+    .from("social_queue")
+    .delete()
+    .eq("event_id", event.id)
+    .in("status", ["pending", "failed", "skipped"]);
+  return ensureSocialReviewQueueForEvent(event);
+}
+
+async function retrySocialQueueRow(queueId) {
+  const client = supabaseClient();
+  const { error } = await client
+    .from("social_queue")
+    .update({
+      status: "pending",
+      last_error: null,
+      last_attempt_at: null,
+      updated_at: new Date().toISOString()
+    })
+    .eq("id", queueId);
+  if (error) throw new Error(error.message || "Retry failed.");
+}
+
+async function deleteSocialQueueRow(queueId) {
+  const client = supabaseClient();
+  const { error } = await client.from("social_queue").delete().eq("id", queueId);
+  if (error) throw new Error(error.message || "Delete failed.");
+}
+
+function findSocialQueueRow(queueId) {
+  return socialQueueRowsFlat().find((row) => String(row.id) === String(queueId));
+}
+
+function readJsonField(rawValue, fallback = null) {
+  const value = String(rawValue || "").trim();
+  if (!value) return fallback;
+  try {
+    return JSON.parse(value);
+  } catch {
+    throw new Error("JSON field is invalid.");
+  }
+}
+
+function hasLocationChanged(event, payload) {
+  return ["location_name", "address", "postal_code", "city", "country"].some((key) =>
+    String(event?.[key] || "").trim() !== String(payload?.[key] || "").trim()
+  );
+}
+
+function eventEditPayloadFromForm(form) {
+  const formData = new FormData(form);
+  const latRaw = String(formData.get("lat") || "").trim();
+  const lngRaw = String(formData.get("lng") || "").trim();
+  const tagsRaw = String(formData.get("tags") || "").trim();
+  const payload = {
+    name: String(formData.get("title") || "").trim(),
+    title: String(formData.get("title") || "").trim(),
+    title_es: String(formData.get("title_es") || "").trim() || null,
+    title_de: String(formData.get("title_de") || "").trim() || null,
+    title_en: String(formData.get("title_en") || "").trim() || null,
+    description: String(formData.get("description") || "").trim() || null,
+    description_es: String(formData.get("description_es") || "").trim() || null,
+    description_de: String(formData.get("description_de") || "").trim() || null,
+    description_en: String(formData.get("description_en") || "").trim() || null,
+    genre: String(formData.get("category") || "").trim() || null,
+    category: String(formData.get("category") || "").trim() || null,
+    event_date: String(formData.get("event_date") || "").trim() || null,
+    event_time: String(formData.get("event_time") || "").trim() || null,
+    end_time: String(formData.get("end_time") || "").trim() || null,
+    location_name: String(formData.get("location_name") || "").trim() || null,
+    address: String(formData.get("address") || "").trim() || null,
+    street: String(formData.get("address") || "").trim() || null,
+    postal_code: String(formData.get("postal_code") || "").trim() || null,
+    city: String(formData.get("city") || "").trim() || null,
+    country: String(formData.get("country") || "").trim() || null,
+    artist_name: String(formData.get("artist_name") || "").trim() || null,
+    price_text: String(formData.get("price_text") || "").trim() || null,
+    image_url: String(formData.get("image_url") || "").trim() || null,
+    image_urls: readJsonField(formData.get("image_urls"), null),
+    tags: tagsRaw ? tagsRaw.split(",").map((tag) => tag.trim()).filter(Boolean) : null,
+    verification_notes: String(formData.get("verification_notes") || "").trim() || null
+  };
+  if (latRaw || lngRaw) {
+    const lat = parseCoordinate(latRaw);
+    const lng = parseCoordinate(lngRaw);
+    if (lat === null || lng === null) throw new Error("Coordinates are invalid.");
+    payload.lat = lat;
+    payload.lng = lng;
+  } else {
+    payload.lat = null;
+    payload.lng = null;
+  }
+  return payload;
+}
+
 async function loadEvents() {
   const client = supabaseClient();
   const { data, error } = await client.from("events").select("*").order("event_date", { ascending: true });
   if (error) throw error;
   state.allEvents = (data || []).map(normalizeEvent);
+  await loadSocialQueueRows();
   syncFilterOptions();
   render();
 }
@@ -1136,10 +1743,10 @@ function renderAuthState() {
   if (dom.authCard) dom.authCard.hidden = isAdmin;
   if (dom.workspace) dom.workspace.hidden = !isAdmin;
   if (dom.headerSignOutButton) dom.headerSignOutButton.hidden = !isAdmin;
+  document.body.classList.toggle("admin-is-logged-in", Boolean(isAdmin));
+  document.querySelector(".admin-header")?.classList.toggle("admin-header--compact-hidden", Boolean(isAdmin));
   if (dom.sessionInfo) {
-    dom.sessionInfo.textContent = isAdmin
-      ? `Angemeldet als ${state.adminSession?.user?.email || "-"}`
-      : "Nicht angemeldet";
+    dom.sessionInfo.textContent = isAdmin ? `${state.adminSession?.user?.email || "-"}` : "–";
   }
 }
 
@@ -1165,12 +1772,12 @@ function markGeoPulse(eventId) {
   const id = String(eventId || "");
   if (!id) return;
   state.geoPulseEventIds.add(id);
+  const escapedId = window.CSS?.escape ? window.CSS.escape(id) : id.replace(/"/g, '\\"');
+  const cardEl = document.querySelector(`.event-card[data-event-id="${escapedId}"]`);
+  cardEl?.classList.add("is-geo-success-flash");
   window.setTimeout(() => {
     state.geoPulseEventIds.delete(id);
-    const escapedId = window.CSS?.escape ? window.CSS.escape(id) : id.replace(/"/g, '\\"');
-    document
-      .querySelector(`.event-card[data-event-id="${escapedId}"] .event-card__marker-status`)
-      ?.classList.remove("event-card__marker-status--success");
+    cardEl?.classList.remove("is-geo-success-flash");
   }, 2400);
 }
 
@@ -1307,6 +1914,205 @@ function openAdminLocationModal(eventData) {
   btnSubmit?.focus();
 }
 
+function openEventEditorModal(eventData) {
+  const overlay = document.createElement("div");
+  overlay.className = "admin-editor-overlay admin-editor-overlay--drawer";
+  overlay.setAttribute("role", "dialog");
+  overlay.setAttribute("aria-modal", "true");
+  overlay.setAttribute("aria-label", "Event bearbeiten");
+
+  const sqRows = socialQueueRowsForEvent(eventData.id);
+  const socialList =
+    sqRows.length > 0
+      ? `<ul class="admin-editor-sq-list">${sqRows
+          .map(
+            (r) => `<li class="admin-editor-sq-item">
+          <div class="admin-editor-sq-meta"><strong>${escapeHtml(platformVisual(r.platform).label)}</strong>
+          · ${escapeHtml(formatAdminDateTime(r.scheduled_at))}
+          · <span class="admin-sq-badge admin-sq-badge--${socialQueueStatusTone(r.status)}">${escapeHtml(r.status || "-")}</span></div>
+          <p class="admin-editor-sq-cap">${escapeHtml(String(r.caption || "(noch keine Caption)").slice(0, 400))}${String(r.caption || "").length > 400 ? "…" : ""}</p>
+        </li>`
+          )
+          .join("")}</ul>`
+      : '<p class="card__intro">Noch keine Einträge in der Social Queue.</p>';
+
+  const latN = parseCoordinate(eventData.lat);
+  const lngN = parseCoordinate(eventData.lng);
+  const mapEmbed =
+    latN !== null && lngN !== null && Math.abs(latN) <= 90 && Math.abs(lngN) <= 180
+      ? `<iframe class="admin-editor-map" loading="lazy" referrerpolicy="no-referrer-when-downgrade" title="Karte"
+          src="https://www.openstreetmap.org/export/embed.html?bbox=${encodeURIComponent(
+            `${lngN - 0.02},${latN - 0.02},${lngN + 0.02},${latN + 0.02}`
+          )}&layer=mapnik&marker=${encodeURIComponent(`${latN}%2C${lngN}`)}"></iframe>`
+      : '<p class="card__intro">Keine Koordinaten — „Fix“ auf der Event-Karte oder Ort speichern.</p>';
+
+  overlay.innerHTML = `
+    <aside class="admin-editor-drawer">
+      <header class="admin-editor-drawer__head">
+        <div>
+          <h3 class="admin-editor-drawer__title">${escapeHtml(eventData.name || "Event")}</h3>
+          <p class="admin-editor-drawer__sub">${escapeHtml(recurrenceLabel(eventData))} · ${escapeHtml(recurrenceDetails(eventData))}</p>
+        </div>
+        <button type="button" class="btn-pill btn-pill--soft" data-editor-close>✕</button>
+      </header>
+      <div class="admin-editor-tabs" role="tablist">
+        <button type="button" class="admin-editor-tab is-active" data-editor-tab="general" role="tab">Allgemein</button>
+        <button type="button" class="admin-editor-tab" data-editor-tab="location" role="tab">Ort</button>
+        <button type="button" class="admin-editor-tab" data-editor-tab="media" role="tab">Medien</button>
+        <button type="button" class="admin-editor-tab" data-editor-tab="social" role="tab">Social</button>
+        <button type="button" class="admin-editor-tab" data-editor-tab="advanced" role="tab">Advanced</button>
+      </div>
+      <form class="admin-editor-form" autocomplete="off">
+        <div class="admin-editor-panel-page is-active" data-editor-panel="general">
+          <div class="admin-editor-fields">
+          <label class="field"><span>Titel</span><input name="title" value="${escapeHtml(eventData.title || eventData.name)}" required></label>
+          <label class="field"><span>Kategorie / Genre</span><input name="category" value="${escapeHtml(eventData.genre || eventData.category)}"></label>
+          <label class="field"><span>Artist</span><input name="artist_name" value="${escapeHtml(eventData.artist_name)}"></label>
+          <label class="field"><span>Tags (Komma)</span><input name="tags" value="${escapeHtml(Array.isArray(eventData.tags) ? eventData.tags.join(", ") : String(eventData.tags || ""))}"></label>
+          <label class="field"><span>Preis</span><input name="price_text" value="${escapeHtml(eventData.price_text)}"></label>
+          <label class="field"><span>Datum</span><input name="event_date" type="date" value="${escapeHtml(eventData.event_date)}"></label>
+          <label class="field"><span>Start</span><input name="event_time" type="time" value="${escapeHtml(String(eventData.event_time || "").slice(0, 5))}"></label>
+          <label class="field"><span>Ende</span><input name="end_time" type="time" value="${escapeHtml(String(eventData.end_time || "").slice(0, 5))}"></label>
+          <label class="field admin-editor-span-2"><span>Beschreibung</span><textarea name="description" rows="5">${escapeHtml(eventData.description)}</textarea></label>
+          <label class="field"><span>Titel ES</span><input name="title_es" value="${escapeHtml(eventData.title_es)}"></label>
+          <label class="field"><span>Titel DE</span><input name="title_de" value="${escapeHtml(eventData.title_de)}"></label>
+          <label class="field"><span>Titel EN</span><input name="title_en" value="${escapeHtml(eventData.title_en)}"></label>
+          <label class="field admin-editor-span-2"><span>Beschreibung ES</span><textarea name="description_es" rows="2">${escapeHtml(eventData.description_es)}</textarea></label>
+          <label class="field admin-editor-span-2"><span>Beschreibung DE</span><textarea name="description_de" rows="2">${escapeHtml(eventData.description_de)}</textarea></label>
+          <label class="field admin-editor-span-2"><span>Beschreibung EN</span><textarea name="description_en" rows="2">${escapeHtml(eventData.description_en)}</textarea></label>
+          </div>
+        </div>
+        <div class="admin-editor-panel-page" data-editor-panel="location" hidden>
+          <div class="admin-editor-fields">
+          <label class="field"><span>Venue</span><input name="location_name" value="${escapeHtml(eventData.location_name)}"></label>
+          <label class="field admin-editor-span-2"><span>Adresse</span><input name="address" value="${escapeHtml(eventData.address)}"></label>
+          <label class="field"><span>PLZ</span><input name="postal_code" value="${escapeHtml(eventData.postal_code)}"></label>
+          <label class="field"><span>Stadt</span><input name="city" value="${escapeHtml(eventData.city)}"></label>
+          <label class="field"><span>Land</span><input name="country" value="${escapeHtml(eventData.country)}"></label>
+          <label class="field"><span>Latitude</span><input name="lat" value="${eventData.lat ?? ""}"></label>
+          <label class="field"><span>Longitude</span><input name="lng" value="${eventData.lng ?? ""}"></label>
+          <div class="admin-editor-map-wrap admin-editor-span-2">${mapEmbed}</div>
+          <p class="card__intro admin-editor-span-2">Bei geänderter Adresse: Speichern recodiert automatisch (wie bisher).</p>
+          </div>
+        </div>
+        <div class="admin-editor-panel-page" data-editor-panel="media" hidden>
+          <div class="admin-editor-fields">
+          <label class="field admin-editor-span-2"><span>Hauptbild URL</span><input name="image_url" value="${escapeHtml(eventData.image_url)}"></label>
+          <label class="field admin-editor-span-2"><span>Weitere Bilder (JSON)</span><textarea name="image_urls" rows="5">${escapeHtml(eventData.image_urls ? JSON.stringify(eventData.image_urls, null, 2) : "")}</textarea></label>
+          <p class="card__intro admin-editor-span-2">Crop-Upload: bei Pending-Events auf der Karte „Bild ersetzen“.</p>
+          </div>
+        </div>
+        <div class="admin-editor-panel-page" data-editor-panel="social" hidden>
+          <p class="card__intro">Captions &amp; geplante Slots (Read-only); Regeneration unten.</p>
+          <div class="admin-editor-share-row">
+            <a class="btn-pill btn-pill--soft" href="./index.html?event_id=${encodeURIComponent(String(eventData.id))}" target="_blank" rel="noopener">Share-Vorschau</a>
+            <button type="button" class="btn-pill btn-pill--soft" data-editor-regenerate-social>♻️ Drafts regenerieren</button>
+          </div>
+          ${socialList}
+        </div>
+        <div class="admin-editor-panel-page" data-editor-panel="advanced" hidden>
+          <label class="field admin-editor-span-2"><span>Interne Moderationsnotizen</span>
+            <textarea name="verification_notes" rows="4">${escapeHtml(eventData.verification_notes)}</textarea>
+          </label>
+          <p class="card__intro">Weitere Rohfelder bei Bedarf direkt in Supabase.</p>
+        </div>
+        <p class="admin-editor-status" data-editor-status hidden></p>
+        <div class="admin-editor-actions admin-editor-actions--sticky">
+          <button type="button" class="btn-pill btn-pill--outline" data-editor-cancel>Abbrechen</button>
+          <button type="submit" class="btn-pill btn-pill--soft" data-editor-save>Speichern</button>
+          <button type="submit" class="btn-pill btn-pill--hero" data-editor-save-social>Speichern + Social neu</button>
+        </div>
+      </form>
+    </aside>
+  `;
+
+  const form = overlay.querySelector(".admin-editor-form");
+  const status = overlay.querySelector("[data-editor-status]");
+  const tabs = overlay.querySelectorAll("[data-editor-tab]");
+  const panels = overlay.querySelectorAll("[data-editor-panel]");
+
+  const activateTab = (name) => {
+    tabs.forEach((t) => t.classList.toggle("is-active", t.dataset.editorTab === name));
+    panels.forEach((p) => {
+      const on = p.dataset.editorPanel === name;
+      p.toggleAttribute("hidden", !on);
+      p.classList.toggle("is-active", on);
+    });
+  };
+
+  tabs.forEach((tab) => {
+    tab.addEventListener("click", () => activateTab(tab.dataset.editorTab || "general"));
+  });
+
+  const close = () => {
+    document.removeEventListener("keydown", onKeyDown);
+    overlay.remove();
+  };
+  const onKeyDown = (e) => {
+    if (e.key === "Escape" && !overlay.classList.contains("is-busy")) close();
+  };
+  const setBusy = (busy, message = "") => {
+    overlay.classList.toggle("is-busy", busy);
+    form?.querySelectorAll("input, textarea, button").forEach((control) => {
+      if (control.hasAttribute("data-editor-close")) return;
+      control.disabled = busy;
+    });
+    if (status) {
+      status.hidden = !message;
+      status.textContent = message;
+    }
+  };
+  overlay.querySelector("[data-editor-close]")?.addEventListener("click", close);
+  overlay.querySelector("[data-editor-cancel]")?.addEventListener("click", close);
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay && !overlay.classList.contains("is-busy")) close();
+  });
+
+  overlay.querySelector("[data-editor-regenerate-social]")?.addEventListener("click", async () => {
+    setBusy(true, "Social Drafts…");
+    try {
+      const n = await regenerateSocialDraftsForEvent(eventData);
+      setGlobalFeedback(`Social Drafts neu (${n}).`, "success");
+      close();
+      await loadEvents();
+    } catch (error) {
+      console.error("Regenerate social failed:", error);
+      setBusy(false, error.message || "Fehler");
+      setGlobalFeedback(`Social: ${error.message}`, "error");
+    }
+  });
+
+  form?.addEventListener("submit", async (submitEvent) => {
+    submitEvent.preventDefault();
+    const regenerate = Boolean(submitEvent.submitter?.hasAttribute("data-editor-save-social"));
+    try {
+      setBusy(true, "Speichern…");
+      const payload = eventEditPayloadFromForm(form);
+      if (hasLocationChanged(eventData, payload)) {
+        const coords = await resolveAdminCoordinates({ ...eventData, ...payload });
+        payload.lat = coords.lat;
+        payload.lng = coords.lng;
+        payload.geocoding_query = coords.geocoding_query;
+        if (coords.formatted_address) payload.formatted_address = coords.formatted_address;
+      }
+      await updateEventWithFallback(eventData.id, payload);
+      if (regenerate) {
+        await regenerateSocialDraftsForEvent({ ...eventData, ...payload, id: eventData.id });
+      }
+      setGlobalFeedback(regenerate ? "Gespeichert & Social neu geplant." : "Gespeichert.", "success");
+      close();
+      await loadEvents();
+    } catch (error) {
+      console.error("Event edit failed:", error);
+      setBusy(false, error.message || "Speichern fehlgeschlagen.");
+      setGlobalFeedback(`Speichern fehlgeschlagen: ${error.message || ""}`.trim(), "error");
+    }
+  });
+  document.body.appendChild(overlay);
+  document.addEventListener("keydown", onKeyDown);
+  form?.querySelector("input[name='title']")?.focus();
+}
+
 async function handleCardAction(clickEvent) {
   const button = clickEvent.target.closest("button[data-action]");
   if (!button) return;
@@ -1331,6 +2137,41 @@ async function handleCardAction(clickEvent) {
     return;
   }
 
+  if (button.dataset.action === "edit-event") {
+    openEventEditorModal(eventData);
+    return;
+  }
+
+  if (button.dataset.action === "regenerate-drafts") {
+    button.disabled = true;
+    setGlobalFeedback("");
+    try {
+      const n = await regenerateSocialDraftsForEvent(eventData);
+      setGlobalFeedback(`Social Drafts neu erstellt (${n}).`, "success");
+      await loadEvents();
+    } catch (error) {
+      console.error("Regenerate drafts failed:", error);
+      setGlobalFeedback(error.message || "Social Fehler", "error");
+    } finally {
+      button.disabled = false;
+    }
+    return;
+  }
+
+  if (button.dataset.action === "toggle-featured") {
+    button.disabled = true;
+    try {
+      await updateEventWithFallback(eventData.id, { featured: !eventData.featured });
+      setGlobalFeedback("Featured aktualisiert.", "success");
+      await loadEvents();
+    } catch (error) {
+      setGlobalFeedback(error.message || "Update fehlgeschlagen", "error");
+    } finally {
+      button.disabled = false;
+    }
+    return;
+  }
+
   const notes = card.querySelector("textarea[data-notes]")?.value.trim() || "";
   const featuredInput = card.querySelector("input[data-featured]");
   const promotedInput = card.querySelector("input[data-promoted]");
@@ -1347,7 +2188,12 @@ async function handleCardAction(clickEvent) {
         verification_notes: notes
       });
       const persistedStatus = String(updatedRow?.status || button.dataset.action);
-      setGlobalFeedback(`Status updated to ${persistedStatus}.`, "success");
+      let socialCreated = 0;
+      if (persistedStatus === "approved") {
+        socialCreated = await ensureSocialReviewQueueForEvent({ ...eventData, status: persistedStatus });
+      }
+      const socialSuffix = socialCreated ? ` Social Review: ${socialCreated} Draft-Jobs geplant.` : "";
+      setGlobalFeedback(`Status updated to ${persistedStatus}.${socialSuffix}`, "success");
     }
 
     const featuredChanged = state.featureColumns.featured && featuredInput
@@ -1374,7 +2220,7 @@ async function handleCardAction(clickEvent) {
 }
 
 function bindEvents() {
-  dom.tabs.forEach((tab) => {
+  dom.statusTabs.forEach((tab) => {
     tab.addEventListener("click", () => {
       state.activeTab = tab.dataset.statusFilter || "all";
       render();
@@ -1382,8 +2228,72 @@ function bindEvents() {
   });
 
   dom.searchInput?.addEventListener("input", () => {
-    state.search = dom.searchInput.value || "";
+    window.clearTimeout(state.searchDebounceTimer);
+    state.searchDebounceTimer = window.setTimeout(() => {
+      state.search = dom.searchInput?.value || "";
+      render();
+    }, 320);
+  });
+
+  dom.workspace?.querySelectorAll("[data-admin-nav]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.navSection = btn.dataset.adminNav || "dashboard";
+      render();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+  });
+
+  dom.workspace?.addEventListener("click", (ev) => {
+    const dash = ev.target.closest("[data-admin-dash]");
+    if (dash) {
+      const k = dash.dataset.adminDash || "";
+      if (k === "pending") {
+        state.navSection = "events";
+        state.activeTab = "pending";
+      } else if (k === "live-today") {
+        state.navSection = "social";
+        state.socialQueueFilter = "today";
+      } else if (k === "failed") {
+        state.navSection = "social";
+        state.socialQueueFilter = "failed";
+      } else if (k === "weekend") {
+        state.navSection = "events";
+        state.activeTab = "all";
+        setGlobalFeedback("Filter: Events am Wochenende — nutze Suche/Stadt.", "info");
+      } else if (k === "coords") {
+        state.navSection = "events";
+        state.activeTab = "all";
+        setGlobalFeedback("Events ohne Marker: Siehe Badges „Keine Koordinaten“.", "info");
+      } else if (k === "featured") {
+        state.navSection = "events";
+        state.activeTab = "approved";
+      }
+      render();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+    const short = ev.target.closest("[data-admin-shortcut]");
+    if (short) {
+      const k = short.dataset.adminShortcut || "";
+      if (k === "events-pending") {
+        state.navSection = "events";
+        state.activeTab = "pending";
+      } else if (k === "social-failed") {
+        state.navSection = "social";
+        state.socialQueueFilter = "failed";
+      } else if (k === "missing-coords") {
+        state.navSection = "events";
+        setGlobalFeedback("Koordinaten: Strip auf der Karte oder 📍 Fix.", "info");
+      }
+      render();
+    }
+  });
+
+  dom.workspace?.querySelector("[data-admin-quick-pending]")?.addEventListener("click", () => {
+    state.navSection = "events";
+    state.activeTab = "pending";
     render();
+    window.scrollTo({ top: 0, behavior: "smooth" });
   });
 
   dom.cityFilter?.addEventListener("change", () => {
@@ -1401,11 +2311,65 @@ function bindEvents() {
     render();
   });
 
+  dom.socialQueueFilters.forEach((button) => {
+    button.addEventListener("click", () => {
+      state.socialQueueFilter = button.dataset.socialFilter || "all";
+      renderSocialQueuePanel();
+    });
+  });
+
+  dom.socialQueuePanel?.addEventListener("click", async (event) => {
+    const button = event.target.closest("button[data-queue-action]");
+    if (!button) return;
+    const rowEl = button.closest("[data-queue-id]");
+    const queueId = rowEl?.dataset.queueId;
+    const eventId = rowEl?.dataset.eventId;
+    const row = findSocialQueueRow(queueId);
+    const eventData = state.allEvents.find((item) => String(item.id) === String(eventId));
+    button.disabled = true;
+    try {
+      if (button.dataset.queueAction === "open-event" && eventData) {
+        state.navSection = "events";
+        state.search = eventData.name || "";
+        if (dom.searchInput) dom.searchInput.value = state.search;
+        render();
+        window.requestAnimationFrame(() => {
+          const escapedEventId = window.CSS?.escape ? window.CSS.escape(String(eventId)) : String(eventId).replace(/"/g, '\\"');
+          document.querySelector(`.event-card[data-event-id="${escapedEventId}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+        });
+      } else if (button.dataset.queueAction === "retry") {
+        await retrySocialQueueRow(queueId);
+        setGlobalFeedback("Retry geplant.", "success");
+        await loadEvents();
+      } else if (button.dataset.queueAction === "delete") {
+        await deleteSocialQueueRow(queueId);
+        setGlobalFeedback("Eintrag gelöscht.", "success");
+        await loadEvents();
+      } else if (button.dataset.queueAction === "regenerate" && eventData) {
+        const count = await regenerateSocialDraftsForEvent(eventData);
+        setGlobalFeedback(`Drafts neu (${count}).`, "success");
+        await loadEvents();
+      } else if (button.dataset.queueAction === "copy-caption") {
+        await navigator.clipboard?.writeText(String(row?.caption || ""));
+        setGlobalFeedback("Caption kopiert.", "success");
+      } else if (button.dataset.queueAction === "open-image") {
+        const imageUrl = row?.resolved_image_url || eventData?.image_url;
+        if (imageUrl) window.open(imageUrl, "_blank", "noopener,noreferrer");
+      }
+    } catch (error) {
+      console.error("Social queue action failed:", error);
+      setGlobalFeedback(`Social: ${error.message || ""}`.trim(), "error");
+    } finally {
+      button.disabled = false;
+    }
+  });
+
   dom.resetFiltersButton?.addEventListener("click", () => {
     state.search = "";
     state.city = "";
     state.genre = "";
     state.statusFilter = "";
+    state.lastFilterSignature = "";
     if (dom.searchInput) dom.searchInput.value = "";
     if (dom.cityFilter) dom.cityFilter.value = "";
     if (dom.genreFilter) dom.genreFilter.value = "";
@@ -1508,6 +2472,22 @@ function bindEvents() {
       }
     }
   });
+
+  if (dom.eventSentinel && typeof IntersectionObserver !== "undefined") {
+    const io = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((en) => {
+          if (!en.isIntersecting) return;
+          if (state.navSection !== "events") return;
+          if (state.eventsRendered >= state.filteredEvents.length) return;
+          state.eventsVisibleCount += EVENT_LIST_PAGE_SIZE;
+          renderEvents();
+        });
+      },
+      { root: null, rootMargin: "380px", threshold: 0 }
+    );
+    io.observe(dom.eventSentinel);
+  }
 }
 
 async function start() {

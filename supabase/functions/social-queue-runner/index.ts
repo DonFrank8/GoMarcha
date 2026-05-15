@@ -44,34 +44,76 @@ const CORS: Record<string, string> = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-marcha-social-secret"
 };
 
-/** Short Spanish hooks — stable ids for `social_caption_usage` de-dupe. Local / Costa vibe, no tech tone. */
-const CAPTION_HOOKS: { id: string; line: string }[] = [
-  { id: "cap-01", line: "Este viernes hay plan 🔥" },
-  { id: "cap-02", line: "Música en vivo, buen ambiente y ganas de disfrutar." },
-  { id: "cap-03", line: "Este finde se vive con buena energía." },
-  { id: "cap-04", line: "Directo, calle y buen rollo." },
-  { id: "cap-05", line: "Noche de música en vivo." },
-  { id: "cap-06", line: "¿Plan para salir? Aquí huele a concierto." },
-  { id: "cap-07", line: "La Costa suena distinto." },
-  { id: "cap-08", line: "Buena gente, buena música." },
-  { id: "cap-09", line: "Se acerca un buen directo." },
-  { id: "cap-10", line: "Salir un rato y desconectar." },
-  { id: "cap-11", line: "Ritmo en vivo, sin complicaciones." },
-  { id: "cap-12", line: "Hay plan: música y buen ambiente." },
-  { id: "cap-13", line: "Una noche para disfrutar en serio." },
-  { id: "cap-14", line: "Lo local también pega fuerte." },
-  { id: "cap-15", line: "Este hueco del calendario pide música." },
-  { id: "cap-16", line: "Ambiente de barrio, nivel alto." },
-  { id: "cap-17", line: "Si te gusta el directo, mira esto." },
-  { id: "cap-18", line: "Finde con sabor a escenario." },
-  { id: "cap-19", line: "Poca cháchara, mucha música." },
-  { id: "cap-20", line: "Aquí el plan es simple: salir y gozar." }
-];
+type CaptionStage = "week" | "three_days" | "one_day" | "final_call";
 
-const CAPTION_SOFT_CTAS = [
-  "Descubre qué pasa cerca de ti en gomarcha.com",
-  "¿Tienes un evento? Súbelo gratis en Marcha.",
-  "Este finde se vive con Marcha."
+type CaptionTemplate = {
+  id: string;
+  stage: CaptionStage;
+  build: (ctx: { event: EventRow; where: string; dateLine: string }) => string[];
+};
+
+/** Stage-specific Spanish copy. Stable ids let `social_caption_usage` avoid repeated text per event. */
+const CAPTION_TEMPLATES: CaptionTemplate[] = [
+  {
+    id: "week-01",
+    stage: "week",
+    build: ({ where, dateLine }) => [`Apúntalo con calma: ${where}.`, dateLine]
+  },
+  {
+    id: "week-02",
+    stage: "week",
+    build: ({ where, dateLine }) => [`Plan a la vista en la Costa: ${where}.`, dateLine]
+  },
+  {
+    id: "week-03",
+    stage: "week",
+    build: ({ where, dateLine }) => [`Queda una semana para este directo: ${where}.`, dateLine]
+  },
+  {
+    id: "three-01",
+    stage: "three_days",
+    build: ({ where, dateLine }) => [`Quedan tres días. ${where} ya está cerca.`, dateLine]
+  },
+  {
+    id: "three-02",
+    stage: "three_days",
+    build: ({ where, dateLine }) => [`Si buscas plan esta semana: ${where}.`, dateLine]
+  },
+  {
+    id: "three-03",
+    stage: "three_days",
+    build: ({ where, dateLine }) => [`Tres días y suena el plan: ${where}.`, dateLine]
+  },
+  {
+    id: "one-01",
+    stage: "one_day",
+    build: ({ where, dateLine }) => [`Mañana hay música en vivo: ${where}.`, dateLine]
+  },
+  {
+    id: "one-02",
+    stage: "one_day",
+    build: ({ where, dateLine }) => [`Última noche para organizarte: ${where}.`, dateLine]
+  },
+  {
+    id: "one-03",
+    stage: "one_day",
+    build: ({ where, dateLine }) => [`Mañana toca salir un rato: ${where}.`, dateLine]
+  },
+  {
+    id: "final-01",
+    stage: "final_call",
+    build: ({ where, dateLine }) => [`Final call para hoy: ${where}.`, dateLine]
+  },
+  {
+    id: "final-02",
+    stage: "final_call",
+    build: ({ where, dateLine }) => [`Hoy es el día. ${where}.`, dateLine]
+  },
+  {
+    id: "final-03",
+    stage: "final_call",
+    build: ({ where, dateLine }) => [`Si te apetece directo hoy, mira esto: ${where}.`, dateLine]
+  }
 ];
 
 function calendarDayKeyInTimeZone(ms: number, timeZone: string): string {
@@ -126,7 +168,7 @@ function captionVarietyHash(eventId: string, templateId: string): number {
 }
 
 function buildSpanishHashtagLine(event: EventRow): string {
-  const base = ["músicaenvivo", "livemusic", "CostaDelSol", "goodvibes", "nightlife"];
+  const base = ["músicaenvivo", "CostaDelSol", "directo"];
   const cityRaw = String(event.city || "").trim();
   const city = cityRaw
     .toLowerCase()
@@ -151,16 +193,16 @@ function buildSpanishHashtagLine(event: EventRow): string {
     if (!t || seen.has(t.toLowerCase())) continue;
     seen.add(t.toLowerCase());
     tags.push(`#${t}`);
-    if (tags.length >= 8) break;
+    if (tags.length >= 5) break;
   }
-  while (tags.length < 5) {
-    const pad = ["eventos", "musica", "conciertos", "fiesta"].filter((x) => !seen.has(x));
+  while (tags.length < 4) {
+    const pad = ["eventos", "conciertos", "fiesta"].filter((x) => !seen.has(x));
     const x = pad[0];
     if (!x) break;
     seen.add(x);
     tags.push(`#${x}`);
   }
-  return tags.slice(0, 8).join(" ");
+  return tags.slice(0, 5).join(" ");
 }
 
 function slog(msg: string, extra?: Record<string, unknown>) {
@@ -630,27 +672,23 @@ function resolveEffectivePostTimeMs(args: {
 }
 
 function buildCaption(
-  hook: { id: string; line: string },
+  template: CaptionTemplate,
   event: EventRow,
-  ctx: { eventStartMs: number; nowMs: number; timeZone: string }
+  ctx: { eventStartMs: number; postAtMs: number; timeZone: string }
 ): { caption: string; template_id: string } {
-  const teaser = spanishNaturalTimeTeaser(ctx.eventStartMs, ctx.nowMs, ctx.timeZone);
   const where = shortEventWhereLine(event);
-  const mid = `${teaser} ${where}`;
-  const h = captionVarietyHash(String(event.id), hook.id);
-  const parts: string[] = [hook.line, mid];
-  if (h % 3 === 0) {
-    parts.push(CAPTION_SOFT_CTAS[h % CAPTION_SOFT_CTAS.length]!);
-  }
+  const dateLine = spanishEventDateLine(ctx.eventStartMs, ctx.timeZone);
+  const parts = template.build({ event, where, dateLine });
   parts.push(buildSpanishHashtagLine(event));
   const caption = parts.join("\n\n").trim();
-  return { caption, template_id: hook.id };
+  return { caption, template_id: template.id };
 }
 
-async function pickHook(
+async function pickCaptionTemplate(
   supabase: SupabaseClient,
-  eventId: string
-): Promise<{ id: string; line: string }> {
+  eventId: string,
+  stage: CaptionStage
+): Promise<CaptionTemplate> {
   const since = new Date(Date.now() - 90 * 86400000).toISOString();
   const { data: used, error } = await supabase
     .from("social_caption_usage")
@@ -659,9 +697,11 @@ async function pickHook(
     .gte("created_at", since);
   if (error) slog("caption_usage_select_warning", { message: error.message });
   const usedSet = new Set((used ?? []).map((r: { template_id: string }) => r.template_id));
-  const fresh = CAPTION_HOOKS.filter((h) => !usedSet.has(h.id));
-  const pool = fresh.length ? fresh : CAPTION_HOOKS;
-  return pool[Math.floor(Math.random() * pool.length)]!;
+  const stageTemplates = CAPTION_TEMPLATES.filter((template) => template.stage === stage);
+  const fresh = stageTemplates.filter((template) => !usedSet.has(template.id));
+  const pool = fresh.length ? fresh : stageTemplates;
+  const offset = captionVarietyHash(eventId, stage) % Math.max(1, pool.length);
+  return pool[offset]!;
 }
 
 function utcDayRangeIso(scheduledAt: string): { start: string; end: string } {
@@ -914,6 +954,27 @@ function postizSettings(platform: SocialPlatform): Record<string, unknown> {
 /** Postiz API validates `tags` as an array of `{ value, label }`; empty `[]` can break create/list visibility (see postiz-app#717). */
 function postizTagsPayload(): { value: string; label: string }[] {
   return [{ value: "", label: "" }];
+}
+
+function captionStageForPost(eventStartMs: number, postAtMs: number, timeZone: string): CaptionStage {
+  const diffDays = calendarDaysBetween(eventStartMs, postAtMs, timeZone);
+  if (diffDays <= 0) return "final_call";
+  if (diffDays === 1) return "one_day";
+  if (diffDays <= 3) return "three_days";
+  return "week";
+}
+
+function spanishEventDateLine(eventStartMs: number, timeZone: string): string {
+  const formatted = new Intl.DateTimeFormat("es-ES", {
+    timeZone,
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(new Date(eventStartMs));
+  return `Cuándo: ${formatted.replace(",", "")}.`;
 }
 
 function toUtcPostizDateIso(iso: string): string {
@@ -1481,10 +1542,11 @@ Deno.serve(async (req) => {
       }
     }
 
-    const hook = await pickHook(supabase, claimed.event_id);
-    const { caption, template_id } = buildCaption(hook, ev, {
+    const captionStage = captionStageForPost(eventStartMs, scheduleResult.effectiveMs, eventTimeZone);
+    const captionTemplate = await pickCaptionTemplate(supabase, claimed.event_id, captionStage);
+    const { caption, template_id } = buildCaption(captionTemplate, ev, {
       eventStartMs,
-      nowMs,
+      postAtMs: scheduleResult.effectiveMs,
       timeZone: eventTimeZone
     });
 
@@ -1506,6 +1568,7 @@ Deno.serve(async (req) => {
       postiz_media_id: publishMedia.id,
       postiz_image_path: resolvedPostizUrl,
       postiz_upload_performed: uploadResult.uploadPerformed,
+      caption_stage: captionStage,
       caption_preview: caption.slice(0, 120),
       caption_template_id: template_id,
       postiz_integration_id: integrationId
