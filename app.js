@@ -6268,6 +6268,47 @@ function eventTimestamp(event) {
   return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
 }
 
+/** HH:MM from event_time / end_time (wall clock); invalid → null */
+function parsePublicListingTimeParts(rawTime) {
+  const s = String(rawTime || "").trim();
+  if (!s) return null;
+  const m = s.match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return null;
+  const hour = Math.min(23, Math.max(0, Number(m[1]) || 0));
+  const minute = Math.min(59, Math.max(0, Number(m[2]) || 0));
+  return { hour, minute };
+}
+
+/**
+ * Latest instant the event is still shown on the public map/list.
+ * — end_time if parseable, else event_time, else end of local calendar day.
+ */
+function publicListingEndMs(event, referenceDate = null) {
+  const dateRaw = String(event?.event_date || event?.occurrence_date || "").trim();
+  if (!dateRaw) return null;
+  const day = parseIsoDate(dateRaw);
+  if (!day) return null;
+  const endWall = parsePublicListingTimeParts(event?.end_time);
+  const startWall = parsePublicListingTimeParts(event?.event_time);
+  const d = new Date(day);
+  if (endWall) {
+    d.setHours(endWall.hour, endWall.minute, 59, 999);
+    return d.getTime();
+  }
+  if (startWall) {
+    d.setHours(startWall.hour, startWall.minute, 59, 999);
+    return d.getTime();
+  }
+  d.setHours(23, 59, 59, 999);
+  return d.getTime();
+}
+
+function isHiddenFromPublicListing(event, now = new Date()) {
+  const end = publicListingEndMs(event);
+  if (end === null) return true;
+  return now.getTime() > end;
+}
+
 function parseIsoDate(value) {
   const raw = String(value || "").trim();
   if (!raw) return null;
@@ -6284,18 +6325,8 @@ function formatIsoDate(dateValue) {
   return `${year}-${month}-${day}`;
 }
 
-function isPastOccurrence(event) {
-  const eventDateValue = String(event?.event_date || "").trim();
-  if (!eventDateValue) return false;
-  const eventDate = parseIsoDate(eventDateValue);
-  if (!eventDate) return false;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return eventDate < today;
-}
-
 function appendOneTimeOccurrence(list, event) {
-  if (isPastOccurrence(event)) return;
+  if (isHiddenFromPublicListing(event)) return;
   list.push({
     ...event,
     parent_event_id: event.parent_event_id || event.id,
@@ -6364,7 +6395,7 @@ function buildRecurringOccurrences(event) {
           occurrence_index: occurrenceIndex,
           is_recurring_occurrence: true
         };
-        if (!isPastOccurrence(nextEvent)) occurrences.push(nextEvent);
+        if (!isHiddenFromPublicListing(nextEvent)) occurrences.push(nextEvent);
         occurrenceIndex += 1;
       }
       next.setDate(next.getDate() + 7);
@@ -6391,7 +6422,7 @@ function buildRecurringOccurrences(event) {
           occurrence_index: occurrenceIndex,
           is_recurring_occurrence: true
         };
-        if (!isPastOccurrence(nextEvent)) occurrences.push(nextEvent);
+        if (!isHiddenFromPublicListing(nextEvent)) occurrences.push(nextEvent);
         occurrenceIndex += 1;
       }
       cursor.setMonth(cursor.getMonth() + 1, 1);
@@ -8521,7 +8552,8 @@ async function loadEvents() {
     }
 
     state.moderationEvents = isSessionAdmin(state.adminSession) ? data : [];
-    state.allEvents = applyDistanceData(expandRecurringEvents(data.filter(isApprovedEvent)));
+    const approvedExpanded = expandRecurringEvents(data.filter(isApprovedEvent)).filter((e) => !isHiddenFromPublicListing(e));
+    state.allEvents = applyDistanceData(approvedExpanded);
     state.eventsLoaded = true;
     state.sourceType = "supabase";
     state.debug.fallbackReason = t("debug_note_supabase");

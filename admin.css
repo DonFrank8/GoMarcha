@@ -1597,11 +1597,33 @@ body.admin-is-logged-in .admin-shell {
   padding: 0.85rem 1rem;
 }
 
+.admin-events-toolbar__tabs-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  align-items: flex-start;
+  margin-bottom: 0.75rem;
+}
+
 .admin-events-toolbar__tabs {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
-  margin-bottom: 0.75rem;
+}
+
+.admin-events-toolbar__tabs-row .admin-events-toolbar__tabs {
+  flex: 1 1 260px;
+}
+
+.admin-events-toolbar__tabs--timeline {
+  flex: 1 1 220px;
+  justify-content: flex-end;
+}
+
+@media (max-width: 720px) {
+  .admin-events-toolbar__tabs--timeline {
+    justify-content: flex-start;
+  }
 }
 
 .admin-status-tab {
@@ -1621,6 +1643,23 @@ body.admin-is-logged-in .admin-shell {
   border-color: rgba(167, 139, 250, 0.55);
   color: #fff;
   background: rgba(124, 58, 237, 0.28);
+}
+
+.admin-archive-tab {
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: rgba(15, 23, 42, 0.45);
+  color: var(--muted);
+  padding: 0.35rem 0.75rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.admin-archive-tab.is-active {
+  border-color: rgba(244, 114, 182, 0.45);
+  color: #fce7f3;
+  background: rgba(190, 24, 93, 0.2);
+  box-shadow: 0 0 14px rgba(236, 72, 153, 0.12);
 }
 
 .count-pill {
@@ -1690,6 +1729,20 @@ body.admin-is-logged-in .admin-shell {
   font-family: Poppins, sans-serif;
 }
 
+.event-card__archive-pill {
+  display: inline-block;
+  margin-left: 0.35rem;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #fecaca;
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  background: rgba(127, 29, 29, 0.25);
+  vertical-align: middle;
+}
+
 .btn-pill {
   border-radius: 999px;
   border: 1px solid rgba(148, 163, 184, 0.35);
@@ -1710,7 +1763,54 @@ body.admin-is-logged-in .admin-shell {
   border-color: rgba(255, 122, 143, 0.55);
 }
 
-.event-card.is-geo-success-flash {
+.btn-pill--danger-glow {
+  border-color: rgba(251, 113, 133, 0.65);
+  color: #fecdd3;
+  background: rgba(15, 23, 42, 0.75);
+  box-shadow:
+    0 0 0 1px rgba(244, 63, 94, 0.2),
+    0 0 18px rgba(236, 72, 153, 0.22),
+    0 0 28px rgba(239, 68, 68, 0.12);
+}
+
+.btn-pill--danger-glow:hover:not(:disabled) {
+  border-color: rgba(251, 113, 133, 0.95);
+  box-shadow:
+    0 0 0 1px rgba(244, 63, 94, 0.38),
+    0 0 22px rgba(236, 72, 153, 0.35),
+    0 0 34px rgba(239, 68, 68, 0.18);
+}
+
+.btn-pill--danger-glow:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.admin-editor-delete-event {
+  margin-right: auto;
+}
+
+@media (max-width: 640px) {
+  .admin-editor-delete-event {
+    margin-right: 0;
+    flex: 1 1 100%;
+    justify-content: center;
+  }
+
+  .admin-editor-actions.admin-editor-actions--sticky {
+    justify-content: stretch;
+  }
+
+  .admin-editor-actions.admin-editor-actions--sticky .btn-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 1 1 auto;
+    min-height: 44px;
+    text-align: center;
+  }
+}
   outline: 2px solid rgba(67, 216, 163, 0.65);
 }
 

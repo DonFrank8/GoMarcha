@@ -162,6 +162,7 @@
 
         <section id="adminViewEvents" class="admin-view" hidden>
           <div class="admin-events-toolbar card card--glass">
+            <div class="admin-events-toolbar__tabs-row">
             <div class="admin-events-toolbar__tabs" role="tablist" aria-label="Status">
               <button type="button" class="admin-status-tab is-active" data-status-filter="all">
                 Alle <span id="countTabAll" class="count-pill">0</span>
@@ -175,6 +176,12 @@
               <button type="button" class="admin-status-tab" data-status-filter="rejected">
                 Abgelehnt <span class="count-pill count-pill--no" id="countTabRejected">0</span>
               </button>
+            </div>
+            <div class="admin-events-toolbar__tabs admin-events-toolbar__tabs--timeline" role="tablist" aria-label="Zeitachse">
+              <button type="button" class="admin-archive-tab is-active" data-archive-filter="active">Aktiv</button>
+              <button type="button" class="admin-archive-tab" data-archive-filter="archive">Archiv</button>
+              <button type="button" class="admin-archive-tab" data-archive-filter="all">Alle</button>
+            </div>
             </div>
             <form id="adminFiltersForm" class="admin-filters-compact" autocomplete="off">
               <label class="admin-filter-field">

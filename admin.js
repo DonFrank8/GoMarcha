@@ -37,6 +37,7 @@ const state = {
   allEvents: [],
   filteredEvents: [],
   activeTab: "all",
+  archiveTimeline: "active",
   search: "",
   city: "",
   genre: "",
@@ -70,6 +71,7 @@ const dom = {
   sessionInfo: document.getElementById("adminSessionInfo"),
   signOutButton: document.getElementById("adminSignOutButton"),
   statusTabs: [...document.querySelectorAll(".admin-status-tab[data-status-filter]")],
+  archiveTabs: [...document.querySelectorAll(".admin-archive-tab[data-archive-filter]")],
   countAll: document.getElementById("countAll"),
   countPending: document.getElementById("countPending"),
   countApproved: document.getElementById("countApproved"),
@@ -441,6 +443,45 @@ function buildAdminReplacementImagePath(eventId, extForPath) {
   const safeExt = raw === "webp" ? "webp" : ADMIN_REPLACE_ALLOWED_EXT.has(raw) ? raw : "jpg";
   const random = Math.random().toString(36).slice(2, 10);
   return `admin-replacements/${yyyy}/${mm}/${dd}/${idPart}-${random}.${safeExt}`;
+}
+
+function tryExtractEventImagesStoragePath(url) {
+  const u = String(url || "").trim();
+  if (!u) return null;
+  let pathname = "";
+  try {
+    pathname = new URL(u).pathname;
+  } catch {
+    return null;
+  }
+  const segments = pathname.split("/").filter(Boolean);
+  const pub = segments.indexOf("public");
+  if (pub === -1 || pub + 2 >= segments.length) return null;
+  if (segments[pub + 1] !== EVENT_IMAGES_BUCKET) return null;
+  return decodeURIComponent(segments.slice(pub + 2).join("/"));
+}
+
+function collectEventImageStoragePaths(event) {
+  const out = [];
+  const seen = new Set();
+  const push = (rawUrl) => {
+    const p = tryExtractEventImagesStoragePath(rawUrl);
+    if (!p || seen.has(p)) return;
+    seen.add(p);
+    out.push(p);
+  };
+  push(event?.image_url);
+  const gallery = event?.image_urls;
+  if (Array.isArray(gallery)) {
+    for (const entry of gallery) {
+      const u =
+        typeof entry === "string"
+          ? entry
+          : String(entry?.url || entry?.image_url || "").trim();
+      push(u);
+    }
+  }
+  return out;
 }
 
 function validateAdminReplacementImageFile(file) {
@@ -984,8 +1025,11 @@ function normalizeEvent(event) {
     postal_code: event.postal_code || "",
     city: event.city || "",
     country: event.country || "",
+    province: String(event.province || "").trim(),
+    region: String(event.region || "").trim(),
     formatted_address: event.formatted_address || "",
     geocoding_query: event.geocoding_query || "",
+    place_id: String(event.place_id || "").trim(),
     event_date: event.event_date || "",
     event_time: event.event_time || "",
     end_time: event.end_time || "",
@@ -1018,7 +1062,9 @@ function normalizeEvent(event) {
         ? Number(event.recurrence_day_of_month)
         : null,
     featured: Boolean(event.featured),
-    promoted: Boolean(event.promoted)
+    promoted: Boolean(event.promoted),
+    archived_at: event.archived_at ?? null,
+    original_event_id: event.original_event_id ?? null
   };
 }
 
@@ -1096,7 +1142,7 @@ function updateCounts() {
 }
 
 function getFilterSignature() {
-  return [state.activeTab, state.search, state.city, state.genre, state.statusFilter].join("\u001e");
+  return [state.activeTab, state.archiveTimeline, state.search, state.city, state.genre, state.statusFilter].join("\u001e");
 }
 
 function syncFilterOptions() {
@@ -1129,6 +1175,10 @@ function applyFilters() {
   }
   state.filteredEvents = state.allEvents.filter((event) => {
     if (state.activeTab !== "all" && event.status !== state.activeTab) return false;
+    const timeline = state.archiveTimeline || "all";
+    const past = isEventPast(event);
+    if (timeline === "active" && past) return false;
+    if (timeline === "archive" && !past) return false;
     if (state.statusFilter && event.status !== state.statusFilter) return false;
     if (state.city && event.city !== state.city) return false;
     if (state.genre && event.genre !== state.genre) return false;
@@ -1269,6 +1319,14 @@ function renderStatusTabs() {
   });
 }
 
+function renderArchiveTabs() {
+  dom.archiveTabs.forEach((tab) => {
+    const isActive = tab.dataset.archiveFilter === state.archiveTimeline;
+    tab.classList.toggle("is-active", isActive);
+    tab.setAttribute("aria-selected", String(isActive));
+  });
+}
+
 function renderEventCard(event) {
   const card = document.createElement("article");
   card.className = "event-card event-card--premium";
@@ -1328,6 +1386,12 @@ function renderEventCard(event) {
         ${shortNoticeInfo.urgent ? "🔥" : "⏱"} ${shortNoticeInfo.urgent ? "Eilmeldung (<24h)" : "Kurzfristig (<96h)"}
       </div>`
     : "";
+  const archivePill = isEventPast(event)
+    ? `<span class="event-card__archive-pill" title="Auf der öffentlichen Seite ausgeblendet">Archiv</span>`
+    : "";
+  const reuseButton = isEventPast(event)
+    ? `<button type="button" class="btn-pill btn-pill--outline btn-pill--soft" data-action="reuse-event">↪ Erneut verwenden</button>`
+    : "";
   const validationMarkup = renderValidationBadges(event);
   const metaLine = `${escapeHtml(formatDateTime(event))} · ${escapeHtml(event.city || "–")} · ${escapeHtml(recurrenceLabel(event))}`;
 
@@ -1357,7 +1421,7 @@ function renderEventCard(event) {
       <div class="event-card__body-col">
         <header class="event-card__top">
           <div class="event-card__titles">
-            <h3 class="event-card__title">${escapeHtml(event.name)}</h3>
+            <h3 class="event-card__title">${escapeHtml(event.name)}${archivePill}</h3>
             <p class="event-card__venue">${escapeHtml([event.location_name, event.address].filter(Boolean).join(" · ") || "–")}</p>
             <p class="event-card__meta-line">${metaLine}</p>
           </div>
@@ -1387,8 +1451,10 @@ function renderEventCard(event) {
         </div>
         ${primaryRow}
         <div class="event-card__secondary-actions">
+          ${reuseButton}
           <button type="button" class="btn-pill btn-pill--outline" data-action="pending">⏸ Pending</button>
           <button type="button" class="btn-pill btn-pill--outline btn-pill--danger" data-action="rejected">❌ Ablehnen</button>
+          <button type="button" class="btn-pill btn-pill--outline btn-pill--danger-glow" data-action="delete-event">🗑 Event löschen</button>
           <button type="button" class="btn-pill btn-pill--outline" data-action="save-notes">💾 Notizen</button>
           <button type="button" class="btn-pill btn-pill--outline" data-action="regeocode" data-geo-action ${isGeoBusy ? "disabled" : ""}>📍 Fix</button>
         </div>
@@ -1426,6 +1492,7 @@ function render() {
   updateCounts();
   applyFilters();
   renderStatusTabs();
+  renderArchiveTabs();
   renderMainNav();
   renderDashboard();
   renderAnalyticsBody();
@@ -1668,6 +1735,106 @@ async function deleteSocialQueueRow(queueId) {
   const client = supabaseClient();
   const { error } = await client.from("social_queue").delete().eq("id", queueId);
   if (error) throw new Error(error.message || "Delete failed.");
+}
+
+async function deleteEventById(eventId, eventSnapshot) {
+  if (!eventId) return;
+  if (!isSessionAdmin(state.adminSession)) {
+    throw new Error("Admin-Anmeldung erforderlich.");
+  }
+  const client = supabaseClient();
+  const storagePaths = eventSnapshot ? collectEventImageStoragePaths(eventSnapshot) : [];
+  if (storagePaths.length) {
+    const { error: storageError } = await client.storage.from(EVENT_IMAGES_BUCKET).remove(storagePaths);
+    if (storageError) {
+      console.warn("Event-Bilder Storage cleanup:", storageError);
+    }
+  }
+  const { error: capErr } = await client.from("social_caption_usage").delete().eq("event_id", eventId);
+  if (capErr) throw new Error(capErr.message || "social_caption_usage konnte nicht gelöscht werden.");
+  const { error: queueErr } = await client.from("social_queue").delete().eq("event_id", eventId);
+  if (queueErr) throw new Error(queueErr.message || "social_queue konnte nicht gelöscht werden.");
+  const { data: deletedRows, error: evErr } = await client.from("events").delete().eq("id", eventId).select("id");
+  if (evErr) throw new Error(evErr.message || "Event konnte nicht gelöscht werden.");
+  if (!Array.isArray(deletedRows) || !deletedRows.length) {
+    throw new Error("Event wurde nicht gelöscht (nicht gefunden oder keine Berechtigung).");
+  }
+}
+
+function duplicateInsertPayloadFromEvent(source) {
+  const sid = source?.id ?? null;
+  return {
+    name: source.name || source.title || "Event",
+    title: source.title || source.name || null,
+    title_es: source.title_es || null,
+    title_de: source.title_de || null,
+    title_en: source.title_en || null,
+    description: source.description || null,
+    description_es: source.description_es || null,
+    description_de: source.description_de || null,
+    description_en: source.description_en || null,
+    location_name: source.location_name || null,
+    address: source.address || null,
+    street: source.street || source.address || null,
+    postal_code: source.postal_code || null,
+    city: source.city || null,
+    country: source.country || null,
+    province: source.province || null,
+    region: source.region || null,
+    formatted_address: source.formatted_address || null,
+    place_id: source.place_id || null,
+    geocoding_query: source.geocoding_query || null,
+    lat: source.lat ?? null,
+    lng: source.lng ?? null,
+    genre: source.genre || null,
+    category: source.category || source.genre || null,
+    artist_name: source.artist_name || null,
+    tags: source.tags ?? null,
+    price_text: source.price_text || null,
+    image_url: source.image_url || null,
+    image_urls: source.image_urls ?? null,
+    submitted_by: source.submitted_by || null,
+    contact_email: source.contact_email || null,
+    status: "pending",
+    featured: false,
+    promoted: false,
+    verification_notes: null,
+    event_date: null,
+    event_time: null,
+    end_time: null,
+    recurrence_type: "none",
+    recurrence_start_date: null,
+    recurrence_end_date: null,
+    recurrence_weekday: null,
+    recurrence_day_of_month: null,
+    original_event_id: sid,
+    archived_at: null
+  };
+}
+
+async function insertDuplicateEventRow(payload) {
+  const client = supabaseClient();
+  const run = async (body) => client.from("events").insert(body).select("id").limit(1);
+  let { data, error } = await run(payload);
+  if (error) {
+    const hint = `${error.message || ""} ${error.details || ""} ${error.hint || ""}`;
+    if (/original_event_id|archived_at|column/i.test(hint)) {
+      const { original_event_id: _oid, archived_at: _arch, ...rest } = payload;
+      ({ data, error } = await run(rest));
+    }
+  }
+  if (error) throw new Error(error.message || "Duplikat konnte nicht angelegt werden.");
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row?.id) throw new Error("Keine ID nach Insert.");
+  return row.id;
+}
+
+async function duplicateEventForReuse(sourceEvent) {
+  if (!isSessionAdmin(state.adminSession)) {
+    throw new Error("Admin-Anmeldung erforderlich.");
+  }
+  const payload = duplicateInsertPayloadFromEvent(sourceEvent);
+  return insertDuplicateEventRow(payload);
 }
 
 function findSocialQueueRow(queueId) {
@@ -2872,6 +3039,7 @@ function openEventEditorModal(eventData) {
         </div>
         <p class="admin-editor-status" data-editor-status hidden></p>
         <div class="admin-editor-actions admin-editor-actions--sticky">
+          <button type="button" class="btn-pill btn-pill--outline btn-pill--danger-glow admin-editor-delete-event" data-editor-delete-event>🗑 Event löschen</button>
           <button type="button" class="btn-pill btn-pill--outline" data-editor-cancel>Abbrechen</button>
           <button type="submit" class="btn-pill btn-pill--soft" data-editor-save>Speichern</button>
           <button type="submit" class="btn-pill btn-pill--hero" data-editor-save-social>Speichern + Social neu</button>
@@ -2936,6 +3104,24 @@ function openEventEditorModal(eventData) {
       console.error("Regenerate social failed:", error);
       setBusy(false, error.message || "Fehler");
       setGlobalFeedback(`Social: ${error.message}`, "error");
+    }
+  });
+
+  overlay.querySelector("[data-editor-delete-event]")?.addEventListener("click", async () => {
+    const eventId = eventData?.id;
+    if (!eventId) return;
+    if (!window.confirm("Dieses Event wirklich dauerhaft löschen?")) return;
+    setBusy(true, "Lösche Event...");
+    setGlobalFeedback("");
+    try {
+      await deleteEventById(eventId, eventData);
+      setGlobalFeedback("Event gelöscht", "success");
+      close();
+      await loadEvents();
+    } catch (error) {
+      console.error("Delete event failed:", error);
+      setBusy(false, error.message || "Löschen fehlgeschlagen.");
+      setGlobalFeedback(`Löschen fehlgeschlagen: ${error.message || ""}`.trim(), "error");
     }
   });
 
@@ -3058,6 +3244,48 @@ async function handleCardAction(clickEvent) {
     return;
   }
 
+  if (button.dataset.action === "delete-event") {
+    const eventId = eventData?.id;
+    if (!eventId) return;
+    if (!isSessionAdmin(state.adminSession)) return;
+    if (!window.confirm("Dieses Event wirklich dauerhaft löschen?")) return;
+    const label = button.textContent;
+    button.disabled = true;
+    button.textContent = "Lösche Event...";
+    setGlobalFeedback("");
+    try {
+      await deleteEventById(eventId, eventData);
+      setGlobalFeedback("Event gelöscht", "success");
+      await loadEvents();
+    } catch (error) {
+      console.error("Delete event failed:", error);
+      setGlobalFeedback(`Löschen fehlgeschlagen: ${error.message || ""}`.trim(), "error");
+    } finally {
+      button.disabled = false;
+      button.textContent = label;
+    }
+    return;
+  }
+
+  if (button.dataset.action === "reuse-event") {
+    if (!isSessionAdmin(state.adminSession)) return;
+    button.disabled = true;
+    setGlobalFeedback("");
+    try {
+      const newId = await duplicateEventForReuse(eventData);
+      setGlobalFeedback("Kopie angelegt — bitte Datum und Zeit setzen.", "success");
+      await loadEvents();
+      const fresh = state.allEvents.find((e) => String(e.id) === String(newId));
+      if (fresh) openEventEditorModal(fresh);
+    } catch (error) {
+      console.error("Reuse event failed:", error);
+      setGlobalFeedback(error.message || "Duplikat fehlgeschlagen.", "error");
+    } finally {
+      button.disabled = false;
+    }
+    return;
+  }
+
   const notes = card.querySelector("textarea[data-notes]")?.value.trim() || "";
   const featuredInput = card.querySelector("input[data-featured]");
   const promotedInput = card.querySelector("input[data-promoted]");
@@ -3109,6 +3337,13 @@ function bindEvents() {
   dom.statusTabs.forEach((tab) => {
     tab.addEventListener("click", () => {
       state.activeTab = tab.dataset.statusFilter || "all";
+      render();
+    });
+  });
+
+  dom.archiveTabs.forEach((tab) => {
+    tab.addEventListener("click", () => {
+      state.archiveTimeline = tab.dataset.archiveFilter || "all";
       render();
     });
   });
