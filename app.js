@@ -6,6 +6,9 @@ const USE_MODERATION_EDGE_FUNCTION = false;
 const MODERATION_EDGE_FUNCTION_NAME = "moderate-event";
 const SMART_ACTION_FUNCTION_NAME = "smart-action";
 const SMART_ACTION_ENDPOINT = `${SUPABASE_URL}/functions/v1/${SMART_ACTION_FUNCTION_NAME}`;
+const EVENT_SHARE_FUNCTION_NAME = "event-share";
+const EVENT_SHARE_ENDPOINT = `${SUPABASE_URL}/functions/v1/${EVENT_SHARE_FUNCTION_NAME}`;
+const PUBLIC_SITE_URL = "https://www.gomarcha.com";
 const ENABLE_AUTO_GEOCODING = true;
 const GEOCODING_PROVIDER = "nominatim";
 const GEOCODING_MIN_INTERVAL_MS = 850;
@@ -4824,6 +4827,23 @@ function buildEventPublicLink(event) {
   return currentUrl.toString();
 }
 
+function buildEventAppUrl(eventId) {
+  const url = new URL("/index.html", PUBLIC_SITE_URL);
+  const normalizedEventId = String(eventId || "").trim();
+  if (normalizedEventId) url.searchParams.set("event_id", normalizedEventId);
+  if (state.lang && state.lang !== "de") url.searchParams.set("lang", state.lang);
+  return url.toString();
+}
+
+function buildEventShareUrl(eventId) {
+  const normalizedEventId = String(eventId || "").trim();
+  if (!normalizedEventId) return buildEventAppUrl("");
+  const url = new URL(EVENT_SHARE_ENDPOINT);
+  url.searchParams.set("id", normalizedEventId);
+  if (state.lang && state.lang !== "de") url.searchParams.set("lang", state.lang);
+  return url.toString();
+}
+
 async function copyTextToClipboard(text) {
   const value = String(text || "").trim();
   if (!value) return false;
@@ -4862,7 +4882,7 @@ function buildEventShareText(event) {
   const time = [formatDate(event.event_date, true), event.event_time || t("details_time_fallback")]
     .filter(Boolean)
     .join(" / ");
-  const link = buildEventPublicLink(event);
+  const link = buildEventShareUrl(event.id);
   return t("details_share_text", {
     title,
     vibe: t("details_share_vibe"),
@@ -4875,7 +4895,7 @@ function buildEventShareText(event) {
 function buildEventSharePayload(event) {
   if (!event) return null;
   const title = getEventTitle(event) || "Marcha Event";
-  const url = buildEventPublicLink(event);
+  const url = buildEventShareUrl(event.id);
   const text = buildEventShareText(event);
   return {
     title,
@@ -4943,7 +4963,7 @@ async function shareEventViaQuickPlatform(event, platform) {
 }
 
 async function copyEventLinkFromDetails(event) {
-  const copied = await copyTextToClipboard(buildEventPublicLink(event));
+  const copied = await copyTextToClipboard(buildEventShareUrl(event?.id));
   if (copied) {
     setStatus("Link copiado ✅", "ok");
     return true;
@@ -5048,7 +5068,7 @@ function addEventToCalendar(event) {
 
 async function shareEventFromDetails(event) {
   if (!event) return;
-  const eventUrl = buildEventPublicLink(event);
+  const eventUrl = buildEventShareUrl(event.id);
   const generatedShareText = buildEventShareText(event);
   const eventTitle = getEventTitle(event) || "Marcha Event";
   if (typeof navigator.share === "function") {
