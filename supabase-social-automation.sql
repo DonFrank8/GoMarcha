@@ -85,3 +85,27 @@ create index if not exists social_queue_event_platform_posted_day_idx
 
 alter table public.social_caption_usage enable row level security;
 alter table public.social_queue enable row level security;
+
+grant select, insert, update on table public.social_queue to authenticated;
+grant select, insert on table public.social_caption_usage to authenticated;
+
+drop policy if exists "Admins can manage social queue via role" on public.social_queue;
+create policy "Admins can manage social queue via role"
+on public.social_queue
+for all
+to authenticated
+using (
+  auth.jwt() -> 'app_metadata' ->> 'role' = 'admin'
+)
+with check (
+  auth.jwt() -> 'app_metadata' ->> 'role' = 'admin'
+);
+
+drop policy if exists "Admins can read caption usage via role" on public.social_caption_usage;
+create policy "Admins can read caption usage via role"
+on public.social_caption_usage
+for select
+to authenticated
+using (
+  auth.jwt() -> 'app_metadata' ->> 'role' = 'admin'
+);

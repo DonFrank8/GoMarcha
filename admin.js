@@ -14,6 +14,13 @@ const ADMIN_GEOCODING_PROVIDER = "nominatim";
 const ADMIN_GEOCODING_MIN_INTERVAL_MS = 850;
 const ADMIN_GEOCODING_MAX_RETRIES = 2;
 const ADMIN_MAPBOX_ACCESS_TOKEN = (window.PARTYRADAR_MAPBOX_TOKEN || "").toString().trim();
+const SOCIAL_REVIEW_PLATFORMS = ["instagram", "facebook"];
+const SOCIAL_REVIEW_SLOTS = [
+  { id: "week", daysBefore: 7, hour: 10, minute: 30 },
+  { id: "three_days", daysBefore: 3, hour: 10, minute: 30 },
+  { id: "one_day", daysBefore: 1, hour: 10, minute: 30 },
+  { id: "final_call", daysBefore: 0, hour: 10, minute: 30 }
+];
 
 const VALID_STATUS = new Set(["pending", "approved", "rejected"]);
 
@@ -28,6 +35,7 @@ const state = {
   adminSession: null,
   geoBusyEventIds: new Set(),
   geoPulseEventIds: new Set(),
+  socialQueueByEvent: new Map(),
   featureColumns: {
     featured: true,
     promoted: true
@@ -118,6 +126,89 @@ function hasValidMarkerCoordinates(event) {
   const lat = parseCoordinate(event?.lat);
   const lng = parseCoordinate(event?.lng);
   return lat !== null && lng !== null && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
+}
+
+function parseAdminYmd(rawDate) {
+  const value = String(rawDate || "").trim();
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  return {
+    year: Number(match[1]),
+    month: Number(match[2]),
+    day: Number(match[3])
+  };
+}
+
+function parseAdminTime(rawTime) {
+  const parts = String(rawTime || "23:59").trim().split(":");
+  const hour = Math.min(23, Math.max(0, Number(parts[0]) || 0));
+  const minute = Math.min(59, Math.max(0, Number(parts[1]) || 0));
+  return { hour, minute };
+}
+
+function dateFromAdminEventWallTime(event, fallbackHour = 23, fallbackMinute = 59) {
+  const parts = parseAdminYmd(event?.event_date || event?.recurrence_start_date);
+  if (!parts) return null;
+  const parsedTime = parseAdminTime(event?.event_time || `${fallbackHour}:${String(fallbackMinute).padStart(2, "0")}`);
+  return new Date(parts.year, parts.month - 1, parts.day, parsedTime.hour, parsedTime.minute, 0, 0);
+}
+
+function socialSlotDateForEvent(event, slot) {
+  const eventStart = dateFromAdminEventWallTime(event);
+  if (!eventStart || Number.isNaN(eventStart.getTime())) return null;
+  const slotDate = new Date(eventStart);
+  slotDate.setDate(slotDate.getDate() - slot.daysBefore);
+  slotDate.setHours(slot.hour, slot.minute, 0, 0);
+  if (slot.id === "final_call") {
+    const latestSafe = new Date(eventStart.getTime() - 2 * 60 * 60 * 1000);
+    if (slotDate > latestSafe) return latestSafe;
+  }
+  return slotDate;
+}
+
+function buildSocialReviewQueueRows(event) {
+  const now = new Date();
+  const eventStart = dateFromAdminEventWallTime(event);
+  if (!eventStart || Number.isNaN(eventStart.getTime()) || eventStart <= now) return [];
+  const rows = [];
+  for (const slot of SOCIAL_REVIEW_SLOTS) {
+    const scheduled = socialSlotDateForEvent(event, slot);
+    if (!scheduled || Number.isNaN(scheduled.getTime())) continue;
+    if (scheduled <= now) continue;
+    if (scheduled >= eventStart) continue;
+    for (const platform of SOCIAL_REVIEW_PLATFORMS) {
+      rows.push({
+        event_id: event.id,
+        platform,
+        scheduled_at: scheduled.toISOString(),
+        status: "pending",
+        retry_count: 0
+      });
+    }
+  }
+  return rows;
+}
+
+function socialQueueRowsForEvent(eventId) {
+  return state.socialQueueByEvent.get(String(eventId || "")) || [];
+}
+
+function socialQueueSummary(eventId) {
+  const rows = socialQueueRowsForEvent(eventId);
+  const counts = rows.reduce(
+    (acc, row) => {
+      const status = String(row.status || "pending").toLowerCase();
+      acc.total += 1;
+      if (status === "posted") acc.ready += 1;
+      else if (status === "failed") acc.failed += 1;
+      else if (status === "processing") acc.processing += 1;
+      else if (status === "skipped") acc.skipped += 1;
+      else acc.pending += 1;
+      return acc;
+    },
+    { total: 0, ready: 0, failed: 0, processing: 0, pending: 0, skipped: 0 }
+  );
+  return counts;
 }
 
 function normalizeCountryForGeocoding(countryValue) {
@@ -972,6 +1063,17 @@ function renderEventCard(event) {
           Standort wird geprüft...
         </p>
       </section>`;
+  const socialSummary = socialQueueSummary(event.id);
+  const socialClass = [
+    "event-card__social-status",
+    socialSummary.failed ? "event-card__social-status--warning" : "",
+    socialSummary.ready ? "event-card__social-status--ready" : ""
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const socialText = socialSummary.total
+    ? `${socialSummary.ready} Drafts bereit · ${socialSummary.pending} geplant · ${socialSummary.failed} Fehler`
+    : "Noch keine Review-Drafts";
   card.innerHTML = `
     <div class="event-card__layout">
       <div class="event-card__media-column">
@@ -1003,6 +1105,7 @@ function renderEventCard(event) {
           <li><strong>Marker Status:</strong> <span class="${markerStatusClass}">${
     hasMarker ? "Aktiv" : "Nicht sichtbar"
   }</span></li>
+          <li><strong>Social Review:</strong> <span class="${socialClass}">${escapeHtml(socialText)}</span></li>
         </ul>
       </div>
     </div>
@@ -1103,11 +1206,54 @@ async function updateEventWithFallback(eventId, updates) {
   throw new Error(lastError?.message || "Update failed");
 }
 
+async function loadSocialQueueRows() {
+  const client = supabaseClient();
+  const { data, error } = await client
+    .from("social_queue")
+    .select("id,event_id,platform,scheduled_at,status,last_error,posted_at,caption_template_id")
+    .order("scheduled_at", { ascending: true });
+  if (error) {
+    console.warn("Social queue konnte nicht geladen werden:", error);
+    state.socialQueueByEvent = new Map();
+    return;
+  }
+  const grouped = new Map();
+  for (const row of data || []) {
+    const key = String(row.event_id || "");
+    if (!key) continue;
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key).push(row);
+  }
+  state.socialQueueByEvent = grouped;
+}
+
+async function ensureSocialReviewQueueForEvent(event) {
+  const candidates = buildSocialReviewQueueRows(event);
+  if (!candidates.length) return 0;
+  const client = supabaseClient();
+  const { data: existing, error: existingError } = await client
+    .from("social_queue")
+    .select("platform,scheduled_at,status")
+    .eq("event_id", event.id);
+  if (existingError) throw new Error(existingError.message || "Social Queue konnte nicht geprüft werden.");
+
+  const existingKeys = new Set(
+    (existing || []).map((row) => `${row.platform}:${new Date(row.scheduled_at).toISOString()}`)
+  );
+  const missing = candidates.filter((row) => !existingKeys.has(`${row.platform}:${row.scheduled_at}`));
+  if (!missing.length) return 0;
+
+  const { error } = await client.from("social_queue").insert(missing);
+  if (error) throw new Error(error.message || "Social Queue konnte nicht erstellt werden.");
+  return missing.length;
+}
+
 async function loadEvents() {
   const client = supabaseClient();
   const { data, error } = await client.from("events").select("*").order("event_date", { ascending: true });
   if (error) throw error;
   state.allEvents = (data || []).map(normalizeEvent);
+  await loadSocialQueueRows();
   syncFilterOptions();
   render();
 }
@@ -1347,7 +1493,12 @@ async function handleCardAction(clickEvent) {
         verification_notes: notes
       });
       const persistedStatus = String(updatedRow?.status || button.dataset.action);
-      setGlobalFeedback(`Status updated to ${persistedStatus}.`, "success");
+      let socialCreated = 0;
+      if (persistedStatus === "approved") {
+        socialCreated = await ensureSocialReviewQueueForEvent({ ...eventData, status: persistedStatus });
+      }
+      const socialSuffix = socialCreated ? ` Social Review: ${socialCreated} Draft-Jobs geplant.` : "";
+      setGlobalFeedback(`Status updated to ${persistedStatus}.${socialSuffix}`, "success");
     }
 
     const featuredChanged = state.featureColumns.featured && featuredInput

@@ -480,6 +480,31 @@ body {
   animation: marker-status-success-pulse 1.1s ease-out 2;
 }
 
+.event-card__social-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  border-radius: 999px;
+  padding: 0.08rem 0.5rem;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: rgba(15, 23, 42, 0.68);
+  color: #c9d8f7;
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.event-card__social-status--ready {
+  color: #d8fff0;
+  border-color: rgba(67, 216, 163, 0.42);
+  background: rgba(20, 184, 129, 0.1);
+}
+
+.event-card__social-status--warning {
+  color: #ffd99a;
+  border-color: rgba(255, 191, 103, 0.52);
+  background: rgba(255, 191, 103, 0.1);
+}
+
 .event-card__geo-warning {
   display: grid;
   gap: 0.58rem;
