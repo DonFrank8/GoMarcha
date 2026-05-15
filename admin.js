@@ -21,6 +21,10 @@ const SOCIAL_REVIEW_SLOTS = [
   { id: "one_day", daysBefore: 1, hour: 10, minute: 30 },
   { id: "final_call", daysBefore: 0, hour: 10, minute: 30 }
 ];
+const SHORT_NOTICE_EVENT_HOURS = 96;
+const URGENT_EVENT_HOURS = 24;
+const IMMEDIATE_LAST_CALL_DELAY_MS = 60 * 1000;
+const EVENT_START_SAFETY_MS = 15 * 1000;
 
 const VALID_STATUS = new Set(["pending", "approved", "rejected"]);
 
@@ -153,6 +157,20 @@ function dateFromAdminEventWallTime(event, fallbackHour = 23, fallbackMinute = 5
   return new Date(parts.year, parts.month - 1, parts.day, parsedTime.hour, parsedTime.minute, 0, 0);
 }
 
+function shortNoticeInfoForEvent(event, now = new Date()) {
+  const eventStart = dateFromAdminEventWallTime(event);
+  if (!eventStart || Number.isNaN(eventStart.getTime()) || eventStart <= now) {
+    return { active: false, urgent: false, eventStart: null, hoursUntilStart: null };
+  }
+  const hoursUntilStart = (eventStart.getTime() - now.getTime()) / 3600000;
+  return {
+    active: hoursUntilStart <= SHORT_NOTICE_EVENT_HOURS,
+    urgent: hoursUntilStart <= URGENT_EVENT_HOURS,
+    eventStart,
+    hoursUntilStart
+  };
+}
+
 function socialSlotDateForEvent(event, slot) {
   const eventStart = dateFromAdminEventWallTime(event);
   if (!eventStart || Number.isNaN(eventStart.getTime())) return null;
@@ -166,11 +184,34 @@ function socialSlotDateForEvent(event, slot) {
   return slotDate;
 }
 
+function immediateLastCallDateForEvent(event, now = new Date()) {
+  const info = shortNoticeInfoForEvent(event, now);
+  if (!info.active || !info.eventStart) return null;
+  const eventStartMs = info.eventStart.getTime();
+  const preferred = new Date(now.getTime() + IMMEDIATE_LAST_CALL_DELAY_MS);
+  if (preferred.getTime() < eventStartMs) return preferred;
+  const safeLatest = new Date(eventStartMs - EVENT_START_SAFETY_MS);
+  return safeLatest > now ? safeLatest : null;
+}
+
 function buildSocialReviewQueueRows(event) {
   const now = new Date();
   const eventStart = dateFromAdminEventWallTime(event);
   if (!eventStart || Number.isNaN(eventStart.getTime()) || eventStart <= now) return [];
   const rows = [];
+  const immediateLastCall = immediateLastCallDateForEvent(event, now);
+  if (immediateLastCall && immediateLastCall < eventStart) {
+    for (const platform of SOCIAL_REVIEW_PLATFORMS) {
+      rows.push({
+        event_id: event.id,
+        platform,
+        scheduled_at: immediateLastCall.toISOString(),
+        status: "pending",
+        retry_count: 0,
+        _slot_id: "short_notice_last_call"
+      });
+    }
+  }
   for (const slot of SOCIAL_REVIEW_SLOTS) {
     const scheduled = socialSlotDateForEvent(event, slot);
     if (!scheduled || Number.isNaN(scheduled.getTime())) continue;
@@ -1074,6 +1115,19 @@ function renderEventCard(event) {
   const socialText = socialSummary.total
     ? `${socialSummary.ready} Drafts bereit · ${socialSummary.pending} geplant · ${socialSummary.failed} Fehler`
     : "Noch keine Review-Drafts";
+  const shortNoticeInfo = shortNoticeInfoForEvent(event);
+  const shortNoticeMarkup = shortNoticeInfo.active
+    ? `<section class="event-card__short-notice-warning ${
+        shortNoticeInfo.urgent ? "event-card__short-notice-warning--urgent" : ""
+      }" aria-live="polite">
+        <strong>${shortNoticeInfo.urgent ? "Urgent · " : ""}Short-notice event</strong>
+        <p>${
+          shortNoticeInfo.urgent
+            ? "Dieses Event startet innerhalb von 24 Stunden. Final-Call Draft wird sofort vorbereitet."
+            : "Dieses Event startet innerhalb von 96 Stunden. Final-Call Draft wird sofort vorbereitet."
+        }</p>
+      </section>`
+    : "";
   card.innerHTML = `
     <div class="event-card__layout">
       <div class="event-card__media-column">
@@ -1110,6 +1164,8 @@ function renderEventCard(event) {
       </div>
     </div>
     <p class="event-description">${escapeHtml(event.description || "Keine Beschreibung")}</p>
+
+    ${shortNoticeMarkup}
 
     <label class="field">
       <span>Curation notes</span>
@@ -1240,10 +1296,26 @@ async function ensureSocialReviewQueueForEvent(event) {
   const existingKeys = new Set(
     (existing || []).map((row) => `${row.platform}:${new Date(row.scheduled_at).toISOString()}`)
   );
-  const missing = candidates.filter((row) => !existingKeys.has(`${row.platform}:${row.scheduled_at}`));
+  const eventStart = dateFromAdminEventWallTime(event);
+  const now = new Date();
+  const hasRecentLastCall = (candidate) => {
+    if (candidate._slot_id !== "short_notice_last_call" || !eventStart) return false;
+    return (existing || []).some((row) => {
+      if (String(row.platform) !== String(candidate.platform)) return false;
+      if (String(row.status || "").toLowerCase() === "skipped") return false;
+      const scheduled = new Date(row.scheduled_at);
+      if (Number.isNaN(scheduled.getTime())) return false;
+      return scheduled >= new Date(now.getTime() - 6 * 3600000) && scheduled < eventStart;
+    });
+  };
+  const missing = candidates.filter((row) => {
+    if (hasRecentLastCall(row)) return false;
+    return !existingKeys.has(`${row.platform}:${row.scheduled_at}`);
+  });
   if (!missing.length) return 0;
 
-  const { error } = await client.from("social_queue").insert(missing);
+  const insertRows = missing.map(({ _slot_id, ...row }) => row);
+  const { error } = await client.from("social_queue").insert(insertRows);
   if (error) throw new Error(error.message || "Social Queue konnte nicht erstellt werden.");
   return missing.length;
 }

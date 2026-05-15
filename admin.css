@@ -505,6 +505,40 @@ body {
   background: rgba(255, 191, 103, 0.1);
 }
 
+.event-card__short-notice-warning {
+  display: grid;
+  gap: 0.2rem;
+  border: 1px solid rgba(255, 191, 103, 0.58);
+  border-radius: 14px;
+  padding: 0.68rem 0.72rem;
+  background:
+    linear-gradient(135deg, rgba(255, 191, 103, 0.15), rgba(255, 191, 103, 0.05)),
+    rgba(15, 23, 42, 0.7);
+}
+
+.event-card__short-notice-warning strong {
+  color: #ffe6b8;
+  font-size: 0.88rem;
+}
+
+.event-card__short-notice-warning p {
+  margin: 0;
+  color: #f8d9a2;
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.event-card__short-notice-warning--urgent {
+  border-color: rgba(255, 122, 143, 0.72);
+  background:
+    linear-gradient(135deg, rgba(255, 122, 143, 0.18), rgba(255, 191, 103, 0.07)),
+    rgba(15, 23, 42, 0.72);
+}
+
+.event-card__short-notice-warning--urgent strong {
+  color: #ffdce2;
+}
+
 .event-card__geo-warning {
   display: grid;
   gap: 0.58rem;
