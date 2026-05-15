@@ -247,7 +247,16 @@ function renderHtml(args: {
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
+  const method = req.method.toUpperCase();
+  if (method === "OPTIONS") return new Response("ok", { headers: CORS });
+  // Public crawler endpoint: do not require Authorization and do not filter user agents.
+  // facebookexternalhit, Facebot, WhatsApp, Twitterbot, TelegramBot, and browsers all use GET.
+  if (method !== "GET" && method !== "HEAD") {
+    return new Response("Method not allowed", {
+      status: 405,
+      headers: { ...CORS, "Content-Type": "text/plain; charset=utf-8" },
+    });
+  }
 
   const requestUrl = new URL(req.url);
   const id = String(
