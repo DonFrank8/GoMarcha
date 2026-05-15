@@ -158,6 +158,10 @@ function eventIdFromRequest(url) {
   return String(idFromPath || url.searchParams.get("id") || url.searchParams.get("event_id") || "").trim();
 }
 
+function isRootRequest(url) {
+  return url.pathname === "/" || url.pathname === "";
+}
+
 async function fetchEvent(eventId, env) {
   const supabaseUrl = String(env.SUPABASE_URL || "").replace(/\/+$/, "");
   const supabaseKey = String(env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_ANON_KEY || "").trim();
@@ -239,18 +243,49 @@ function htmlResponse(html, status = 200) {
   });
 }
 
+function renderRootHtml(siteUrl) {
+  const safeSiteUrl = escapeHtml(siteUrl);
+  const sampleUrl = `${safeSiteUrl}/e/53`;
+  return `<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GoMarcha Event Share Worker</title>
+  <meta name="robots" content="noindex">
+  <meta property="og:title" content="GoMarcha Event Share">
+  <meta property="og:description" content="Share previews are available at /e/:eventId.">
+  <meta property="og:image" content="${safeSiteUrl}/social-preview.png">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary_large_image">
+</head>
+<body>
+  <main>
+    <h1>GoMarcha Event Share Worker</h1>
+    <p>Use <code>/e/:eventId</code> for crawler-safe event previews.</p>
+    <p><a href="${sampleUrl}">${sampleUrl}</a></p>
+  </main>
+</body>
+</html>`;
+}
+
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
+    void ctx;
     const method = request.method.toUpperCase();
     if (method !== "GET" && method !== "HEAD") {
       return new Response("Method not allowed", { status: 405 });
     }
 
     const requestUrl = new URL(request.url);
+    const siteUrl = String(env.PUBLIC_SITE_URL || DEFAULT_SITE_URL).replace(/\/+$/, "");
+    if (isRootRequest(requestUrl)) {
+      return htmlResponse(renderRootHtml(siteUrl));
+    }
+
     const eventId = eventIdFromRequest(requestUrl);
     if (!eventId) return new Response("Missing event id", { status: 400 });
 
-    const siteUrl = String(env.PUBLIC_SITE_URL || DEFAULT_SITE_URL).replace(/\/+$/, "");
     const fallbackImageUrl = absoluteHttpsUrl(env.DEFAULT_OG_IMAGE_URL, siteUrl) || DEFAULT_OG_IMAGE_URL;
     const appUrl = buildEventAppUrl(eventId, siteUrl);
     const shareUrl = buildEventShareUrl(eventId, requestUrl, siteUrl);
