@@ -124,6 +124,23 @@
       </section>
 
       <p id="adminGlobalFeedback" class="message" hidden></p>
+      <section class="card admin-social-panel" aria-label="Social Queue">
+        <div class="admin-social-panel__head">
+          <div>
+            <h2>Social Queue</h2>
+            <p class="card__intro">Review-Drafts, Fehler und geplante Posts auf einen Blick.</p>
+          </div>
+          <div class="admin-social-panel__filters" role="group" aria-label="Social Queue Filter">
+            <button type="button" class="status-tab is-active" data-social-filter="all">Alle</button>
+            <button type="button" class="status-tab" data-social-filter="pending">Pending</button>
+            <button type="button" class="status-tab" data-social-filter="draft">Draft</button>
+            <button type="button" class="status-tab" data-social-filter="failed">Failed</button>
+            <button type="button" class="status-tab" data-social-filter="posted">Posted</button>
+            <button type="button" class="status-tab" data-social-filter="today">Heute</button>
+          </div>
+        </div>
+        <div id="adminSocialQueuePanel" class="admin-social-table-wrap"></div>
+      </section>
       <section id="adminEventGrid" class="event-grid"></section>
       <p id="adminEmptyState" class="empty-state" hidden>Keine Events für die aktuelle Auswahl.</p>
     </section>
