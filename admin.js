@@ -33,6 +33,8 @@ const EVENT_START_SAFETY_MS = 15 * 1000;
 
 const EVENT_ANALYTICS_TABLE = "event_analytics";
 
+const VALID_STATUS = new Set(["pending", "approved", "rejected"]);
+
 const state = {
   allEvents: [],
   filteredEvents: [],
