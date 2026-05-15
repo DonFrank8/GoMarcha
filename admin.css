@@ -5,6 +5,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 :root {
   color-scheme: dark;
   --bg: #020617;
@@ -435,6 +439,151 @@ body {
   font-size: 0.81rem;
 }
 
+.event-card__marker-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  min-height: 22px;
+  border-radius: 999px;
+  padding: 0.08rem 0.48rem;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: rgba(15, 23, 42, 0.7);
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.event-card__marker-status::before {
+  content: "";
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.04);
+}
+
+.event-card__marker-status--active {
+  color: #9ff7d8;
+  border-color: rgba(67, 216, 163, 0.42);
+  background: rgba(20, 184, 129, 0.1);
+}
+
+.event-card__marker-status--missing {
+  color: #ffd99a;
+  border-color: rgba(255, 191, 103, 0.5);
+  background: rgba(255, 191, 103, 0.1);
+}
+
+.event-card__marker-status.is-pulsing {
+  animation: geo-status-pulse 1.1s ease-out 2;
+}
+
+.event-card__geo-warning {
+  display: grid;
+  gap: 0.58rem;
+  border: 1px solid rgba(255, 191, 103, 0.62);
+  border-radius: 14px;
+  padding: 0.72rem;
+  background:
+    linear-gradient(135deg, rgba(255, 191, 103, 0.16), rgba(255, 191, 103, 0.06)),
+    rgba(15, 23, 42, 0.72);
+  box-shadow: 0 14px 30px rgba(245, 158, 11, 0.1);
+}
+
+.event-card__geo-warning-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.58rem;
+}
+
+.event-card__geo-warning-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.8rem;
+  height: 1.8rem;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 191, 103, 0.54);
+  background: rgba(245, 158, 11, 0.14);
+  font-size: 0.92rem;
+}
+
+.event-card__geo-warning strong {
+  display: block;
+  color: #ffe6b8;
+  font-size: 0.9rem;
+  line-height: 1.2;
+}
+
+.event-card__geo-warning p {
+  margin: 0.16rem 0 0;
+  color: #f8d9a2;
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.event-card__geo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.46rem;
+}
+
+.event-card__geo-btn {
+  min-height: 34px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 191, 103, 0.54);
+  background: rgba(17, 24, 39, 0.78);
+  color: #fff3d6;
+  padding: 0.28rem 0.74rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    transform 0.16s ease,
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    background 0.16s ease;
+}
+
+.event-card__geo-btn:hover:not(:disabled),
+.event-card__geo-btn:focus-visible {
+  border-color: rgba(255, 214, 148, 0.88);
+  background: rgba(245, 158, 11, 0.18);
+  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.16), 0 10px 24px rgba(245, 158, 11, 0.18);
+  transform: translateY(-1px);
+}
+
+.event-card__geo-btn:disabled {
+  cursor: wait;
+  opacity: 0.58;
+  transform: none;
+  box-shadow: none;
+}
+
+.event-card__geo-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  width: fit-content;
+  margin: 0;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 191, 103, 0.34);
+  background: rgba(2, 6, 23, 0.3);
+  padding: 0.22rem 0.52rem;
+  color: #ffe6b8;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.event-card__geo-spinner {
+  width: 0.78rem;
+  height: 0.78rem;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 230, 184, 0.35);
+  border-top-color: #ffbf67;
+  animation: admin-geo-spin 0.72s linear infinite;
+}
+
 .recurrence-chip {
   display: inline-flex;
   align-items: center;
@@ -552,6 +701,83 @@ body {
   background: var(--surface);
   box-shadow: var(--shadow);
   padding: 1rem 1.05rem 1.05rem;
+}
+
+.admin-location-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(2, 6, 23, 0.8);
+  backdrop-filter: blur(8px);
+}
+
+.admin-location-dialog {
+  width: min(520px, 94vw);
+  max-height: min(92vh, 900px);
+  overflow: auto;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(255, 191, 103, 0.28);
+  background:
+    linear-gradient(165deg, rgba(255, 191, 103, 0.08), rgba(236, 72, 153, 0.04)),
+    var(--surface);
+  box-shadow: var(--shadow), 0 0 36px rgba(245, 158, 11, 0.14);
+  padding: 1rem 1.05rem 1.05rem;
+}
+
+.admin-location-title {
+  margin: 0 0 0.34rem;
+  font-size: 1.06rem;
+  font-weight: 700;
+  color: #fff3d6;
+}
+
+.admin-location-hint {
+  margin: 0 0 0.78rem;
+  color: #c9d8f7;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.admin-location-form {
+  display: grid;
+  gap: 0.68rem;
+}
+
+.admin-location-grid {
+  display: grid;
+  grid-template-columns: 0.8fr 1.2fr;
+  gap: 0.58rem;
+}
+
+.admin-location-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  width: fit-content;
+  margin: 0.1rem 0 0;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 191, 103, 0.36);
+  background: rgba(245, 158, 11, 0.1);
+  color: #ffe6b8;
+  padding: 0.26rem 0.58rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.admin-location-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.22rem;
+}
+
+.admin-location-overlay.is-busy .admin-location-dialog {
+  border-color: rgba(255, 191, 103, 0.54);
 }
 
 .admin-crop-title {
@@ -689,6 +915,27 @@ body {
   font-size: 0.82rem;
 }
 
+@keyframes admin-geo-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes geo-status-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(67, 216, 163, 0.34);
+    transform: scale(1);
+  }
+  55% {
+    box-shadow: 0 0 0 8px rgba(67, 216, 163, 0);
+    transform: scale(1.04);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(67, 216, 163, 0);
+    transform: scale(1);
+  }
+}
+
 @media (max-width: 1080px) {
   .filter-grid {
     grid-template-columns: 1fr 1fr;
@@ -781,6 +1028,27 @@ body {
     flex-basis: calc(50% - 0.25rem);
     min-height: 34px;
     font-size: 0.74rem;
+  }
+
+  .event-card__geo-actions {
+    flex-direction: column;
+  }
+
+  .event-card__geo-btn {
+    width: 100%;
+  }
+
+  .admin-location-dialog {
+    padding: 0.9rem;
+    border-radius: 16px;
+  }
+
+  .admin-location-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-location-actions .button-secondary {
+    flex: 1 1 100%;
   }
 
   .mini-toggle {
