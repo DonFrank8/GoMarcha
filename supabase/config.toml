@@ -2,3 +2,6 @@
 
 [functions.social-queue-runner]
 verify_jwt = false
+
+[functions.event-share]
+verify_jwt = false
