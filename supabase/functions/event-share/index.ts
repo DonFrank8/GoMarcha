@@ -18,7 +18,8 @@ const DEFAULT_OG_IMAGE_URL = `${DEFAULT_SITE_URL}/social-preview.png`;
 
 const CORS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type"
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
 };
 
 function escapeHtml(str: unknown): string {
@@ -36,7 +37,10 @@ function truncate(str: unknown, maxLength: number): string {
   return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
 }
 
-function getBestLocalizedField(event: Record<string, unknown>, keys: string[]): string {
+function getBestLocalizedField(
+  event: Record<string, unknown>,
+  keys: string[],
+): string {
   for (const key of keys) {
     const value = String(event[key] ?? "").trim();
     if (value) return value;
@@ -76,11 +80,21 @@ function collectImageCandidates(event: Record<string, unknown>): string[] {
   collectEntry(event.image_url);
   collectEntry(event.image);
 
-  for (const key of ["image_urls", "images", "imageUrls", "gallery", "gallery_images", "photos"]) {
+  for (
+    const key of [
+      "image_urls",
+      "images",
+      "imageUrls",
+      "gallery",
+      "gallery_images",
+      "photos",
+    ]
+  ) {
     const value = event[key];
     if (Array.isArray(value)) {
       const featured = value.find((entry) =>
-        entry && typeof entry === "object" && (entry as { featured?: unknown }).featured === true
+        entry && typeof entry === "object" &&
+        (entry as { featured?: unknown }).featured === true
       );
       if (featured) collectEntry(featured);
       value.filter((entry) => entry !== featured).forEach(collectEntry);
@@ -92,7 +106,11 @@ function collectImageCandidates(event: Record<string, unknown>): string[] {
   return [...new Set(out)];
 }
 
-function resolveImageUrl(event: Record<string, unknown>, siteUrl: string, fallbackImageUrl: string): string {
+function resolveImageUrl(
+  event: Record<string, unknown>,
+  siteUrl: string,
+  fallbackImageUrl: string,
+): string {
   for (const candidate of collectImageCandidates(event)) {
     const absolute = absoluteHttpsUrl(candidate, siteUrl);
     if (absolute) return absolute;
@@ -114,7 +132,7 @@ function formatEventDateTime(event: Record<string, unknown>): string {
       return new Intl.DateTimeFormat("es-ES", {
         dateStyle: "medium",
         timeStyle: "short",
-        timeZone: "Europe/Madrid"
+        timeZone: "Europe/Madrid",
       }).format(parsed);
     }
   }
@@ -130,11 +148,25 @@ function isShareableEvent(event: Record<string, unknown>): boolean {
 }
 
 function buildDescription(event: Record<string, unknown>): string {
-  const venue = getBestLocalizedField(event, ["venue_es", "location_name", "venue", "location"]);
+  const venue = getBestLocalizedField(event, [
+    "venue_es",
+    "location_name",
+    "venue",
+    "location",
+  ]);
   const city = getBestLocalizedField(event, ["city", "location_city"]);
   const dateTime = formatEventDateTime(event);
-  const category = getBestLocalizedField(event, ["category", "event_category", "genre", "music_genre"]);
-  const price = getBestLocalizedField(event, ["entry_price", "price_text", "price"]);
+  const category = getBestLocalizedField(event, [
+    "category",
+    "event_category",
+    "genre",
+    "music_genre",
+  ]);
+  const price = getBestLocalizedField(event, [
+    "entry_price",
+    "price_text",
+    "price",
+  ]);
   const description = getBestLocalizedField(event, [
     "description_es",
     "description",
@@ -144,9 +176,11 @@ function buildDescription(event: Record<string, unknown>): string {
     "description_de",
     "descrption_de",
     "details",
-    "event_description"
+    "event_description",
   ]);
-  const context = [venue, city, dateTime, category, price].filter(Boolean).join(" · ");
+  const context = [venue, city, dateTime, category, price].filter(Boolean).join(
+    " · ",
+  );
   return truncate([context, description].filter(Boolean).join(". "), 160);
 }
 
@@ -192,7 +226,9 @@ function renderHtml(args: {
     p { color: #cbd5e1; line-height: 1.5; }
     a { color: #f9a8d4; font-weight: 700; }
   </style>
-  <script>window.setTimeout(function(){ window.location.replace(${JSON.stringify(args.appUrl)}); }, 400);</script>
+  <script>window.setTimeout(function(){ window.location.replace(${
+    JSON.stringify(args.appUrl)
+  }); }, 400);</script>
 </head>
 <body>
   <main>
@@ -209,51 +245,82 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
 
   const requestUrl = new URL(req.url);
-  const id = String(requestUrl.searchParams.get("id") || requestUrl.searchParams.get("event_id") || "").trim();
+  const id = String(
+    requestUrl.searchParams.get("id") ||
+      requestUrl.searchParams.get("event_id") || "",
+  ).trim();
   if (!id) {
-    return new Response("Missing event id", { status: 400, headers: { ...CORS, "Content-Type": "text/plain" } });
-  }
-
-  const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
-  const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("SUPABASE_ANON_KEY") || "";
-  if (!supabaseUrl || !supabaseKey) {
-    return new Response("Supabase environment is not configured", {
-      status: 500,
-      headers: { ...CORS, "Content-Type": "text/plain" }
+    return new Response("Missing event id", {
+      status: 400,
+      headers: { ...CORS, "Content-Type": "text/plain" },
     });
   }
 
-  const siteUrl = (Deno.env.get("MARCHA_PUBLIC_SITE_URL") || DEFAULT_SITE_URL).replace(/\/+$/, "");
-  const fallbackImageUrl = absoluteHttpsUrl(Deno.env.get("MARCHA_DEFAULT_OG_IMAGE_URL"), siteUrl) || DEFAULT_OG_IMAGE_URL;
-  const supabase = createClient(supabaseUrl, supabaseKey, { auth: { persistSession: false } });
+  const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
+  const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ||
+    Deno.env.get("SUPABASE_ANON_KEY") || "";
+  if (!supabaseUrl || !supabaseKey) {
+    return new Response("Supabase environment is not configured", {
+      status: 500,
+      headers: { ...CORS, "Content-Type": "text/plain" },
+    });
+  }
 
-  const { data: event, error } = await supabase.from("events").select("*").eq("id", id).maybeSingle();
+  const siteUrl = (Deno.env.get("MARCHA_PUBLIC_SITE_URL") || DEFAULT_SITE_URL)
+    .replace(/\/+$/, "");
+  const fallbackImageUrl =
+    absoluteHttpsUrl(Deno.env.get("MARCHA_DEFAULT_OG_IMAGE_URL"), siteUrl) ||
+    DEFAULT_OG_IMAGE_URL;
+  const supabase = createClient(supabaseUrl, supabaseKey, {
+    auth: { persistSession: false },
+  });
+
+  const { data: event, error } = await supabase.from("events").select("*").eq(
+    "id",
+    id,
+  ).maybeSingle();
   if (error) {
-    console.error("[event-share] event_load_failed", { id, message: error.message });
-    return new Response("Event could not be loaded", { status: 500, headers: { ...CORS, "Content-Type": "text/plain" } });
+    console.error("[event-share] event_load_failed", {
+      id,
+      message: error.message,
+    });
+    return new Response("Event could not be loaded", {
+      status: 500,
+      headers: { ...CORS, "Content-Type": "text/plain" },
+    });
   }
   if (!event || !isShareableEvent(event as Record<string, unknown>)) {
-    return new Response("Event not found", { status: 404, headers: { ...CORS, "Content-Type": "text/plain" } });
+    return new Response("Event not found", {
+      status: 404,
+      headers: { ...CORS, "Content-Type": "text/plain" },
+    });
   }
 
   const eventRecord = event as Record<string, unknown>;
-  const title =
-    getBestLocalizedField(eventRecord, ["title_es", "title", "name", "title_en", "title_de", "event_title"]) ||
+  const title = getBestLocalizedField(eventRecord, [
+    "title_es",
+    "title",
+    "name",
+    "title_en",
+    "title_de",
+    "event_title",
+  ]) ||
     "GoMarcha Event";
   const appUrl = buildEventAppUrl(id, siteUrl);
   const html = renderHtml({
     title,
-    description: buildDescription(eventRecord) || "Descubre este evento en GoMarcha.",
+    description: buildDescription(eventRecord) ||
+      "Descubre este evento en GoMarcha.",
     imageUrl: resolveImageUrl(eventRecord, siteUrl, fallbackImageUrl),
     shareUrl: requestUrl.toString(),
-    appUrl
+    appUrl,
   });
 
   return new Response(html, {
     headers: {
       ...CORS,
       "Content-Type": "text/html; charset=utf-8",
-      "Cache-Control": "public, max-age=300"
-    }
+      "Cache-Control": "public, max-age=300",
+    },
   });
 });
