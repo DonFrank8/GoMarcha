@@ -704,6 +704,26 @@ async function hasQueueConflict(
   return false;
 }
 
+async function persistUploadedImageUrl(supabase: SupabaseClient, queueId: string, uploadedUrl: string): Promise<void> {
+  const { error } = await supabase
+    .from("social_queue")
+    .update({
+      resolved_image_url: uploadedUrl,
+      updated_at: new Date().toISOString()
+    })
+    .eq("id", queueId);
+
+  if (error) {
+    slog("postiz_upload_resolved_image_persist_failed", { queue_id: queueId, message: error.message });
+    return;
+  }
+
+  slog("postiz_upload_resolved_image_persisted", {
+    queue_id: queueId,
+    resolved_image_host: safeHost(uploadedUrl)
+  });
+}
+
 function mediaPayloadFromUrl(url: string): PostizMedia {
   const enc = new TextEncoder().encode(url);
   return { id: stableIdFromBytes(enc), path: url };
@@ -739,6 +759,12 @@ function filenameForPostizUpload(sourceUrl: string, contentType: string): string
     /* ignore */
   }
   return `marcha-event${ext}`;
+}
+
+function arrayBufferFromBytes(bytes: Uint8Array): ArrayBuffer {
+  const copy = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(copy).set(bytes);
+  return copy;
 }
 
 async function downloadImageBytes(
@@ -799,7 +825,7 @@ async function ensurePostizHostedMedia(args: {
   const filename = filenameForPostizUpload(args.sourceUrl, dl.contentType);
   const uploadUrl = `${args.apiBase.replace(/\/$/, "")}/upload`;
   const form = new FormData();
-  form.append("file", new Blob([dl.bytes], { type: dl.contentType }), filename);
+  form.append("file", new Blob([arrayBufferFromBytes(dl.bytes)], { type: dl.contentType }), filename);
 
   slog("postiz_upload_multipart_start", {
     queue_id: args.queueId,
@@ -1427,6 +1453,8 @@ Deno.serve(async (req) => {
 
     const publishMedia = uploadResult.media;
     const resolvedPostizUrl = publishMedia.path;
+
+    await persistUploadedImageUrl(supabase, claimed.id, resolvedPostizUrl);
 
     slog("event_image_postiz_uploaded", {
       queue_id: claimed.id,
