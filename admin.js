@@ -2,7 +2,7 @@ const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
 const ADMIN_REQUIRED_ROLE = "admin";
 const ADMIN_ALLOWED_EMAILS = [];
-const ADMIN_DASHBOARD_BUILD = "2026.05.15-admin-premium-1";
+const ADMIN_DASHBOARD_BUILD = "2026.05.15-admin-analytics-1";
 const EVENT_LIST_PAGE_SIZE = 22;
 
 const EVENT_IMAGES_BUCKET = "event-images";
@@ -31,7 +31,7 @@ const URGENT_EVENT_HOURS = 24;
 const IMMEDIATE_LAST_CALL_DELAY_MS = 60 * 1000;
 const EVENT_START_SAFETY_MS = 15 * 1000;
 
-const VALID_STATUS = new Set(["pending", "approved", "rejected"]);
+const EVENT_ANALYTICS_TABLE = "event_analytics";
 
 const state = {
   allEvents: [],
@@ -56,7 +56,13 @@ const state = {
   featureColumns: {
     featured: true,
     promoted: true
-  }
+  },
+  analyticsTimeRange: "7d",
+  analyticsRowsRaw: [],
+  analyticsPanelRequestId: 0,
+  analyticsLoading: false,
+  analyticsLastFetchAt: 0,
+  prevNavSection: "dashboard"
 };
 
 const dom = {
@@ -1278,18 +1284,200 @@ function renderDashboard() {
   `;
 }
 
+function startOfLocalDayMs(d = new Date()) {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+}
+
+function filterAnalyticsRowsByRange(rows, range) {
+  if (range === "all") return [...(rows || [])];
+  const now = Date.now();
+  if (range === "today") {
+    const s = startOfLocalDayMs();
+    return (rows || []).filter((r) => new Date(r.created_at).getTime() >= s);
+  }
+  const days = range === "30d" ? 30 : 7;
+  const cut = now - days * 86400000;
+  return (rows || []).filter((r) => new Date(r.created_at).getTime() >= cut);
+}
+
+function computeAnalyticsKpis(allRows) {
+  const rows = allRows || [];
+  const now = Date.now();
+  const t0 = startOfLocalDayMs();
+  const t7 = now - 7 * 86400000;
+  let viewsToday = 0;
+  let views7 = 0;
+  let shares7 = 0;
+  const scoreByEvent = new Map();
+  for (const r of rows) {
+    const t = new Date(r.created_at).getTime();
+    if (Number.isNaN(t)) continue;
+    const id = String(r.event_id || "");
+    if (!id) continue;
+    if (r.action === "event_view") {
+      if (t >= t0) viewsToday += 1;
+      if (t >= t7) {
+        views7 += 1;
+        scoreByEvent.set(id, (scoreByEvent.get(id) || 0) + 1);
+      }
+    } else if (r.action === "share" && t >= t7) {
+      shares7 += 1;
+      scoreByEvent.set(id, (scoreByEvent.get(id) || 0) + 1);
+    }
+  }
+  let topId = null;
+  let topScore = 0;
+  for (const [id, sc] of scoreByEvent) {
+    if (sc > topScore) {
+      topScore = sc;
+      topId = id;
+    }
+  }
+  return { viewsToday, views7, shares7, topId, topScore };
+}
+
+function eventTitleForAnalytics(eventId) {
+  const ev = state.allEvents.find((e) => String(e.id) === String(eventId));
+  return ev?.name || ev?.title || String(eventId).slice(0, 40) || "–";
+}
+
+function topSourceLabelFromCounts(sourceCounts) {
+  let best = "";
+  let n = 0;
+  for (const [k, v] of sourceCounts) {
+    if (v > n) {
+      n = v;
+      best = k;
+    }
+  }
+  return best || "–";
+}
+
+function aggregateAnalyticsTableRows(rows) {
+  const byId = new Map();
+  for (const r of rows || []) {
+    const id = String(r.event_id || "");
+    if (!id) continue;
+    if (!byId.has(id)) {
+      byId.set(id, {
+        eventId: id,
+        views: 0,
+        shares: 0,
+        sourceCounts: new Map(),
+        lastMs: 0
+      });
+    }
+    const o = byId.get(id);
+    const t = new Date(r.created_at).getTime();
+    if (!Number.isNaN(t) && t > o.lastMs) o.lastMs = t;
+    if (r.action === "event_view") o.views += 1;
+    else if (r.action === "share") {
+      o.shares += 1;
+      const hint = [r.share_channel, r.source].filter(Boolean).join(" · ") || "direkt";
+      o.sourceCounts.set(hint, (o.sourceCounts.get(hint) || 0) + 1);
+    }
+  }
+  return [...byId.values()].sort((a, b) => b.views + b.shares - (a.views + a.shares));
+}
+
+function buildAdminAnalyticsHtml(allRows) {
+  const kpis = computeAnalyticsKpis(allRows);
+  const filtered = filterAnalyticsRowsByRange(allRows, state.analyticsTimeRange);
+  const agg = aggregateAnalyticsTableRows(filtered);
+  const topTitle = kpis.topId ? escapeHtml(eventTitleForAnalytics(kpis.topId)) : "–";
+  const range = state.analyticsTimeRange;
+  const mkBtn = (id, label) =>
+    `<button type="button" class="admin-analytics-range-btn ${range === id ? "is-active" : ""}" data-analytics-range="${id}">${escapeHtml(
+      label
+    )}</button>`;
+
+  const kpiHtml = `<div class="admin-analytics-kpis">
+    <div class="admin-analytics-kpi"><span class="admin-analytics-kpi__v">${kpis.viewsToday}</span><span class="admin-analytics-kpi__l">Views heute</span></div>
+    <div class="admin-analytics-kpi"><span class="admin-analytics-kpi__v">${kpis.views7}</span><span class="admin-analytics-kpi__l">Views 7 Tage</span></div>
+    <div class="admin-analytics-kpi"><span class="admin-analytics-kpi__v">${kpis.shares7}</span><span class="admin-analytics-kpi__l">Shares 7 Tage</span></div>
+    <div class="admin-analytics-kpi admin-analytics-kpi--wide"><span class="admin-analytics-kpi__v admin-analytics-kpi__v--sm">${topTitle}</span><span class="admin-analytics-kpi__l">Top Event (7 Tage)</span></div>
+  </div>`;
+
+  const filterHtml = `<div class="admin-analytics-toolbar" role="group" aria-label="Zeitraum Liste">
+    ${mkBtn("today", "Heute")}
+    ${mkBtn("7d", "7 Tage")}
+    ${mkBtn("30d", "30 Tage")}
+    ${mkBtn("all", "Alle")}
+  </div>
+  <p class="card__intro admin-analytics-hint">KPIs aus den letzten 120 Tagen Rohdaten; die Tabelle filtert nach Zeitraum.</p>`;
+
+  const tableRows = agg
+    .map((row) => {
+      const title = escapeHtml(eventTitleForAnalytics(row.eventId));
+      const topSrc = escapeHtml(topSourceLabelFromCounts(row.sourceCounts));
+      const last = row.lastMs ? escapeHtml(formatAdminDateTime(new Date(row.lastMs).toISOString())) : "–";
+      return `<tr>
+        <td><strong>${title}</strong><div class="admin-analytics-mono">${escapeHtml(String(row.eventId).slice(0, 56))}</div></td>
+        <td class="admin-analytics-num">${row.views}</td>
+        <td class="admin-analytics-num">${row.shares}</td>
+        <td>${topSrc}</td>
+        <td>${last}</td>
+      </tr>`;
+    })
+    .join("");
+
+  const tableHtml = `<div class="admin-analytics-table-wrap"><table class="admin-analytics-table">
+    <thead><tr><th>Event</th><th>Views</th><th>Shares</th><th>Top Quelle</th><th>Letzte Aktivität</th></tr></thead>
+    <tbody>${tableRows || `<tr><td colspan="5">Keine Daten im gewählten Zeitraum.</td></tr>`}</tbody>
+  </table></div>`;
+
+  return `${kpiHtml}${filterHtml}${tableHtml}`;
+}
+
+function renderAdminAnalyticsPanelFromCache() {
+  if (!dom.analyticsBody || !isSessionAdmin(state.adminSession)) return;
+  if (state.analyticsLoading) return;
+  dom.analyticsBody.innerHTML = buildAdminAnalyticsHtml(state.analyticsRowsRaw);
+}
+
+async function loadAdminEventAnalyticsData() {
+  const rid = ++state.analyticsPanelRequestId;
+  state.analyticsLoading = true;
+  if (dom.analyticsBody) dom.analyticsBody.innerHTML = `<p class="card__intro">Lade Analytics…</p>`;
+  try {
+    const client = supabaseClient();
+    const since = new Date(Date.now() - 120 * 86400000).toISOString();
+    const { data, error } = await client
+      .from(EVENT_ANALYTICS_TABLE)
+      .select("id,created_at,event_id,action,share_channel,source,metadata")
+      .gte("created_at", since)
+      .order("created_at", { ascending: false })
+      .limit(15000);
+    if (error) throw error;
+    if (rid !== state.analyticsPanelRequestId) return;
+    state.analyticsRowsRaw = data || [];
+    state.analyticsLastFetchAt = Date.now();
+    renderAdminAnalyticsPanelFromCache();
+  } catch (err) {
+    if (rid !== state.analyticsPanelRequestId) return;
+    state.analyticsRowsRaw = [];
+    if (dom.analyticsBody) dom.analyticsBody.innerHTML = `<p class="feedback is-error">${escapeHtml(err.message || String(err))}</p>`;
+  } finally {
+    if (rid === state.analyticsPanelRequestId) {
+      state.analyticsLoading = false;
+    }
+  }
+}
+
 function renderAnalyticsBody() {
   if (!dom.analyticsBody) return;
-  const s = computeDashboardStats();
-  dom.analyticsBody.innerHTML = `
-    <ul class="admin-analytics-list">
-      <li><strong>${state.allEvents.length}</strong> Events gesamt</li>
-      <li><strong>${socialQueueRowsFlat().length}</strong> Social-Queue-Zeilen</li>
-      <li><strong>${s.failedSocial}</strong> fehlgeschlagene Posts</li>
-      <li><strong>${s.missingCoords}</strong> ohne Marker</li>
-    </ul>
-    <p class="card__intro">Erweiterbar um Postiz-Metriken oder Seitenaufrufe, sobald Daten angebunden sind.</p>
-  `;
+  if (!isSessionAdmin(state.adminSession)) {
+    dom.analyticsBody.innerHTML = `<p class="card__intro">Analytics nach Admin-Login.</p>`;
+    return;
+  }
+  if (state.navSection !== "analytics") return;
+  const reEntered = state.navSection === "analytics" && state.prevNavSection !== "analytics";
+  const stale = Date.now() - (state.analyticsLastFetchAt || 0) > 120000;
+  if (reEntered || !state.analyticsRowsRaw.length || stale) {
+    void loadAdminEventAnalyticsData();
+  } else {
+    renderAdminAnalyticsPanelFromCache();
+  }
 }
 
 function renderMainNav() {
@@ -1501,6 +1689,7 @@ function render() {
   if (state.navSection === "events") {
     renderEvents();
   }
+  state.prevNavSection = state.navSection;
 }
 
 function isSameLocalDay(a, b) {
@@ -3365,6 +3554,15 @@ function bindEvents() {
   });
 
   dom.workspace?.addEventListener("click", (ev) => {
+    const rangeBtn = ev.target.closest("[data-analytics-range]");
+    if (rangeBtn && dom.viewAnalytics?.contains(rangeBtn)) {
+      const next = rangeBtn.dataset.analyticsRange || "7d";
+      if (next !== state.analyticsTimeRange) {
+        state.analyticsTimeRange = next;
+        renderAdminAnalyticsPanelFromCache();
+      }
+      return;
+    }
     const dash = ev.target.closest("[data-admin-dash]");
     if (dash) {
       const k = dash.dataset.adminDash || "";

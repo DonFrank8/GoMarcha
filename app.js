@@ -28,6 +28,8 @@ const USER_LOCATION_STORAGE_KEY = "vibeon.userLocation.v1";
 const LANGUAGE_STORAGE_KEY = "vibeon.language";
 const SOURCE_STORAGE_KEY = "source";
 const SOURCE_TRACKED_SESSION_STORAGE_KEY = "qr_tracked_this_session";
+const EVENT_ANALYTICS_TABLE = "event_analytics";
+const ANALYTICS_SESSION_VIEW_PREFIX = "marcha_analytics_view_";
 const TRANSLATION_TARGET_LANGUAGE_BY_CODE = Object.freeze({
   de: "German",
   en: "English",
@@ -4948,12 +4950,15 @@ async function shareEventViaQuickPlatform(event, platform) {
     return true;
   }
   if (normalizedPlatform === "facebook") {
+    trackEventAnalytics(String(event.id), "share", { share_channel: "facebook" });
     return openExternalShareUrl(buildFacebookShareUrl(event));
   }
   if (normalizedPlatform === "telegram") {
+    trackEventAnalytics(String(event.id), "share", { share_channel: "telegram" });
     return openExternalShareUrl(buildTelegramShareUrl(event));
   }
   if (normalizedPlatform === "whatsapp") {
+    trackEventAnalytics(String(event.id), "share", { share_channel: "whatsapp" });
     return openExternalShareUrl(buildWhatsappShareUrl(event));
   }
   return false;
@@ -4962,7 +4967,8 @@ async function shareEventViaQuickPlatform(event, platform) {
 async function copyEventLinkFromDetails(event) {
   const copied = await copyTextToClipboard(buildEventShareUrl(event?.id));
   if (copied) {
-    setStatus("Link copiado ✅", "ok");
+    trackEventAnalytics(String(event?.id || ""), "share", { share_channel: "copy_link" });
+    setStatus(t("details_share_copy_success"), "ok");
     return true;
   }
   setStatus(t("details_share_not_supported"), "warning");
@@ -5075,6 +5081,7 @@ async function shareEventFromDetails(event) {
         text: generatedShareText,
         url: eventUrl
       });
+      trackEventAnalytics(String(event.id), "share", { share_channel: "native" });
       return;
     } catch (error) {
       if (error?.name === "AbortError") return;
@@ -5446,6 +5453,90 @@ function updateUrlFromFilters() {
 
 function supabaseClient() {
   return window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+}
+
+function readTrafficSourceForAnalytics() {
+  try {
+    const params = new URLSearchParams(window.location.search || "");
+    const fromUrl = String(params.get("source") || "").trim();
+    if (fromUrl) return fromUrl.slice(0, 128);
+  } catch (_e) {
+    /* ignore */
+  }
+  try {
+    const stored = String(window.localStorage?.getItem(SOURCE_STORAGE_KEY) || "").trim();
+    if (stored) return stored.slice(0, 128);
+  } catch (_e) {
+    /* ignore */
+  }
+  return "";
+}
+
+function sanitizeAnalyticsMetadata(meta) {
+  const out = {};
+  if (!meta || typeof meta !== "object") return out;
+  for (const [k, v] of Object.entries(meta)) {
+    if (k === "share_channel" || k === "source") continue;
+    const key = String(k).slice(0, 64);
+    if (!key) continue;
+    if (typeof v === "string") out[key] = v.slice(0, 256);
+    else if (typeof v === "number" && Number.isFinite(v)) out[key] = v;
+    else if (typeof v === "boolean") out[key] = v;
+  }
+  return out;
+}
+
+/**
+ * Fire-and-forget analytics row (anon + RLS). Never throws to callers; failures are console-only.
+ * @param {string} eventId
+ * @param {"event_view"|"share"} action
+ * @param {Record<string, unknown>} metadata
+ */
+function trackEventAnalytics(eventId, action, metadata = {}) {
+  void (async () => {
+    try {
+      const id = String(eventId || "").trim();
+      if (!id || !SUPABASE_URL || !SUPABASE_URL.includes("supabase.co")) return;
+      if (!SUPABASE_ANON_KEY) return;
+      const act = String(action || "").trim();
+      if (act !== "event_view" && act !== "share") return;
+      const meta = metadata && typeof metadata === "object" ? metadata : {};
+      const shareChannelRaw = typeof meta.share_channel === "string" ? meta.share_channel.trim() : "";
+      const share_channel = act === "share" && shareChannelRaw ? shareChannelRaw.slice(0, 64) : null;
+      let source = readTrafficSourceForAnalytics();
+      if (typeof meta.source === "string" && meta.source.trim()) source = meta.source.trim().slice(0, 128);
+      const row = {
+        event_id: id.slice(0, 200),
+        action: act,
+        share_channel,
+        source: source || null,
+        page_url: String(window.location?.href || "").slice(0, 2048) || null,
+        user_agent: String(navigator.userAgent || "").slice(0, 1024) || null,
+        metadata: { ...sanitizeAnalyticsMetadata(meta), lang: state.lang || "de" }
+      };
+      const client = supabaseClient();
+      const { error } = await client.from(EVENT_ANALYTICS_TABLE).insert(row);
+      if (error) console.warn("[Marcha analytics]", error.message || error);
+    } catch (err) {
+      console.warn("[Marcha analytics]", err?.message || err);
+    }
+  })();
+}
+
+function trackEventAnalyticsViewOncePerSession(eventId) {
+  const id = String(eventId || "").trim();
+  if (!id) return;
+  try {
+    const key = `${ANALYTICS_SESSION_VIEW_PREFIX}${id}`;
+    if (window.sessionStorage?.getItem(key)) return;
+    window.sessionStorage?.setItem(key, "1");
+  } catch (_e) {
+    /* sessionStorage blocked — still send one view this page load via in-memory */
+    if (!window.__marchaAnalyticsViewedIds) window.__marchaAnalyticsViewedIds = new Set();
+    if (window.__marchaAnalyticsViewedIds.has(id)) return;
+    window.__marchaAnalyticsViewedIds.add(id);
+  }
+  trackEventAnalytics(id, "event_view", { surface: "discover" });
 }
 
 function sessionAdminRole(session) {
@@ -7594,6 +7685,7 @@ function selectEvent(eventData, source = "list") {
   renderEventDetails(resolvedEvent);
   focusMapOnEvent(resolvedEvent, options);
   openMapDetails(options);
+  trackEventAnalyticsViewOncePerSession(resolvedEvent.id);
 }
 
 function clearGenreSelection() {
