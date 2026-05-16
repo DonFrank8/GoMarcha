@@ -14,7 +14,6 @@ using (
   coalesce(auth.jwt() -> 'app_metadata' ->> 'role', '') = 'admin'
 );
 
--- Child tables: admin delete before events (app order); FK cascade also applies if parent delete succeeds.
 alter table public.social_queue enable row level security;
 alter table public.social_caption_usage enable row level security;
 
@@ -39,7 +38,6 @@ using (
   coalesce(auth.jwt() -> 'app_metadata' ->> 'role', '') = 'admin'
 );
 
--- Optional analytics rows (text event_id, no FK to events).
 do $$
 begin
   if exists (

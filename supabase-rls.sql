@@ -151,13 +151,28 @@ with check (
 
 -- 4c) Authenticated admins can read all events (including pending/rejected)
 -- Required so moderation dashboards can fetch rows to review.
+create or replace function public.marcha_auth_is_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce(
+    nullif(trim(auth.jwt() -> 'app_metadata' ->> 'role'), ''),
+    nullif(trim(auth.jwt() -> 'user_metadata' ->> 'role'), ''),
+    ''
+  ) = 'admin';
+$$;
+
+revoke all on function public.marcha_auth_is_admin() from public;
+grant execute on function public.marcha_auth_is_admin() to anon, authenticated;
+
 create policy "Admins can read all events via role"
 on public.events
 for select
 to authenticated
-using (
-  auth.jwt() -> 'app_metadata' ->> 'role' = 'admin'
-);
+using (public.marcha_auth_is_admin());
 
 -- 5) Only authenticated admins can moderate (update status/notes)
 -- Requires app_metadata.role = 'admin' in auth.users JWT payload.
@@ -165,21 +180,15 @@ create policy "Admins can moderate events via role"
 on public.events
 for update
 to authenticated
-using (
-  auth.jwt() -> 'app_metadata' ->> 'role' = 'admin'
-)
-with check (
-  auth.jwt() -> 'app_metadata' ->> 'role' = 'admin'
-);
+using (public.marcha_auth_is_admin())
+with check (public.marcha_auth_is_admin());
 
 -- 5b) Authenticated admins can delete events (dashboard; children handled in app or via FK)
 create policy "Admins can delete events via role"
 on public.events
 for delete
 to authenticated
-using (
-  auth.jwt() -> 'app_metadata' ->> 'role' = 'admin'
-);
+using (public.marcha_auth_is_admin());
 
 -- 6) Storage bucket + policies for event image uploads
 insert into storage.buckets (id, name, public)

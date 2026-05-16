@@ -1743,6 +1743,12 @@ body.admin-is-logged-in .admin-shell {
   vertical-align: middle;
 }
 
+.event-card__repair-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
 .btn-pill {
   border-radius: 999px;
   border: 1px solid rgba(148, 163, 184, 0.35);

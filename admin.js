@@ -189,7 +189,9 @@ function isEmailAllowed(email) {
 }
 
 function sessionRole(session) {
-  return String(session?.user?.app_metadata?.role || "").trim().toLowerCase();
+  const appRole = String(session?.user?.app_metadata?.role || "").trim().toLowerCase();
+  const userRole = String(session?.user?.user_metadata?.role || "").trim().toLowerCase();
+  return appRole || userRole;
 }
 
 function isSessionAdmin(session) {
@@ -493,6 +495,157 @@ function isAdminRecurringEvent(event) {
   return normalizeAdminRecurrenceType(event?.recurrence_type) !== "none";
 }
 
+function adminFormatLocalYmd(date = new Date()) {
+  const d = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(d.getTime())) return "";
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** In-memory + filter coercion: start date and weekday/day-of-month from event_date when missing. */
+function adminCoerceRecurrenceFields(event) {
+  if (!event || typeof event !== "object") return event;
+  const type = normalizeAdminRecurrenceType(event.recurrence_type);
+  if (type === "none") return event;
+
+  const recurrence_start_date =
+    String(event.recurrence_start_date || "").trim() || String(event.event_date || "").trim();
+  const fallbackYmd = recurrence_start_date || event.event_date;
+  const coerced = {
+    ...event,
+    recurrence_type: type,
+    recurrence_start_date
+  };
+  if (type === "weekly") {
+    coerced.recurrence_weekday = normalizeAdminRecurrenceWeekday(event.recurrence_weekday, fallbackYmd);
+  }
+  if (type === "monthly") {
+    coerced.recurrence_day_of_month = normalizeAdminRecurrenceDayOfMonth(
+      event.recurrence_day_of_month,
+      fallbackYmd
+    );
+  }
+  return coerced;
+}
+
+function detectAdminRecurrenceTextHint(event) {
+  const haystack = [
+    event?.name,
+    event?.title,
+    event?.description,
+    event?.description_de,
+    event?.description_en,
+    event?.verification_notes,
+    event?.genre
+  ]
+    .map((v) => String(v || "").toLowerCase())
+    .join(" ");
+  if (/wöchentlich|woechentlich|\bweekly\b|jeden\s+(montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag)/i.test(haystack)) {
+    return "weekly";
+  }
+  if (/monatlich|\bmonthly\b/i.test(haystack)) return "monthly";
+  return null;
+}
+
+function inferAdminRecurrenceType(event) {
+  const stored = normalizeAdminRecurrenceType(event?.recurrence_type);
+  if (stored !== "none") return stored;
+  if (Number.isInteger(Number(event?.recurrence_weekday))) return "weekly";
+  if (Number.isInteger(Number(event?.recurrence_day_of_month))) return "monthly";
+  return detectAdminRecurrenceTextHint(event) || "none";
+}
+
+function adminEventHasImage(event) {
+  if (String(event?.image_url || "").trim()) return true;
+  const urls = event?.image_urls;
+  if (Array.isArray(urls) && urls.some((u) => String(u || "").trim())) return true;
+  if (typeof urls === "string" && urls.trim()) return true;
+  return false;
+}
+
+function adminEventHasName(event) {
+  const name = String(event?.name || event?.title || "").trim();
+  return Boolean(name && name !== "-");
+}
+
+function isAdminDefectiveEvent(event) {
+  if (event?.status !== "approved" && event?.status !== "pending") return false;
+  return (
+    !adminEventHasName(event) &&
+    !String(event?.event_date || "").trim() &&
+    !adminEventHasImage(event) &&
+    !String(event?.location_name || "").trim() &&
+    !String(event?.description || "").trim()
+  );
+}
+
+function isAdminRecurringIncomplete(event) {
+  const storedType = normalizeAdminRecurrenceType(event?.recurrence_type);
+  const hint = detectAdminRecurrenceTextHint(event);
+  if (storedType === "none" && hint) return true;
+  if (storedType === "none") return false;
+  const start = String(event?.recurrence_start_date || event?.event_date || "").trim();
+  if (!start) return true;
+  const coerced = adminCoerceRecurrenceFields(event);
+  if (storedType === "weekly" && coerced.recurrence_weekday === null) return true;
+  if (storedType === "monthly" && coerced.recurrence_day_of_month === null) return true;
+  return false;
+}
+
+function buildAdminRecurrenceRepairPatch(event) {
+  let type = inferAdminRecurrenceType(event);
+  if (type === "none") return null;
+
+  const eventDate = String(event?.event_date || "").trim();
+  const startDate = String(event?.recurrence_start_date || "").trim() || eventDate;
+  if (!startDate) return null;
+
+  const patch = {
+    recurrence_type: type,
+    recurrence_start_date: startDate
+  };
+  if (type === "weekly") {
+    const weekday = normalizeAdminRecurrenceWeekday(event?.recurrence_weekday, startDate);
+    if (weekday === null) return null;
+    patch.recurrence_weekday = weekday;
+  }
+  if (type === "monthly") {
+    const dom = normalizeAdminRecurrenceDayOfMonth(event?.recurrence_day_of_month, startDate);
+    if (dom === null) return null;
+    patch.recurrence_day_of_month = dom;
+  }
+  const end = String(event?.recurrence_end_date || "").trim();
+  if (end) patch.recurrence_end_date = end;
+  return patch;
+}
+
+function isAdminStoredRecurrenceNone(event) {
+  const raw = String(event?.recurrence_type ?? "").trim().toLowerCase();
+  return !raw || raw === "none";
+}
+
+function canShowAdminWeeklyRepairButton(event) {
+  if (!isAdminStoredRecurrenceNone(event)) return false;
+  if (!String(event?.event_date || "").trim()) return false;
+  return isEventPast(event);
+}
+
+function buildAdminWeeklyRepairPatch(event) {
+  if (!isAdminStoredRecurrenceNone(event)) return null;
+  const eventDate = String(event?.event_date || "").trim();
+  if (!eventDate) return null;
+  const weekday = normalizeAdminRecurrenceWeekday(null, eventDate);
+  if (weekday === null) return null;
+  return {
+    recurrence_type: "weekly",
+    recurrence_start_date: eventDate,
+    recurrence_weekday: weekday,
+    recurrence_end_date: null
+  };
+}
+
 function normalizeAdminRecurrenceWeekday(raw, fallbackDateYmd) {
   const n = Number(raw);
   if (Number.isInteger(n) && n >= 0 && n <= 6) return n;
@@ -542,13 +695,16 @@ function applyAdminEventWallTime(dayDate, event) {
  * Returns null when recurrence ended or no future occurrence remains.
  */
 function getNextRecurringOccurrence(event, now = new Date()) {
-  const type = normalizeAdminRecurrenceType(event?.recurrence_type);
+  const coerced = adminCoerceRecurrenceFields(event);
+  const type = normalizeAdminRecurrenceType(coerced?.recurrence_type);
   if (type === "none") return null;
 
-  const startDate = adminDateFromYmdParts(parseAdminYmd(event?.recurrence_start_date || event?.event_date));
+  const startDate = adminDateFromYmdParts(
+    parseAdminYmd(coerced?.recurrence_start_date || coerced?.event_date)
+  );
   if (!startDate) return null;
 
-  const endParts = parseAdminYmd(event?.recurrence_end_date);
+  const endParts = parseAdminYmd(coerced?.recurrence_end_date);
   const endDate = endParts ? adminDateFromYmdParts(endParts) : null;
   if (endDate) endDate.setHours(23, 59, 59, 999);
 
@@ -558,14 +714,14 @@ function getNextRecurringOccurrence(event, now = new Date()) {
   if (endDate && endDate < today) return null;
 
   if (type === "weekly") {
-    const fallbackYmd = event.recurrence_start_date || event.event_date;
-    const targetWeekday = normalizeAdminRecurrenceWeekday(event.recurrence_weekday, fallbackYmd);
+    const fallbackYmd = coerced.recurrence_start_date || coerced.event_date;
+    const targetWeekday = normalizeAdminRecurrenceWeekday(coerced.recurrence_weekday, fallbackYmd);
     if (targetWeekday === null) return null;
     let candidate = adminResolveWeeklyOccurrence(startDate > today ? startDate : today, targetWeekday);
     for (let i = 0; i < 520; i += 1) {
       if (endDate && candidate > endDate) return null;
       if (candidate >= startDate) {
-        const withTime = applyAdminEventWallTime(candidate, event);
+        const withTime = applyAdminEventWallTime(candidate, coerced);
         if (withTime > now) return withTime;
       }
       candidate = new Date(candidate);
@@ -576,15 +732,15 @@ function getNextRecurringOccurrence(event, now = new Date()) {
   }
 
   if (type === "monthly") {
-    const fallbackYmd = event.recurrence_start_date || event.event_date;
-    const dayOfMonth = normalizeAdminRecurrenceDayOfMonth(event.recurrence_day_of_month, fallbackYmd);
+    const fallbackYmd = coerced.recurrence_start_date || coerced.event_date;
+    const dayOfMonth = normalizeAdminRecurrenceDayOfMonth(coerced.recurrence_day_of_month, fallbackYmd);
     if (dayOfMonth === null) return null;
     let cursor = new Date(today.getFullYear(), today.getMonth(), 1);
     if (startDate > today) cursor = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
     for (let i = 0; i < 36; i += 1) {
       const occ = adminResolveMonthlyOccurrence(cursor, dayOfMonth);
       if (occ && occ >= startDate && (!endDate || occ <= endDate)) {
-        const withTime = applyAdminEventWallTime(occ, event);
+        const withTime = applyAdminEventWallTime(occ, coerced);
         if (withTime > now) return withTime;
       }
       cursor.setMonth(cursor.getMonth() + 1);
@@ -696,27 +852,32 @@ function socialQueueSummary(eventId) {
 
 function isEventPast(event) {
   const now = new Date();
-  if (isAdminRecurringEvent(event)) {
-    return getNextRecurringOccurrence(event, now) === null;
+  const coerced = adminCoerceRecurrenceFields(event);
+  if (isAdminRecurringEvent(coerced)) {
+    return getNextRecurringOccurrence(coerced, now) === null;
   }
-  const start = dateFromAdminEventWallTime(event);
+  const start = dateFromAdminEventWallTime(coerced);
   return Boolean(start && !Number.isNaN(start.getTime()) && start < now);
 }
 
 function buildEventValidationBadges(event) {
   const badges = [];
   const hasCoords = hasValidMarkerCoordinates(event);
-  const hasImage = Boolean(String(event.image_url || "").trim());
+  const hasImage = adminEventHasImage(event);
   const socialSummary = socialQueueSummary(event.id);
   const shortNotice = shortNoticeInfoForEvent(event);
   const push = (tone, label) => badges.push({ tone, label });
 
+  if (isAdminDefectiveEvent(event)) push("error", "Defektes Event");
+  if (isAdminRecurringIncomplete(event)) push("warning", "Recurring unvollständig");
   if (event.featured) push("featured", "⭐ Featured");
-  if (!hasImage) push("warning", "⚠️ Kein Bild");
+  if (!hasImage && !isAdminDefectiveEvent(event)) push("warning", "⚠️ Kein Bild");
   if (!hasCoords) push("warning", "⚠️ Keine Koordinaten");
   if (!String(event.genre || event.category || "").trim()) push("warning", "⚠️ Keine Kategorie");
-  if (!String(event.event_date || "").trim()) push("error", "❌ Kein Datum");
-  if (isEventPast(event)) push("error", "❌ Ungültig / Vergangen");
+  if (!String(event.event_date || "").trim() && !isAdminRecurringEvent(adminCoerceRecurrenceFields(event))) {
+    push("error", "❌ Kein Datum");
+  }
+  if (isEventPast(event) && !isAdminDefectiveEvent(event)) push("error", "❌ Archiviert / Vergangen");
   if (shortNotice.urgent) push("warning", "⚠️ Eilmeldung");
   else if (shortNotice.active) push("warning", "⚠️ Kurzfristig");
   if (event.status === "approved" && socialSummary.total === 0) push("warning", "⚠️ Social Drafts fehlen");
@@ -1445,7 +1606,7 @@ function normalizeEvent(event) {
     lat: parseCoordinate(event.lat ?? event.latitude),
     lng: parseCoordinate(event.lng ?? event.longitude),
     recurrence_type: recurrenceType,
-    recurrence_start_date: String(event.recurrence_start_date || "").trim(),
+    recurrence_start_date: String(event.recurrence_start_date || event.event_date || "").trim(),
     recurrence_end_date: String(event.recurrence_end_date || "").trim(),
     recurrence_weekday:
       recurrenceType === "weekly"
@@ -1485,26 +1646,59 @@ function formatDateTime(event) {
 }
 
 function recurrenceLabel(event) {
-  if (event.recurrence_type === "weekly") return "Wöchentlich";
-  if (event.recurrence_type === "monthly") return "Monatlich";
+  const type = inferAdminRecurrenceType(event);
+  if (type === "weekly") return "Wöchentlich";
+  if (type === "monthly") return "Monatlich";
   return "Einmalig";
 }
 
+function renderEventRepairActionsMarkup(event) {
+  const defective = isAdminDefectiveEvent(event);
+  const incomplete = isAdminRecurringIncomplete(event);
+  const weeklyRepair = canShowAdminWeeklyRepairButton(event);
+  const showArchive = defective || incomplete || isEventPast(event);
+  if (!defective && !incomplete && !weeklyRepair && !showArchive) return "";
+
+  const parts = [];
+  if (weeklyRepair) {
+    parts.push(
+      `<button type="button" class="btn-pill btn-pill--soft" data-action="repair-weekly">Wöchentlich reparieren</button>`
+    );
+  }
+  if (incomplete) {
+    parts.push(
+      `<button type="button" class="btn-pill btn-pill--soft" data-action="repair-recurrence">Wiederholung reparieren</button>`
+    );
+  }
+  if (showArchive) {
+    parts.push(
+      `<button type="button" class="btn-pill btn-pill--outline" data-action="move-to-archive">In Archiv verschieben</button>`
+    );
+  }
+  if (defective) {
+    parts.push(
+      `<button type="button" class="btn-pill btn-pill--outline btn-pill--danger-glow" data-action="delete-defective-event">Defektes Event löschen</button>`
+    );
+  }
+  return `<div class="event-card__repair-row">${parts.join("")}</div>`;
+}
+
 function recurrenceDetails(event) {
-  if (event.recurrence_type === "weekly") {
+  const coerced = adminCoerceRecurrenceFields(event);
+  if (coerced.recurrence_type === "weekly") {
     const weekdays = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
     const weekdayLabel =
-      Number.isInteger(event.recurrence_weekday) && event.recurrence_weekday >= 0 && event.recurrence_weekday <= 6
-        ? weekdays[event.recurrence_weekday]
+      Number.isInteger(coerced.recurrence_weekday) && coerced.recurrence_weekday >= 0 && coerced.recurrence_weekday <= 6
+        ? weekdays[coerced.recurrence_weekday]
         : "-";
-    const start = event.recurrence_start_date ? formatDate(event.recurrence_start_date) : "-";
-    const end = event.recurrence_end_date ? formatDate(event.recurrence_end_date) : "offen";
+    const start = coerced.recurrence_start_date ? formatDate(coerced.recurrence_start_date) : "-";
+    const end = coerced.recurrence_end_date ? formatDate(coerced.recurrence_end_date) : "offen";
     return `Tag: ${weekdayLabel}, ab ${start}, bis ${end}`;
   }
-  if (event.recurrence_type === "monthly") {
-    const day = Number.isInteger(event.recurrence_day_of_month) ? event.recurrence_day_of_month : "-";
-    const start = event.recurrence_start_date ? formatDate(event.recurrence_start_date) : "-";
-    const end = event.recurrence_end_date ? formatDate(event.recurrence_end_date) : "offen";
+  if (coerced.recurrence_type === "monthly") {
+    const day = Number.isInteger(coerced.recurrence_day_of_month) ? coerced.recurrence_day_of_month : "-";
+    const start = coerced.recurrence_start_date ? formatDate(coerced.recurrence_start_date) : "-";
+    const end = coerced.recurrence_end_date ? formatDate(coerced.recurrence_end_date) : "offen";
     return `Tag ${day}, ab ${start}, bis ${end}`;
   }
   return "Kein Wiederholungsmuster";
@@ -1574,52 +1768,6 @@ function applyFilters() {
     state.eventsVisibleCount = EVENT_LIST_PAGE_SIZE;
   }
 
-  const beforeCount = state.allEvents.length;
-  console.log("APPLY FILTERS START", {
-    totalEvents: state.allEvents?.length,
-    totalEventsAlias: state.events?.length,
-    archiveTimeline: state.archiveTimeline,
-    activeTab: state.activeTab,
-    cityFilter: state.city,
-    genreFilter: state.genre,
-    statusFilter: state.statusFilter,
-    search: state.search,
-    searchTerm: state.searchTerm
-  });
-
-  let totalActive = 0;
-  let totalArchive = 0;
-  for (const event of state.allEvents) {
-    const past = isEventPast(event);
-    if (past) totalArchive += 1;
-    else totalActive += 1;
-    console.log("EVENT FILTER DEBUG", {
-      id: event.id,
-      name: event.name,
-      status: event.status,
-      event_date: event.event_date,
-      event_time: event.event_time,
-      recurrence_type: event.recurrence_type,
-      recurrence_start_date: event.recurrence_start_date,
-      recurrence_end_date: event.recurrence_end_date,
-      recurrence_weekday: event.recurrence_weekday,
-      recurrence_day_of_month: event.recurrence_day_of_month,
-      isRecurring: isAdminRecurringEvent(event),
-      isPast: isEventPast(event),
-      nextOccurrence: isAdminRecurringEvent(event)
-        ? getNextRecurringOccurrence(event)?.toISOString?.() ?? null
-        : null,
-      archiveTimeline: state.archiveTimeline
-    });
-  }
-  console.log("RECURRING DEBUG totals", {
-    totalLoaded: beforeCount,
-    totalActive,
-    totalArchive,
-    archiveTimeline: state.archiveTimeline || "all",
-    activeTab: state.activeTab
-  });
-
   const filtered = state.allEvents.filter((event) => {
     if (state.activeTab !== "all" && event.status !== state.activeTab) return false;
     const timeline = state.archiveTimeline || "all";
@@ -1648,13 +1796,6 @@ function applyFilters() {
   });
 
   state.filteredEvents = filtered;
-
-  console.log("APPLY FILTERS RESULT", {
-    beforeCount,
-    afterCount: filtered.length,
-    visibleIds: filtered.map((e) => e.id),
-    visibleNames: filtered.map((e) => e.name)
-  });
 }
 
 function countSocialPostedToday() {
@@ -2031,6 +2172,7 @@ function renderEventCard(event) {
     ? `<button type="button" class="btn-pill btn-pill--outline btn-pill--soft" data-action="reuse-event">↪ Erneut verwenden</button>`
     : "";
   const validationMarkup = renderValidationBadges(event);
+  const repairMarkup = renderEventRepairActionsMarkup(event);
   const metaLine = `${escapeHtml(formatDateTime(event))} · ${escapeHtml(event.city || "–")} · ${escapeHtml(recurrenceLabel(event))}`;
 
   let primaryRow = "";
@@ -2088,6 +2230,7 @@ function renderEventCard(event) {
           <button type="button" class="btn-pill btn-pill--soft" data-action="toggle-featured" title="Featured schnell umschalten">⭐ Feature</button>
         </div>
         ${primaryRow}
+        ${repairMarkup}
         <div class="event-card__secondary-actions">
           ${reuseButton}
           <button type="button" class="btn-pill btn-pill--outline" data-action="pending">⏸ Pending</button>
@@ -2402,13 +2545,82 @@ function isMissingRelationError(error) {
   return /does not exist|relation.*not found|42P01/i.test(msg) || error?.code === "42P01";
 }
 
+async function adminPerformEventDelete(eventId, eventSnapshot, { busyButton = null, closeEditor = null } = {}) {
+  const idKey = String(eventId ?? "").trim();
+  if (!idKey) throw new Error("Event-ID fehlt.");
+  if (!isSessionAdmin(state.adminSession)) throw new Error("Admin-Anmeldung erforderlich.");
+
+  const runDelete = async () => {
+    await deleteEventById(idKey, eventSnapshot);
+    removeAdminEventFromState(idKey);
+    render();
+    setGlobalFeedback("Event gelöscht", "success");
+    if (typeof closeEditor === "function") closeEditor();
+    await refreshAdminData({ reloadSocial: true });
+  };
+
+  if (busyButton) {
+    await withAdminButtonBusy(busyButton, "Lösche…", runDelete);
+  } else {
+    await runDelete();
+  }
+}
+
+async function adminMoveEventToArchive(eventData) {
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const ymd = adminFormatLocalYmd(yesterday);
+  if (!ymd) throw new Error("Archiv-Datum konnte nicht berechnet werden.");
+
+  const coerced = adminCoerceRecurrenceFields(eventData);
+  let patch;
+  if (isAdminRecurringEvent(coerced)) {
+    patch = { recurrence_end_date: ymd };
+  } else {
+    patch = { event_date: ymd, event_time: "23:59" };
+  }
+  await updateEventWithFallback(eventData.id, patch);
+  patchAdminEventInState(eventData.id, patch);
+  render();
+  setGlobalFeedback("Event ins Archiv verschoben.", "success");
+}
+
+async function adminRepairRecurrenceAndSave(eventData) {
+  const patch = buildAdminRecurrenceRepairPatch(eventData);
+  if (!patch) {
+    throw new Error("Wiederholung kann nicht automatisch repariert werden (Datum/Art fehlt).");
+  }
+  await updateEventWithFallback(eventData.id, patch);
+  patchAdminEventInState(eventData.id, patch);
+  render();
+  setGlobalFeedback("Wiederholung repariert.", "success");
+}
+
+async function adminRepairWeeklyAndSave(eventData) {
+  const patch = buildAdminWeeklyRepairPatch(eventData);
+  if (!patch) {
+    throw new Error("Wöchentliche Reparatur nicht möglich (nur einmalige vergangene Events mit Datum).");
+  }
+  console.log("repair recurring", {
+    id: eventData.id,
+    recurrence_type: patch.recurrence_type,
+    recurrence_weekday: patch.recurrence_weekday
+  });
+  await updateEventWithFallback(eventData.id, patch);
+  patchAdminEventInState(eventData.id, patch);
+  render();
+  setGlobalFeedback("Wiederholung repariert", "success");
+}
+
 async function deleteEventById(eventId, eventSnapshot) {
   const idKey = String(eventId ?? "").trim();
   console.log("admin delete start", { eventId: idKey, typeofId: typeof eventId });
-  console.log("admin delete eventId", idKey, typeof eventId);
+  console.log("admin delete eventId", idKey);
   if (!idKey) return;
   if (!isSessionAdmin(state.adminSession)) {
-    throw new Error("Admin-Anmeldung erforderlich.");
+    const err = new Error("Admin-Anmeldung erforderlich.");
+    console.error("admin delete failed", { eventId: idKey, message: err.message });
+    throw err;
   }
   const client = supabaseClient();
 
@@ -2431,7 +2643,10 @@ async function deleteEventById(eventId, eventSnapshot) {
     error: queueErr,
     count: queueCount
   });
-  if (queueErr) throw new Error(queueErr.message || "social_queue konnte nicht gelöscht werden.");
+  if (queueErr) {
+    console.error("admin delete failed", { eventId: idKey, step: "social_queue", message: queueErr.message });
+    throw new Error(queueErr.message || "social_queue konnte nicht gelöscht werden.");
+  }
 
   const { data: capData, error: capErr, count: capCount } = await client
     .from("social_caption_usage")
@@ -2445,6 +2660,11 @@ async function deleteEventById(eventId, eventSnapshot) {
     count: capCount
   });
   if (capErr && !isMissingRelationError(capErr)) {
+    console.error("admin delete failed", {
+      eventId: idKey,
+      step: "social_caption_usage",
+      message: capErr.message
+    });
     throw new Error(capErr.message || "social_caption_usage konnte nicht gelöscht werden.");
   }
   if (capErr) {
@@ -2477,9 +2697,14 @@ async function deleteEventById(eventId, eventSnapshot) {
     error: evErr,
     count: evCount
   });
-  if (evErr) throw new Error(evErr.message || "Event konnte nicht gelöscht werden.");
+  if (evErr) {
+    console.error("admin delete failed", { eventId: idKey, step: "events", message: evErr.message });
+    throw new Error(evErr.message || "Event konnte nicht gelöscht werden.");
+  }
   if (!Array.isArray(deletedRows) || !deletedRows.length) {
-    throw new Error("Kein Event gelöscht – ID nicht gefunden oder RLS blockiert");
+    const msg = "Kein Event gelöscht – ID nicht gefunden oder RLS blockiert";
+    console.error("admin delete failed", { eventId: idKey, step: "events", message: msg });
+    throw new Error(msg);
   }
   console.log("admin delete success", { eventId: idKey, count: evCount });
 }
@@ -2732,9 +2957,66 @@ function eventEditPayloadFromForm(form) {
 
 async function loadEvents() {
   const client = supabaseClient();
-  const { data, error } = await client.from("events").select("*").order("event_date", { ascending: true });
-  if (error) throw error;
-  state.allEvents = (data || []).map(normalizeEvent);
+  const pageSize = 1000;
+  let offset = 0;
+  let rows = [];
+  let totalCount = null;
+  let lastError = null;
+
+  while (true) {
+    const query = client
+      .from("events")
+      .select("*", offset === 0 ? { count: "exact" } : undefined)
+      .order("event_date", { ascending: true, nullsFirst: true })
+      .range(offset, offset + pageSize - 1);
+
+    const { data, error, count } = await query;
+    if (error) {
+      lastError = error;
+      console.error("admin load events query error", {
+        offset,
+        pageSize,
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint,
+        adminRole: sessionRole(state.adminSession)
+      });
+      break;
+    }
+    if (offset === 0 && typeof count === "number") totalCount = count;
+    const chunk = data || [];
+    rows = rows.concat(chunk);
+    if (chunk.length < pageSize) break;
+    offset += pageSize;
+  }
+
+  if (lastError && !rows.length) throw lastError;
+
+  console.log("admin load events result", {
+    count: rows.length,
+    dbCount: totalCount,
+    ids: rows.map((e) => e.id),
+    statuses: rows.map((e) => e.status),
+    adminRole: sessionRole(state.adminSession),
+    truncated: typeof totalCount === "number" && totalCount > rows.length
+  });
+
+  if (typeof totalCount === "number" && totalCount > rows.length) {
+    console.error("admin load events truncated by RLS or paging", {
+      loaded: rows.length,
+      dbCount: totalCount
+    });
+  }
+
+  if (lastError && rows.length) {
+    console.warn("admin load events partial after error", {
+      loaded: rows.length,
+      message: lastError.message
+    });
+  }
+
+  state.allEvents = rows.map(normalizeEvent);
   await loadSocialQueueRows();
   syncFilterOptions();
   render();
@@ -3946,13 +4228,9 @@ function openEventEditorModal(eventData) {
           setBusy(true, "Lösche Event...");
           setGlobalFeedback("");
           try {
-            await deleteEventById(eventId, eventData);
-            removeAdminEventFromState(eventId);
-            setGlobalFeedback("Event gelöscht", "success");
-            close();
-            await refreshAdminData({ reloadSocial: true });
+            await adminPerformEventDelete(eventId, eventData, { closeEditor: close });
           } catch (error) {
-            console.error("admin action editor-delete error", error);
+            console.error("admin delete failed", { eventId, context: "editor-delete", message: error?.message }, error);
             setBusy(false, error.message || "Löschen fehlgeschlagen.");
             setGlobalFeedback(`Löschen fehlgeschlagen: ${error.message || ""}`.trim(), "error");
           }
@@ -4114,20 +4392,62 @@ async function handleCardAction(clickEvent) {
       return;
     }
 
-    if (action === "delete-event") {
+    if (action === "delete-event" || action === "delete-defective-event") {
       const eventId = eventData?.id;
       if (!eventId || !isSessionAdmin(state.adminSession)) return;
-      if (!window.confirm("Dieses Event wirklich dauerhaft löschen?")) return;
+      const confirmMsg =
+        action === "delete-defective-event"
+          ? "Defektes Event dauerhaft löschen?"
+          : "Dieses Event wirklich dauerhaft löschen?";
+      if (!window.confirm(confirmMsg)) return;
       setGlobalFeedback("");
-      await withAdminButtonBusy(button, "Lösche…", async () => {
+      try {
+        await adminPerformEventDelete(eventId, eventData, { busyButton: button });
+      } catch (error) {
+        console.error("admin delete failed", { eventId, action, message: error?.message }, error);
+        setGlobalFeedback(`Löschen fehlgeschlagen: ${error.message || ""}`.trim(), "error");
+      }
+      return;
+    }
+
+    if (action === "move-to-archive") {
+      setGlobalFeedback("");
+      await withAdminButtonBusy(button, "Archiv…", async () => {
         try {
-          await deleteEventById(eventId, eventData);
-          removeAdminEventFromState(eventId);
-          setGlobalFeedback("Event gelöscht", "success");
-          await refreshAdminData({ reloadSocial: true });
+          await adminMoveEventToArchive(eventData);
         } catch (error) {
-          console.error("admin action delete-event error", error);
-          setGlobalFeedback(`Löschen fehlgeschlagen: ${error.message || ""}`.trim(), "error");
+          console.error("admin action move-to-archive error", { eventId: eventData?.id }, error);
+          setGlobalFeedback(`Archivieren fehlgeschlagen: ${error.message || ""}`.trim(), "error");
+        }
+      });
+      return;
+    }
+
+    if (action === "repair-recurrence") {
+      setGlobalFeedback("");
+      await withAdminButtonBusy(button, "Repariere…", async () => {
+        try {
+          await adminRepairRecurrenceAndSave(eventData);
+        } catch (error) {
+          console.error("admin action repair-recurrence error", { eventId: eventData?.id }, error);
+          setGlobalFeedback(`Reparatur fehlgeschlagen: ${error.message || ""}`.trim(), "error");
+        }
+      });
+      return;
+    }
+
+    if (action === "repair-weekly") {
+      if (!canShowAdminWeeklyRepairButton(eventData)) {
+        setGlobalFeedback("Wöchentliche Reparatur für dieses Event nicht möglich.", "error");
+        return;
+      }
+      setGlobalFeedback("");
+      await withAdminButtonBusy(button, "Repariere…", async () => {
+        try {
+          await adminRepairWeeklyAndSave(eventData);
+        } catch (error) {
+          console.error("admin action repair-weekly error", { eventId: eventData?.id }, error);
+          setGlobalFeedback(`Reparatur fehlgeschlagen: ${error.message || ""}`.trim(), "error");
         }
       });
       return;
