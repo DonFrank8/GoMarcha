@@ -2,7 +2,7 @@ const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
 const ADMIN_REQUIRED_ROLE = "admin";
 const ADMIN_ALLOWED_EMAILS = [];
-const ADMIN_DASHBOARD_BUILD = "2026.05.17-recurring-social-safe-v1";
+const ADMIN_DASHBOARD_BUILD = "2026.05.17-recurring-weekly-auto-prep";
 if (typeof window !== "undefined") {
   window.PARTYRADAR_ADMIN_BUILD = ADMIN_DASHBOARD_BUILD;
   console.log("[admin-build]", ADMIN_DASHBOARD_BUILD);
@@ -141,7 +141,8 @@ const RECURRING_SOCIAL_SLOT_SPECS = [
   { stage: "tomorrow", daysBefore: 1, hour: 18, minute: 0 },
   { stage: "last_call", minutesBefore: 90 }
 ];
-const RECURRING_SOCIAL_OCCURRENCE_PREP_LIMIT = 4;
+/** Weekly auto-prep: child events + social drafts for occurrences within this window. */
+const RECURRING_SOCIAL_AUTO_PREP_HORIZON_DAYS = 7;
 
 /** Known missing on live DB — never send (avoids repeated 400 schema errors). */
 const ADMIN_EVENT_SAVE_COLUMNS_DISALLOWED = new Set([
@@ -179,6 +180,8 @@ const state = {
   socialQueueFilterDateTo: "",
   socialQueueExpandedId: null,
   socialQueuePostizSendingId: null,
+  recurringSocialAutoPrepRunning: false,
+  recurringSocialAutoPrepScheduled: false,
   socialQueueDraftSnapshots: new Map(),
   adminSession: null,
   navSection: "dashboard",
@@ -894,15 +897,21 @@ function getNextRecurringOccurrence(event, now = new Date()) {
   return null;
 }
 
-/** Next N future occurrence starts for a recurring master (isolated; does not affect one-time queue). */
-function getNextRecurringOccurrences(event, limit = RECURRING_SOCIAL_OCCURRENCE_PREP_LIMIT, now = new Date()) {
+/** Occurrence starts within the next N days (7-day weekly prep window). */
+function getRecurringOccurrencesWithinHorizon(
+  event,
+  horizonDays = RECURRING_SOCIAL_AUTO_PREP_HORIZON_DAYS,
+  now = new Date()
+) {
   if (!isRecurringSocialMaster(event)) return [];
-  const max = Math.min(Math.max(Number(limit) || 1, 1), 12);
+  const days = Math.min(Math.max(Number(horizonDays) || 7, 1), 30);
+  const horizonEnd = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
   const out = [];
   let cursor = now;
-  for (let i = 0; i < max * 3 && out.length < max; i += 1) {
+  for (let i = 0; i < 24 && out.length < 16; i += 1) {
     const next = getNextRecurringOccurrence(event, cursor);
     if (!next || Number.isNaN(next.getTime())) break;
+    if (next.getTime() > horizonEnd.getTime()) break;
     const key = next.toISOString();
     if (out.some((d) => d.toISOString() === key)) break;
     out.push(next);
@@ -2563,7 +2572,7 @@ async function insertRecurringSocialQueueRows(occurrenceEvent, occurrenceStart) 
     (existing || [])
       .filter((row) => String(row.status || "").toLowerCase() !== "skipped")
       .map((row) => `${String(row.platform).toLowerCase()}:${String(row.post_stage || "").trim()}`)
-      .filter((k) => k.endsWith(":") === false)
+      .filter((k) => !k.endsWith(":"))
   );
 
   const missing = candidates.filter((row) => {
@@ -2668,10 +2677,107 @@ async function createRecurringChildEventForOccurrence(master, occurrenceStart) {
   throw new Error("Kind-Event Insert fehlgeschlagen (Schema-Spalten prüfen).");
 }
 
+async function prepareRecurringOccurrencesForDates(master, occurrenceStarts) {
+  let childrenCreated = 0;
+  let draftsInserted = 0;
+  for (const occurrenceStart of occurrenceStarts) {
+    const { event: child, created } = await createRecurringChildEventForOccurrence(master, occurrenceStart);
+    if (created) childrenCreated += 1;
+    draftsInserted += await insertRecurringSocialQueueRows(child, occurrenceStart);
+  }
+  return { occurrences: occurrenceStarts.length, childrenCreated, draftsInserted };
+}
+
 /**
- * Phase B: explicit admin action — next 4 occurrences + recurring social drafts only.
- * Does not call Postiz; does not alter save-draft / handoff paths.
+ * Prepare child events + social queue drafts for occurrences in the 7-day window.
+ * Idempotent (skips duplicates). Does not call Postiz.
  */
+async function prepareRecurringOccurrencesWithinHorizon(
+  masterEvent,
+  horizonDays = RECURRING_SOCIAL_AUTO_PREP_HORIZON_DAYS
+) {
+  const master = adminCoerceRecurrenceFields(masterEvent);
+  if (!isRecurringSocialMaster(master) || master.recurring_social_enabled !== true) {
+    return { skipped: true, occurrences: 0, childrenCreated: 0, draftsInserted: 0, horizonDays };
+  }
+  const occurrences = getRecurringOccurrencesWithinHorizon(master, horizonDays);
+  if (!occurrences.length) {
+    return { skipped: false, occurrences: 0, childrenCreated: 0, draftsInserted: 0, horizonDays };
+  }
+  const result = await prepareRecurringOccurrencesForDates(master, occurrences);
+  console.log("recurring social prepare done", {
+    mode: "horizon",
+    master_id: master.id,
+    horizon_days: horizonDays,
+    occurrences: result.occurrences,
+    children_created: result.childrenCreated,
+    drafts_inserted: result.draftsInserted
+  });
+  return { skipped: false, horizonDays, ...result };
+}
+
+/** Weekly auto-prep: all approved recurring masters with social automation enabled. */
+async function runWeeklyRecurringSocialAutoPrep() {
+  const masters = state.allEvents.filter((ev) => {
+    if (String(ev.status || "").toLowerCase() !== "approved") return false;
+    const coerced = adminCoerceRecurrenceFields(ev);
+    return isRecurringSocialMaster(coerced) && coerced.recurring_social_enabled === true;
+  });
+  const totals = {
+    masters: 0,
+    occurrences: 0,
+    childrenCreated: 0,
+    draftsInserted: 0,
+    horizonDays: RECURRING_SOCIAL_AUTO_PREP_HORIZON_DAYS
+  };
+  for (const master of masters) {
+    try {
+      const res = await prepareRecurringOccurrencesWithinHorizon(master);
+      if (res.skipped) continue;
+      totals.masters += 1;
+      totals.occurrences += res.occurrences;
+      totals.childrenCreated += res.childrenCreated;
+      totals.draftsInserted += res.draftsInserted;
+    } catch (error) {
+      console.warn("recurring weekly auto prep failed", {
+        master_id: master.id,
+        message: error?.message || String(error)
+      });
+    }
+  }
+  console.log("recurring weekly auto prep", totals);
+  return totals;
+}
+
+function scheduleRecurringSocialAutoPrep() {
+  if (!isSessionAdmin(state.adminSession) || state.recurringSocialAutoPrepRunning) return;
+  if (state.recurringSocialAutoPrepScheduled) return;
+  state.recurringSocialAutoPrepScheduled = true;
+  window.setTimeout(async () => {
+    state.recurringSocialAutoPrepScheduled = false;
+    if (state.navSection !== "social" || state.recurringSocialAutoPrepRunning) return;
+    state.recurringSocialAutoPrepRunning = true;
+    try {
+      const res = await runWeeklyRecurringSocialAutoPrep();
+      if (res.draftsInserted > 0 || res.childrenCreated > 0) {
+        await loadSocialQueueRows();
+        renderSocialQueuePanel();
+        if (res.draftsInserted > 0) {
+          setGlobalFeedback(
+            `Auto-Vorbereitung (${res.horizonDays} Tage): ${res.draftsInserted} neue Drafts für ${res.masters} Serie(n).`,
+            "success"
+          );
+        }
+      }
+    } catch (error) {
+      console.warn("recurring weekly auto prep error", error);
+    } finally {
+      state.recurringSocialAutoPrepRunning = false;
+    }
+  }, 0);
+}
+
+/** Manual prepare — same 7-day window as weekly auto-prep. */
 async function prepareNextRecurringOccurrences(masterEvent) {
   const master = adminCoerceRecurrenceFields(masterEvent);
   if (!isRecurringSocialMaster(master)) {
@@ -2680,25 +2786,15 @@ async function prepareNextRecurringOccurrences(masterEvent) {
   if (master.recurring_social_enabled !== true) {
     throw new Error("Bitte „Social Automation (Serie)“ im Editor aktivieren und speichern.");
   }
-  const occurrences = getNextRecurringOccurrences(master, RECURRING_SOCIAL_OCCURRENCE_PREP_LIMIT);
-  if (!occurrences.length) {
-    throw new Error("Keine zukünftigen Termine in der Serie gefunden.");
+  const res = await prepareRecurringOccurrencesWithinHorizon(master, RECURRING_SOCIAL_AUTO_PREP_HORIZON_DAYS);
+  if (!res.occurrences) {
+    throw new Error(`Keine Termine in den nächsten ${RECURRING_SOCIAL_AUTO_PREP_HORIZON_DAYS} Tagen gefunden.`);
   }
-  let childrenCreated = 0;
-  let draftsInserted = 0;
-  for (const occurrenceStart of occurrences) {
-    const { event: child, created } = await createRecurringChildEventForOccurrence(master, occurrenceStart);
-    if (created) childrenCreated += 1;
-    const n = await insertRecurringSocialQueueRows(child, occurrenceStart);
-    draftsInserted += n;
-  }
-  console.log("recurring social prepare done", {
-    master_id: master.id,
-    occurrences: occurrences.length,
-    children_created: childrenCreated,
-    drafts_inserted: draftsInserted
-  });
-  return { occurrences: occurrences.length, childrenCreated, draftsInserted };
+  return {
+    occurrences: res.occurrences,
+    childrenCreated: res.childrenCreated,
+    draftsInserted: res.draftsInserted
+  };
 }
 
 function socialQueueRowsForEvent(eventId) {
@@ -4157,6 +4253,9 @@ function render() {
   if (state.navSection === "events") {
     renderEvents();
   }
+  if (state.navSection === "social" && state.prevNavSection !== "social") {
+    scheduleRecurringSocialAutoPrep();
+  }
   state.prevNavSection = state.navSection;
 }
 
@@ -5223,7 +5322,7 @@ function renderAdminEditorRecurringFields(eventData) {
         </label>
         <label class="field admin-editor-span-2 admin-editor-recurring__social-flag">
           <input type="checkbox" name="recurring_social_enabled" value="1"${eventData?.recurring_social_enabled === true ? " checked" : ""} />
-          <span>Social Automation (Serie) — Slots: −3 Tage 18:00, −1 Tag 18:00, −90 min (kein Today-Post)</span>
+          <span>Social Automation (Serie) — wöchentliche Auto-Vorbereitung ${RECURRING_SOCIAL_AUTO_PREP_HORIZON_DAYS} Tage voraus · Slots: −3 Tage 18:00, −1 Tag 18:00, −90 min</span>
         </label>
       </div>
     </fieldset>`;
@@ -6404,7 +6503,7 @@ function openEventEditorModal(eventData) {
           <div class="admin-editor-share-row">
             <a class="btn-pill btn-pill--soft" href="./index.html?event_id=${encodeURIComponent(String(eventData.id))}" target="_blank" rel="noopener">Share-Vorschau</a>
             <button type="button" class="btn-pill btn-pill--soft" data-editor-regenerate-social data-admin-action="editor-regenerate-social">♻️ Drafts regenerieren</button>
-            <button type="button" class="btn-pill btn-pill--hero" data-editor-prepare-recurring data-admin-action="editor-prepare-recurring"${isRecurringSocialMaster(adminCoerceRecurrenceFields(eventData)) ? "" : " hidden"}>Nächste Termine vorbereiten</button>
+            <button type="button" class="btn-pill btn-pill--hero" data-editor-prepare-recurring data-admin-action="editor-prepare-recurring"${isRecurringSocialMaster(adminCoerceRecurrenceFields(eventData)) ? "" : " hidden"}>Jetzt vorbereiten (${RECURRING_SOCIAL_AUTO_PREP_HORIZON_DAYS} Tage)</button>
           </div>
           ${socialList}
         </div>
