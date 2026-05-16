@@ -2230,10 +2230,122 @@ body.admin-is-logged-in .admin-shell {
   background: rgba(124, 58, 237, 0.35);
 }
 
+.admin-sq-card__postiz {
+  margin: 0.35rem 0 0;
+  padding: 0.45rem 0.65rem;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--ok);
+  background: rgba(99, 231, 191, 0.12);
+}
+
+.admin-sq-editor__save-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+  margin: 0 0 0.75rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.admin-sq-editor-status {
+  margin: 0;
+  flex: 1 1 12rem;
+  min-width: 10rem;
+  font-size: 0.95rem;
+  line-height: 1.4;
+  font-weight: 600;
+}
+
+.admin-sq-editor-status.is-visible,
+.admin-sq-editor-status:not([hidden]) {
+  display: block;
+}
+
+.admin-sq-editor-status--success {
+  color: #0d3d2e;
+  background: rgba(99, 231, 191, 0.92);
+  padding: 0.45rem 0.75rem;
+  border-radius: 10px;
+  box-shadow: 0 0 0 1px rgba(99, 231, 191, 0.35);
+}
+
+.admin-sq-editor-status--error {
+  color: #fff;
+  background: rgba(198, 40, 40, 0.88);
+  padding: 0.45rem 0.75rem;
+  border-radius: 10px;
+  box-shadow: 0 0 0 1px rgba(255, 138, 138, 0.35);
+}
+
 .admin-sq-editor__actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.35rem;
+  margin: 0 0 0.65rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  gap: 0.5rem 0.65rem;
+}
+
+.admin-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.45rem 0.85rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.08);
+  color: inherit;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.admin-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.admin-btn-primary {
+  border-color: rgba(124, 58, 237, 0.55);
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.45), rgba(99, 231, 191, 0.25));
+}
+
+.admin-sq-editor__actions--primary {
+  margin: 0 0 0.65rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  gap: 0.5rem 0.65rem;
+}
+
+.admin-sq-editor__actions--secondary {
+  margin-top: 0.15rem;
+}
+
+.btn-pill--send-postiz {
+  border-color: rgba(124, 58, 237, 0.55);
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.35), rgba(99, 231, 191, 0.2));
+}
+
+.btn-pill--postiz-loading {
+  opacity: 0.85;
+  cursor: wait;
+}
+
+.btn-pill--postiz-done {
+  border-color: rgba(99, 231, 191, 0.45);
+  color: var(--ok);
+  cursor: default;
 }
 
 .admin-modal-overlay,

@@ -17,7 +17,8 @@
   >
   <script>
     (function () {
-      var cacheBuster = String(Date.now());
+      // Must match ADMIN_DASHBOARD_BUILD in admin.js (GitHub Pages serves repo root).
+      var cacheBuster = "2026.05.17-social-postiz-visible-toolbar";
       window.PARTYRADAR_ADMIN_BUILD = cacheBuster;
       var stylesheet = document.createElement("link");
       stylesheet.rel = "stylesheet";

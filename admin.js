@@ -2,7 +2,14 @@ const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
 const ADMIN_REQUIRED_ROLE = "admin";
 const ADMIN_ALLOWED_EMAILS = [];
-const ADMIN_DASHBOARD_BUILD = "2026.05.16-social-title-fix-2";
+const ADMIN_DASHBOARD_BUILD = "2026.05.17-social-postiz-visible-toolbar";
+if (typeof window !== "undefined") {
+  window.PARTYRADAR_ADMIN_BUILD = ADMIN_DASHBOARD_BUILD;
+  console.log("[admin-build]", ADMIN_DASHBOARD_BUILD);
+}
+const SOCIAL_QUEUE_MIN_SCHEDULE_AHEAD_MS = 2 * 60 * 1000;
+const SOCIAL_QUEUE_POSTIZ_HANDOFF_MSG = "An Postiz übergeben – wartet auf Freigabe.";
+const SOCIAL_QUEUE_POSTIZ_SUCCESS_MSG = `✅ ${SOCIAL_QUEUE_POSTIZ_HANDOFF_MSG}`;
 const EVENT_LIST_PAGE_SIZE = 22;
 
 const EVENT_IMAGES_BUCKET = "event-images";
@@ -53,11 +60,14 @@ const SOCIAL_QUEUE_UPDATE_COLUMNS = new Set([
   "hashtags",
   "cta_text",
   "postiz_response",
+  "postiz_post_id",
+  "postiz_synced_at",
+  "admin_confirmed_at",
   "last_error",
   "updated_at"
 ]);
 
-const SOCIAL_QUEUE_STATUS_ACTIONS = ["pending", "draft", "posted", "failed"];
+const SOCIAL_QUEUE_STATUS_ACTIONS = ["pending", "draft", "ready_for_postiz", "sent_to_postiz", "posted", "failed"];
 const SOCIAL_REVIEW_SLOTS = [
   { id: "week", daysBefore: 7, hour: 10, minute: 30 },
   { id: "three_days", daysBefore: 3, hour: 10, minute: 30 },
@@ -158,6 +168,7 @@ const state = {
   socialQueueFilterDateFrom: "",
   socialQueueFilterDateTo: "",
   socialQueueExpandedId: null,
+  socialQueuePostizSendingId: null,
   socialQueueDraftSnapshots: new Map(),
   adminSession: null,
   navSection: "dashboard",
@@ -1261,27 +1272,292 @@ function socialQueueFullCaption(row, extras) {
   return parts.filter(Boolean).join("\n\n");
 }
 
+const DATETIME_LOCAL_INPUT_RE = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/;
+const DATETIME_LOCAL_VALUE_STRICT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
+const GERMAN_DATETIME_DISPLAY_RE = /^\d{1,2}\.\d{1,2}\.\d{4}/;
+
+function isGermanScheduledAtDisplay(value) {
+  const raw = String(value ?? "").trim();
+  return GERMAN_DATETIME_DISPLAY_RE.test(raw) || raw.includes(",");
+}
+
+function warnIfInvalidSocialQueueDatetimeInput(input, context = "") {
+  if (!input) return;
+  const raw = String(input.value ?? "").trim();
+  if (!raw) return;
+  if (!DATETIME_LOCAL_VALUE_STRICT_RE.test(raw)) {
+    console.warn("[social-queue] invalid datetime-local input value", {
+      context,
+      type: input.type,
+      value: raw,
+      germanDisplay: isGermanScheduledAtDisplay(raw),
+      attributeValue: input.getAttribute("value"),
+      canonical: input.dataset.canonicalScheduledAt || null,
+      queueId: input.closest("[data-queue-id]")?.dataset?.queueId || null,
+      build: ADMIN_DASHBOARD_BUILD
+    });
+  }
+}
+
+/** datetime-local value (YYYY-MM-DDTHH:mm) from ISO / DB timestamp — browser local wall clock (e.g. Europe/Madrid). */
 function toDatetimeLocalValue(iso) {
-  const d = new Date(iso);
+  const normalizedIso = normalizeSocialQueueScheduledAtIso(iso) || iso;
+  if (!normalizedIso) return "";
+  const d = new Date(normalizedIso);
   if (Number.isNaN(d.getTime())) return "";
   const pad = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+/** Safe value for <input type="datetime-local"> — never German display text. */
+function socialQueueScheduledAtInputValue(row) {
+  return toDatetimeLocalValue(row?.scheduled_at);
+}
+
+function isDatetimeLocalInputValue(value) {
+  return DATETIME_LOCAL_VALUE_STRICT_RE.test(String(value ?? "").trim());
+}
+
+/**
+ * Sole writer for the social-queue scheduled_at datetime-local input.
+ * Only ever assigns YYYY-MM-DDTHH:mm derived from row ISO via toDatetimeLocalValue().
+ */
+function setSocialQueueScheduledAtInputValue(input, scheduledAtSource) {
+  if (!input) return "";
+  const next = toDatetimeLocalValue(scheduledAtSource);
+  input.type = "datetime-local";
+  input.setAttribute("lang", "en");
+  input.setAttribute("step", "60");
+  if (next) {
+    input.setAttribute("value", next);
+    input.value = next;
+    input.dataset.canonicalScheduledAt = next;
+  } else {
+    input.removeAttribute("value");
+    input.value = "";
+    delete input.dataset.canonicalScheduledAt;
+  }
+  warnIfInvalidSocialQueueDatetimeInput(input, "setSocialQueueScheduledAtInputValue");
+  return next;
+}
+
+/** Never put German display strings into datetime-local inputs — coerce to YYYY-MM-DDTHH:mm or "". */
+function coerceDatetimeLocalInputValue(value, fallbackIso) {
+  const raw = String(value ?? "").trim();
+  if (isDatetimeLocalInputValue(raw)) return raw.slice(0, 16);
+  const fromIso = toDatetimeLocalValue(fallbackIso);
+  return fromIso || "";
+}
+
+function normalizeSocialQueueScheduledAtIso(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const raw = String(value).trim();
+  if (!raw) return null;
+  if (isDatetimeLocalInputValue(raw)) return parseDatetimeLocalInput(raw);
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) return parsed.toISOString();
+  const de = raw.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4}),?\s*(\d{1,2}):(\d{2})/);
+  if (de) {
+    const local = new Date(
+      Number(de[3]),
+      Number(de[2]) - 1,
+      Number(de[1]),
+      Number(de[4]),
+      Number(de[5]),
+      0
+    );
+    if (!Number.isNaN(local.getTime())) return local.toISOString();
+  }
+  return null;
+}
+
+function syncSocialQueueScheduledAtInput(editorEl, row) {
+  const input = editorEl?.querySelector('[name="scheduled_at"]');
+  if (!input) return;
+  setSocialQueueScheduledAtInputValue(input, row?.scheduled_at);
+}
+
+/**
+ * Before save: recover datetime-local from row ISO if the input shows German/invalid text.
+ * @returns {{ ok: true, scheduled_at_local: string } | { ok: false, error: string }}
+ */
+function ensureSocialQueueScheduledAtInput(editorEl, row) {
+  const input = editorEl?.querySelector('[name="scheduled_at"]');
+  if (!input) return { ok: false, error: "Bitte wähle den Zeitpunkt erneut über den Kalender aus." };
+  const raw = String(input.value ?? "").trim();
+  if (isDatetimeLocalInputValue(raw)) {
+    return { ok: true, scheduled_at_local: raw };
+  }
+  const recovered = setSocialQueueScheduledAtInputValue(input, row?.scheduled_at);
+  if (isDatetimeLocalInputValue(recovered)) {
+    console.warn("[social-queue] recovered scheduled_at input from row ISO", {
+      queueId: row?.id,
+      previousValue: raw,
+      recovered,
+      rowScheduledAt: row?.scheduled_at
+    });
+    return { ok: true, scheduled_at_local: recovered };
+  }
+  warnIfInvalidSocialQueueDatetimeInput(input, "ensureSocialQueueScheduledAtInput");
+  return { ok: false, error: "Bitte wähle den Zeitpunkt erneut über den Kalender aus." };
+}
+
+function sanitizeSocialQueueDraftSnapshots() {
+  for (const [id, snapJson] of state.socialQueueDraftSnapshots) {
+    try {
+      const form = JSON.parse(snapJson);
+      const row = findSocialQueueRow(id);
+      const fixed = coerceDatetimeLocalInputValue(form.scheduled_at_local, row?.scheduled_at);
+      if (fixed !== form.scheduled_at_local) {
+        form.scheduled_at_local = fixed;
+        state.socialQueueDraftSnapshots.set(id, JSON.stringify(form));
+      }
+    } catch {
+      state.socialQueueDraftSnapshots.delete(id);
+    }
+  }
+}
+
+function ensureSocialQueueVisibleToolbar(editorEl, row) {
+  if (!editorEl || !row) return;
+  console.log("[visible-toolbar-render]", { queueId: row?.id, status: row?.status });
+  const actions = editorEl.querySelector(".admin-sq-editor__actions");
+  if (!actions) return;
+  const alreadySent =
+    String(row.status || "").toLowerCase() === "sent_to_postiz" || Boolean(String(row.postiz_post_id || "").trim());
+  let postizBtn = actions.querySelector('[data-queue-action="send-to-postiz"]');
+  if (!postizBtn) {
+    postizBtn = document.createElement("button");
+    postizBtn.type = "button";
+    postizBtn.className = "admin-btn admin-btn-primary";
+    postizBtn.setAttribute("data-queue-action", "send-to-postiz");
+    const saveBtn = actions.querySelector('[data-queue-action="save-draft"]');
+    if (saveBtn) saveBtn.insertAdjacentElement("afterend", postizBtn);
+    else actions.prepend(postizBtn);
+  }
+  postizBtn.textContent = alreadySent ? "✅ An Postiz übergeben" : "🚀 An Postiz senden";
+  postizBtn.disabled = alreadySent;
+  if (alreadySent) postizBtn.setAttribute("aria-disabled", "true");
+  else postizBtn.removeAttribute("aria-disabled");
+}
+
+function syncExpandedSocialQueueEditors() {
+  const queueId = state.socialQueueExpandedId;
+  if (!queueId || !dom.socialQueuePanel) return;
+  const card = dom.socialQueuePanel.querySelector(`[data-queue-id="${CSS.escape(String(queueId))}"]`);
+  const editor = card?.querySelector("[data-sq-editor]");
+  const row = findSocialQueueRow(queueId);
+  if (editor && row) {
+    ensureSocialQueueVisibleToolbar(editor, row);
+    syncSocialQueueScheduledAtInput(editor, row);
+    warnIfInvalidSocialQueueDatetimeInput(
+      editor.querySelector('[name="scheduled_at"]'),
+      "syncExpandedSocialQueueEditors"
+    );
+  }
+}
+
+/**
+ * Parse <input type="datetime-local"> value as local wall time (not localized display strings).
+ * Returns ISO string for Supabase or null if invalid.
+ */
+function parseDatetimeLocalInput(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  if (/^\d{1,2}\.\d{1,2}\.\d{4}/.test(raw) || raw.includes(",")) return null;
+  const m = raw.match(DATETIME_LOCAL_INPUT_RE);
+  if (!m) return null;
+  const year = Number(m[1]);
+  const month = Number(m[2]) - 1;
+  const day = Number(m[3]);
+  const hour = Number(m[4]);
+  const minute = Number(m[5]);
+  const second = m[6] !== undefined ? Number(m[6]) : 0;
+  if (
+    !Number.isFinite(year) ||
+    !Number.isFinite(month) ||
+    !Number.isFinite(day) ||
+    !Number.isFinite(hour) ||
+    !Number.isFinite(minute)
+  ) {
+    return null;
+  }
+  const local = new Date(year, month, day, hour, minute, second, 0);
+  if (Number.isNaN(local.getTime())) return null;
+  if (
+    local.getFullYear() !== year ||
+    local.getMonth() !== month ||
+    local.getDate() !== day ||
+    local.getHours() !== hour ||
+    local.getMinutes() !== minute
+  ) {
+    return null;
+  }
+  return local.toISOString();
+}
+
 function fromDatetimeLocalValue(value) {
-  if (!value) return null;
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+  return parseDatetimeLocalInput(value);
+}
+
+function isSocialQueueScheduledAtInFuture(isoString, minAheadMs = SOCIAL_QUEUE_MIN_SCHEDULE_AHEAD_MS) {
+  const ms = new Date(isoString).getTime();
+  if (Number.isNaN(ms)) return false;
+  return ms >= Date.now() + minAheadMs;
+}
+
+function socialQueueStatusLabel(status) {
+  const s = String(status || "").toLowerCase();
+  if (s === "sent_to_postiz") return SOCIAL_QUEUE_POSTIZ_HANDOFF_MSG;
+  if (s === "ready_for_postiz") return "Bereit für Postiz";
+  if (s === "posted") return "In Postiz (legacy)";
+  if (s === "processing") return "Wird verarbeitet…";
+  if (s === "failed") return "Fehlgeschlagen";
+  if (s === "skipped") return "Übersprungen";
+  if (s === "draft") return "Entwurf";
+  return s || "pending";
+}
+
+function isSocialQueuePostizHandoffDone(row) {
+  if (!row) return false;
+  const st = String(row.status || "").toLowerCase();
+  if (st === "sent_to_postiz") return true;
+  if (String(row.postiz_post_id || "").trim()) return true;
+  return false;
+}
+
+function renderSocialQueueSendToPostizButton(row) {
+  const queueId = String(row?.id || "");
+  const done = isSocialQueuePostizHandoffDone(row);
+  const loading = String(state.socialQueuePostizSendingId || "") === queueId;
+
+  if (done) {
+    return `<button type="button" class="btn-pill btn-pill--soft btn-pill--postiz-done" data-queue-action="send-to-postiz" disabled aria-disabled="true">✅ An Postiz übergeben</button>`;
+  }
+  if (loading) {
+    return `<button type="button" class="btn-pill btn-pill--soft btn-pill--postiz-loading" data-queue-action="send-to-postiz" disabled aria-busy="true">Sende an Postiz…</button>`;
+  }
+  return `<button type="button" class="btn-pill btn-pill--hero btn-pill--send-postiz" data-queue-action="send-to-postiz">🚀 An Postiz senden</button>`;
 }
 
 function validateSocialQueueDraftForm(data) {
   const errors = [];
   if (!String(data.caption || "").trim()) errors.push("Caption fehlt");
   if (!String(data.image_url || "").trim()) errors.push("Bild fehlt");
-  const scheduled = fromDatetimeLocalValue(data.scheduled_at_local);
-  if (!scheduled) errors.push("Ungültiges Datum");
-  else if (new Date(scheduled) <= new Date()) errors.push("Zeitpunkt muss in der Zukunft liegen");
-  return { ok: !errors.length, errors, scheduled_at: scheduled };
+  const rawScheduled = String(data.scheduled_at_local ?? "").trim();
+  if (!rawScheduled || !isDatetimeLocalInputValue(rawScheduled)) {
+    errors.push("Bitte wähle den Zeitpunkt erneut über den Kalender aus.");
+  } else {
+    const scheduled = parseDatetimeLocalInput(rawScheduled);
+    if (!scheduled) {
+      errors.push("Bitte wähle den Zeitpunkt erneut über den Kalender aus.");
+    } else if (!isSocialQueueScheduledAtInFuture(scheduled)) {
+      errors.push("Bitte mindestens 2 Minuten in der Zukunft wählen.");
+    } else {
+      return { ok: true, errors: [], scheduled_at: scheduled };
+    }
+  }
+  return { ok: false, errors, scheduled_at: null };
 }
 
 function pickSocialQueueUpdateRow(patch) {
@@ -1295,13 +1571,129 @@ function pickSocialQueueUpdateRow(patch) {
 function patchSocialQueueRowInState(queueId, patch) {
   const key = String(queueId ?? "").trim();
   if (!key) return;
-  for (const [eventId, rows] of state.socialQueueByEvent.entries()) {
+  for (const [groupKey, rows] of state.socialQueueByEvent.entries()) {
     const idx = rows.findIndex((r) => String(r.id) === key);
     if (idx < 0) continue;
     rows[idx] = { ...rows[idx], ...patch };
-    state.socialQueueByEvent.set(eventId, rows);
+    state.socialQueueByEvent.set(groupKey, rows);
     return;
   }
+}
+
+/** Editor for social-queue save — includes the [data-sq-editor] element itself, not only descendants. */
+function resolveSocialQueueEditorEl(button, queueId = null) {
+  if (button?.matches?.("[data-sq-editor]")) return button;
+  const fromClosest = button?.closest?.("[data-sq-editor]");
+  if (fromClosest) return fromClosest;
+  const id = String(
+    queueId ||
+      button?.dataset?.queueId ||
+      button?.closest?.(".admin-sq-card")?.dataset?.queueId ||
+      button?.closest?.("[data-queue-id]")?.dataset?.queueId ||
+      ""
+  ).trim();
+  if (!id || !dom.socialQueuePanel) return null;
+  return (
+    dom.socialQueuePanel.querySelector(`[data-sq-editor][data-queue-id="${CSS.escape(id)}"]`) ||
+    dom.socialQueuePanel.querySelector(`.admin-sq-card[data-queue-id="${CSS.escape(id)}"] [data-sq-editor]`)
+  );
+}
+
+/** Resolve social-queue click target: editor + card + row (queueId primary, eventId optional). */
+function resolveSocialQueueActionContext(button) {
+  const cardEl = button?.closest?.(".admin-sq-card") || null;
+  const queueId =
+    String(
+      button?.closest?.("[data-sq-editor]")?.dataset?.queueId ||
+        cardEl?.dataset?.queueId ||
+        button?.closest?.("[data-queue-id]")?.dataset?.queueId ||
+        ""
+    ).trim() || null;
+  const editorEl = resolveSocialQueueEditorEl(button, queueId);
+  const row = queueId ? findSocialQueueRow(queueId) : null;
+  const eventId = row?.event_id ?? cardEl?.dataset?.eventId ?? null;
+  const eventData = eventId ? state.allEvents.find((item) => String(item.id) === String(eventId)) : null;
+  return { editorEl, cardEl, queueId, row, eventId, eventData };
+}
+
+function readSocialQueueActionName(button) {
+  return String(button?.getAttribute?.("data-queue-action") || button?.dataset?.queueAction || "").trim();
+}
+
+const SOCIAL_QUEUE_SAVE_SUCCESS_MSG = "✅ Draft gespeichert.";
+const SOCIAL_QUEUE_SAVE_STATUS_VISIBLE_MS = 4000;
+const socialQueueEditorStatusTimers = new WeakMap();
+
+function clearSocialQueueEditorStatusTimer(editorEl) {
+  if (!editorEl) return;
+  const prev = socialQueueEditorStatusTimers.get(editorEl);
+  if (prev) window.clearTimeout(prev);
+  socialQueueEditorStatusTimers.delete(editorEl);
+}
+
+function formatSocialQueueSaveErrorMessage(error) {
+  const detail = String(error?.message || error || "Unbekannter Fehler").trim();
+  return `❌ Speichern fehlgeschlagen: ${detail}`;
+}
+
+function setSocialQueueEditorStatus(editorEl, message, { tone = "info", persistMs = 0 } = {}) {
+  if (!editorEl) return;
+  const el = editorEl.querySelector("[data-sq-editor-status]");
+  if (!el) return;
+  clearSocialQueueEditorStatusTimer(editorEl);
+  const text = String(message ?? "").trim();
+  el.textContent = text;
+  el.hidden = !text;
+  el.setAttribute("role", "status");
+  el.setAttribute("aria-live", "polite");
+  el.classList.remove(
+    "admin-sq-editor-status--success",
+    "admin-sq-editor-status--error",
+    "admin-sq-editor-status--info",
+    "is-visible"
+  );
+  if (!text) return;
+  el.classList.add(`admin-sq-editor-status--${tone}`, "is-visible");
+  if (persistMs > 0) {
+    const timerId = window.setTimeout(() => {
+      if (el.textContent === text) {
+        el.textContent = "";
+        el.hidden = true;
+        el.classList.remove("is-visible", "admin-sq-editor-status--success", "admin-sq-editor-status--error");
+      }
+      socialQueueEditorStatusTimers.delete(editorEl);
+    }, persistMs);
+    socialQueueEditorStatusTimers.set(editorEl, timerId);
+  }
+}
+
+function showSocialQueueSaveSuccess(editorEl) {
+  if (!editorEl) {
+    setGlobalFeedback(SOCIAL_QUEUE_SAVE_SUCCESS_MSG, "success");
+    return;
+  }
+  setSocialQueueEditorStatus(editorEl, SOCIAL_QUEUE_SAVE_SUCCESS_MSG, {
+    tone: "success",
+    persistMs: SOCIAL_QUEUE_SAVE_STATUS_VISIBLE_MS
+  });
+  setGlobalFeedback(SOCIAL_QUEUE_SAVE_SUCCESS_MSG, "success");
+}
+
+function showSocialQueueSaveError(editorEl, error) {
+  const msg = formatSocialQueueSaveErrorMessage(error);
+  if (editorEl) {
+    setSocialQueueEditorStatus(editorEl, msg, { tone: "error", persistMs: SOCIAL_QUEUE_SAVE_STATUS_VISIBLE_MS });
+  }
+  return msg;
+}
+
+function showSocialQueuePostizHandoffSuccess(editorEl, row) {
+  const postizId = row?.postiz_post_id ? ` (Postiz: ${row.postiz_post_id})` : "";
+  const msg = `${SOCIAL_QUEUE_POSTIZ_SUCCESS_MSG}${postizId}`;
+  if (editorEl) {
+    setSocialQueueEditorStatus(editorEl, msg, { tone: "success", persistMs: SOCIAL_QUEUE_SAVE_STATUS_VISIBLE_MS });
+  }
+  setGlobalFeedback(msg, "success");
 }
 
 function computeSocialQueueStats(rows) {
@@ -1388,6 +1780,11 @@ function renderSocialQueueEditor(row) {
       `<option value="${p}"${String(row.platform).toLowerCase() === p ? " selected" : ""}>${platformVisual(p).label}</option>`
   ).join("");
 
+  const postizAlreadySent =
+    String(row.status || "").toLowerCase() === "sent_to_postiz" || Boolean(String(row.postiz_post_id || "").trim());
+
+  console.log("[visible-toolbar-render]", { queueId: row?.id, status: row?.status });
+
   return `
     <div class="admin-sq-editor" data-sq-editor data-queue-id="${escapeHtml(row.id)}">
       <section class="admin-sq-caption-studio">
@@ -1426,7 +1823,7 @@ function renderSocialQueueEditor(row) {
         </label>
         <label class="admin-sq-field">
           <span>Geplant</span>
-          <input type="datetime-local" name="scheduled_at" value="${escapeHtml(toDatetimeLocalValue(row.scheduled_at))}" />
+          <input type="datetime-local" lang="en" name="scheduled_at" step="60" value="${escapeHtml(socialQueueScheduledAtInputValue(row))}" />
         </label>
         <label class="admin-sq-field">
           <span>Platform</span>
@@ -1442,8 +1839,15 @@ function renderSocialQueueEditor(row) {
         </label>
       </div>
       <div class="admin-sq-editor__status">${statusChips}</div>
-      <div class="admin-sq-editor__actions">
+      <p class="admin-sq-editor-status" data-sq-editor-status role="status" aria-live="polite" hidden></p>
+      <div class="admin-sq-editor__actions" data-sq-visible-toolbar>
         <button type="button" class="btn-pill btn-pill--hero" data-queue-action="save-draft">Speichern</button>
+        <button
+          type="button"
+          class="admin-btn admin-btn-primary"
+          data-queue-action="send-to-postiz"
+          ${postizAlreadySent ? 'disabled aria-disabled="true"' : ""}
+        >${postizAlreadySent ? "✅ An Postiz übergeben" : "🚀 An Postiz senden"}</button>
         <button type="button" class="btn-pill btn-pill--soft" data-queue-action="duplicate-draft">Duplizieren</button>
         <button type="button" class="btn-pill btn-pill--soft" data-queue-action="open-event">Event öffnen</button>
         <button type="button" class="btn-pill btn-pill--soft" data-queue-action="preview-image">Bild</button>
@@ -1453,9 +1857,23 @@ function renderSocialQueueEditor(row) {
 }
 
 function readSocialQueueEditorForm(editorEl) {
+  const queueId = editorEl?.dataset?.queueId || editorEl?.closest("[data-queue-id]")?.dataset?.queueId;
+  const row = findSocialQueueRow(queueId);
   const title = editorEl.querySelector('[name="title"]')?.value ?? "";
   const caption = editorEl.querySelector('[name="caption"]')?.value ?? "";
-  const scheduled_at_local = editorEl.querySelector('[name="scheduled_at"]')?.value ?? "";
+  const scheduledInput = editorEl.querySelector('[name="scheduled_at"]');
+  const rawScheduled = String(scheduledInput?.value ?? "").trim();
+  let scheduled_at_local;
+  if (scheduledInput) {
+    if (isDatetimeLocalInputValue(rawScheduled)) {
+      scheduled_at_local = rawScheduled;
+    } else {
+      scheduled_at_local = setSocialQueueScheduledAtInputValue(scheduledInput, row?.scheduled_at);
+    }
+    warnIfInvalidSocialQueueDatetimeInput(scheduledInput, "readSocialQueueEditorForm");
+  } else {
+    scheduled_at_local = coerceDatetimeLocalInputValue(rawScheduled, row?.scheduled_at);
+  }
   const platform = editorEl.querySelector('[name="platform"]')?.value ?? "";
   const hashtags = editorEl.querySelector('[name="hashtags"]')?.value ?? "";
   const cta_text = editorEl.querySelector('[name="cta_text"]')?.value ?? "";
@@ -1463,8 +1881,12 @@ function readSocialQueueEditorForm(editorEl) {
   return { title, caption, scheduled_at_local, platform, hashtags, cta_text, style_mode };
 }
 
-function serializeSocialDraftForm(form) {
-  return JSON.stringify(form);
+function serializeSocialDraftForm(form, rowFallback = null) {
+  const scheduled_at_local = coerceDatetimeLocalInputValue(
+    form?.scheduled_at_local,
+    rowFallback?.scheduled_at
+  );
+  return JSON.stringify({ ...form, scheduled_at_local });
 }
 
 function autosizeSocialCaptionTextarea(textarea) {
@@ -1482,7 +1904,7 @@ function updateSocialCaptionEditorUi(editorEl, { dirty = null } = {}) {
   const saveEl = editorEl.querySelector("[data-sq-save-state]");
   const queueId = editorEl.dataset.queueId || editorEl.closest("[data-queue-id]")?.dataset?.queueId;
   const snap = queueId ? state.socialQueueDraftSnapshots.get(String(queueId)) : null;
-  const isDirty = dirty !== null ? dirty : snap ? serializeSocialDraftForm(form) !== snap : false;
+  const isDirty = dirty !== null ? dirty : snap ? serializeSocialDraftForm(form, row) !== snap : false;
   if (saveEl) {
     saveEl.textContent = isDirty ? "Ungespeichert" : "Gespeichert";
     saveEl.classList.toggle("is-dirty", isDirty);
@@ -1507,10 +1929,12 @@ function updateSocialCaptionEditorUi(editorEl, { dirty = null } = {}) {
 
 function initSocialCaptionEditor(editorEl, row) {
   if (!editorEl || !row) return;
+  ensureSocialQueueVisibleToolbar(editorEl, row);
+  syncSocialQueueScheduledAtInput(editorEl, row);
   const ta = editorEl.querySelector("[data-autosize-caption]");
   autosizeSocialCaptionTextarea(ta);
   const form = readSocialQueueEditorForm(editorEl);
-  state.socialQueueDraftSnapshots.set(String(row.id), serializeSocialDraftForm(form));
+  state.socialQueueDraftSnapshots.set(String(row.id), serializeSocialDraftForm(form, row));
   updateSocialCaptionEditorUi(editorEl, { dirty: false });
 }
 
@@ -1523,7 +1947,7 @@ function applyCaptionStudioTransform(editorEl, action, row) {
   let cta_text = form.cta_text;
 
   if (action === "regenerate") {
-    const scheduled = fromDatetimeLocalValue(form.scheduled_at_local);
+    const scheduled = parseDatetimeLocalInput(form.scheduled_at_local);
     const bundle = generateHumanSocialCaptionBundle(ev || row, form.platform, scheduled ? new Date(scheduled) : null, {
       styleMode: form.style_mode,
       seed: Date.now()
@@ -1640,20 +2064,70 @@ async function repairSocialQueueTitle(queueId) {
   return title;
 }
 
-async function saveSocialQueueDraftFromEditor(queueId, editorEl) {
+/**
+ * Save existing social_queue row by queueId (eventId optional).
+ * Step logs [save-draft] 1–7 for debugging.
+ */
+async function handleSocialQueueSaveDraftClick(button) {
+  console.log("[save-draft] 1 branch start");
+
+  const queueId = String(
+    button?.closest?.("[data-sq-editor]")?.dataset?.queueId ||
+      button?.closest?.(".admin-sq-card")?.dataset?.queueId ||
+      button?.closest?.("[data-queue-id]")?.dataset?.queueId ||
+      ""
+  ).trim();
+  const editorEl = resolveSocialQueueEditorEl(button, queueId);
+
+  console.log("[save-draft] 2 editorEl exists", Boolean(editorEl));
+  console.log("[save-draft] 3 queueId", queueId || null);
+
+  if (!queueId) {
+    const msg = "Queue-ID fehlt.";
+    const display = showSocialQueueSaveError(editorEl, new Error(msg));
+    throw new Error(display);
+  }
+
   const row = findSocialQueueRow(queueId);
-  if (!row || !editorEl) throw new Error("Draft nicht gefunden.");
+  if (!editorEl) {
+    const msg = "Editor nicht gefunden — bitte Bearbeiten öffnen.";
+    const display = showSocialQueueSaveError(null, new Error(msg));
+    throw new Error(display);
+  }
+  if (!row) {
+    const msg = "Draft nicht gefunden.";
+    const display = showSocialQueueSaveError(editorEl, new Error(msg));
+    throw new Error(display);
+  }
+
+  clearSocialQueueEditorStatusTimer(editorEl);
+  setSocialQueueEditorStatus(editorEl, "", { tone: "info" });
+
+  const scheduledGuard = ensureSocialQueueScheduledAtInput(editorEl, row);
+  if (!scheduledGuard.ok) {
+    const display = showSocialQueueSaveError(editorEl, new Error(scheduledGuard.error));
+    throw new Error(display);
+  }
+
   const form = readSocialQueueEditorForm(editorEl);
-  const ev = state.allEvents.find((e) => String(e.id) === String(row.event_id));
+  console.log("[save-draft] 4 form", form);
+
+  const ev = row.event_id ? state.allEvents.find((e) => String(e.id) === String(row.event_id)) : null;
   const imageUrl = String(row.image_url || row.resolved_image_url || ev?.image_url || "").trim();
   const validation = validateSocialQueueDraftForm({ ...form, image_url: imageUrl });
-  if (!validation.ok) throw new Error(validation.errors.join(" · "));
+  console.log("[save-draft] 5 validation", validation);
+  if (!validation.ok) {
+    const msg = validation.errors.join(" · ");
+    const display = showSocialQueueSaveError(editorEl, new Error(msg));
+    throw new Error(display);
+  }
 
-  const patch = pickSocialQueueUpdateRow({
+  const platform = String(form.platform || row.platform || "").toLowerCase();
+  const payload = pickSocialQueueUpdateRow({
     title: String(form.title || "").trim(),
     caption: String(form.caption || "").trim(),
     scheduled_at: validation.scheduled_at,
-    platform: String(form.platform || row.platform).toLowerCase(),
+    platform,
     image_url: imageUrl,
     resolved_image_url: imageUrl,
     hashtags: String(form.hashtags || "").trim() || null,
@@ -1663,29 +2137,151 @@ async function saveSocialQueueDraftFromEditor(queueId, editorEl) {
     })
   });
 
+  console.log("social queue save-draft payload", {
+    queueId,
+    eventId: row.event_id ?? null,
+    scheduled_at: validation.scheduled_at,
+    platform,
+    status: row.status ?? null,
+    payload
+  });
+  console.log("[save-draft] 6 supabase payload", payload);
+
   const client = supabaseClient();
-  let body = { ...patch };
+  let body = { ...payload };
   for (let attempt = 0; attempt < 4; attempt += 1) {
-    const { error } = await client.from("social_queue").update(body).eq("id", queueId);
+    const { data, error } = await client.from("social_queue").update(body).eq("id", queueId).select("id,scheduled_at,platform,status");
+    console.log("[save-draft] 7 supabase response", { attempt, data, error });
     if (!error) {
       patchSocialQueueRowInState(queueId, body);
-      state.socialQueueDraftSnapshots.set(String(queueId), serializeSocialDraftForm(form));
-      console.log("caption saved", { queueId, style_mode: form.style_mode });
-      return;
+      const savedRow = { ...row, ...body, scheduled_at: validation.scheduled_at };
+      syncSocialQueueScheduledAtInput(editorEl, savedRow);
+      state.socialQueueDraftSnapshots.set(
+        String(queueId),
+        serializeSocialDraftForm(
+          { ...form, scheduled_at_local: toDatetimeLocalValue(validation.scheduled_at) },
+          savedRow
+        )
+      );
+      console.log("social queue save-draft success", {
+        queueId,
+        eventId: row.event_id ?? null,
+        scheduled_at: validation.scheduled_at,
+        platform,
+        status: row.status ?? null,
+        data
+      });
+      return savedRow;
     }
     const missing = parseMissingColumn(error);
-    if (!missing || !Object.prototype.hasOwnProperty.call(body, missing)) throw new Error(error.message);
+    const errMsg = error.message || "Speichern fehlgeschlagen.";
+    if (!missing || !Object.prototype.hasOwnProperty.call(body, missing)) {
+      const display = showSocialQueueSaveError(editorEl, new Error(errMsg));
+      throw new Error(display);
+    }
     delete body[missing];
   }
-  throw new Error("Speichern fehlgeschlagen.");
+  const display = showSocialQueueSaveError(editorEl, new Error("Speichern fehlgeschlagen."));
+  throw new Error(display);
+}
+
+async function invokeSocialQueueRunnerHandoff(queueId) {
+  const idKey = String(queueId ?? "").trim();
+  if (!idKey) throw new Error("Queue-ID fehlt.");
+  const client = supabaseClient();
+  const { data: sessionData, error: sessionError } = await client.auth.getSession();
+  if (sessionError) throw new Error(sessionError.message || "Session konnte nicht geladen werden.");
+  const token = sessionData?.session?.access_token;
+  if (!token) throw new Error("Nicht angemeldet.");
+
+  console.log("social queue postiz handoff start", { queueId: idKey });
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/social-queue-runner`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      apikey: SUPABASE_ANON_KEY,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ queue_id: idKey, admin_handoff: true, limit: 1 })
+  });
+  let json = {};
+  try {
+    json = await res.json();
+  } catch {
+    json = {};
+  }
+  console.log("social queue postiz handoff response", { queueId: idKey, http: res.status, json });
+  if (!res.ok) {
+    throw new Error(String(json.error || json.message || `Runner HTTP ${res.status}`));
+  }
+  const result = Array.isArray(json.results) ? json.results[0] : null;
+  if (result?.ok) return result;
+  if (result?.skipped) throw new Error(String(result.reason || "Postiz-Übergabe übersprungen."));
+  if (result?.error) throw new Error(String(result.error));
+  throw new Error("Postiz-Übergabe fehlgeschlagen.");
+}
+
+async function confirmSocialQueueDraftForPostiz(queueId, editorEl, button) {
+  const idKey = String(queueId ?? "").trim();
+  const editor = editorEl || resolveSocialQueueEditorEl(button, idKey);
+  console.log("social queue confirm-postiz start", { queueId: idKey });
+
+  await handleSocialQueueSaveDraftClick(
+    button || {
+      closest(selector) {
+        if (selector === "[data-sq-editor]" && editor) return editor;
+        return editor?.closest?.(selector) ?? null;
+      },
+      matches: () => false,
+      dataset: editor?.dataset || {}
+    }
+  );
+
+  const client = supabaseClient();
+  const now = new Date().toISOString();
+  const markPatch = pickSocialQueueUpdateRow({
+    status: "ready_for_postiz",
+    admin_confirmed_at: now,
+    last_error: null
+  });
+  const { error: markError } = await client.from("social_queue").update(markPatch).eq("id", idKey);
+  if (markError) throw new Error(markError.message || "Status konnte nicht gesetzt werden.");
+  patchSocialQueueRowInState(idKey, markPatch);
+
+  const handoff = await invokeSocialQueueRunnerHandoff(idKey);
+  await refreshAdminData({ reloadSocial: true });
+  const row = findSocialQueueRow(idKey);
+  console.log("social queue confirm-postiz success", {
+    queueId: idKey,
+    eventId: row?.event_id ?? null,
+    scheduled_at: row?.scheduled_at ?? null,
+    platform: row?.platform ?? null,
+    status: row?.status ?? null,
+    postiz_post_id: row?.postiz_post_id ?? handoff?.postiz_post_id ?? null
+  });
+  return row;
+}
+
+async function saveSocialQueueDraftFromEditor(queueId, editorEl) {
+  const idKey = String(queueId ?? "").trim();
+  const el = editorEl || resolveSocialQueueEditorEl(null, idKey);
+  return handleSocialQueueSaveDraftClick({
+    closest(selector) {
+      if (selector === "[data-sq-editor]" && el) return el;
+      return el?.closest?.(selector) ?? null;
+    },
+    matches(selector) {
+      return Boolean(el?.matches?.(selector));
+    },
+    dataset: el?.dataset || {}
+  });
 }
 
 async function duplicateSocialQueueDraft(row, editorEl) {
   const form = editorEl ? readSocialQueueEditorForm(editorEl) : null;
   const ev = state.allEvents.find((e) => String(e.id) === String(row.event_id));
-  const baseScheduled = form?.scheduled_at_local
-    ? fromDatetimeLocalValue(form.scheduled_at_local)
-    : row.scheduled_at;
+  const parsedScheduled = form?.scheduled_at_local ? parseDatetimeLocalInput(form.scheduled_at_local) : null;
+  const baseScheduled = parsedScheduled || row.scheduled_at;
   const nextDate = new Date(baseScheduled || Date.now());
   if (Number.isNaN(nextDate.getTime())) nextDate.setTime(Date.now() + 7 * 86400000);
   else nextDate.setDate(nextDate.getDate() + 7);
@@ -1860,7 +2456,7 @@ function socialQueueSummary(eventId) {
     (acc, row) => {
       const status = String(row.status || "pending").toLowerCase();
       acc.total += 1;
-      if (status === "posted") acc.ready += 1;
+      if (status === "posted" || status === "sent_to_postiz") acc.ready += 1;
       else if (status === "failed") acc.failed += 1;
       else if (status === "processing") acc.processing += 1;
       else if (status === "skipped") acc.skipped += 1;
@@ -3340,7 +3936,10 @@ function socialQueueRowMatchesFilter(row) {
   const filter = state.socialQueueFilter;
   const status = String(row.status || "pending").toLowerCase();
   if (filter === "all") return true;
-  if (filter === "draft") return status === "draft" || status === "posted";
+  if (filter === "draft") {
+    return status === "draft" || status === "posted" || status === "sent_to_postiz" || status === "ready_for_postiz";
+  }
+  if (filter === "posted") return status === "posted" || status === "sent_to_postiz";
   if (filter === "today") {
     const scheduled = new Date(row.scheduled_at);
     return !Number.isNaN(scheduled.getTime()) && isSameLocalDay(scheduled, new Date());
@@ -3498,7 +4097,14 @@ function normalizeSocialQueueRow(row) {
   const out = { ...(row || {}) };
   delete out.events;
   const cleanTitle = cleanSocialQueueDisplayText(out.title);
-  return { ...out, title: cleanTitle || null, event_title, _event: eventRef };
+  const scheduledIso = normalizeSocialQueueScheduledAtIso(out.scheduled_at);
+  return {
+    ...out,
+    title: cleanTitle || null,
+    event_title,
+    _event: eventRef,
+    scheduled_at: scheduledIso ?? out.scheduled_at
+  };
 }
 
 function socialQueueEventTitle(eventId, row = null) {
@@ -3507,6 +4113,7 @@ function socialQueueEventTitle(eventId, row = null) {
   return cleanSocialQueueDisplayText(ev?.name) || cleanSocialQueueDisplayText(ev?.title) || "";
 }
 
+/** Read-only display for cards/previews — never use for <input type="datetime-local"> value. */
 function formatAdminDateTime(raw) {
   if (!raw) return "-";
   const parsed = new Date(raw);
@@ -3523,8 +4130,8 @@ function platformVisual(platform) {
 
 function socialQueueStatusTone(status) {
   const s = String(status || "").toLowerCase();
-  if (s === "posted") return "ok";
-  if (s === "draft") return "ok";
+  if (s === "sent_to_postiz" || s === "posted") return "ok";
+  if (s === "ready_for_postiz" || s === "draft") return "ok";
   if (s === "failed") return "bad";
   if (s === "processing") return "progress";
   if (s === "skipped") return "muted";
@@ -3545,6 +4152,7 @@ function renderSocialQueuePanel() {
   }
   dom.socialQueuePanel.innerHTML = rows.map((row) => renderSocialQueueCard(row)).join("");
   console.log("social queue panel render", { build: ADMIN_DASHBOARD_BUILD, rows: rows.length, editor: "caption-studio" });
+  requestAnimationFrame(() => syncExpandedSocialQueueEditors());
 }
 
 function syncSocialQueueAdvancedFilterOptions() {
@@ -3604,6 +4212,9 @@ function renderSocialQueueCard(row) {
   const needsTitleRepair = !invalid && !cleanSocialQueueDisplayText(row?.title) && Boolean(repairableTitle);
   const tone = socialQueueStatusTone(row.status);
   const expanded = String(state.socialQueueExpandedId) === String(row.id);
+  if (expanded) {
+    console.log("[visible-toolbar-render]", { queueId: row?.id, status: row?.status, phase: "card-expand" });
+  }
   const thumbInner = thumb
     ? `<img src="${escapeHtml(thumb)}" alt="" loading="lazy" class="admin-sq-card__thumb-img" />`
     : `<span class="admin-sq-card__thumb-fallback">${invalid ? "⚠️" : pv.icon}</span>`;
@@ -3613,6 +4224,12 @@ function renderSocialQueueCard(row) {
   const errBlock = row.last_error
     ? `<p class="admin-sq-card__err">${escapeHtml(String(row.last_error).slice(0, 280))}</p>`
     : "";
+  const postizBlock =
+    String(row.status || "").toLowerCase() === "sent_to_postiz"
+      ? `<p class="admin-sq-card__postiz" role="status">${escapeHtml(SOCIAL_QUEUE_POSTIZ_HANDOFF_MSG)}${
+          row.postiz_post_id ? ` · ID ${escapeHtml(String(row.postiz_post_id))}` : ""
+        }</p>`
+      : "";
   return `
     <article class="admin-sq-card${invalid ? " admin-sq-card--invalid" : ""}${expanded ? " is-expanded" : ""}" data-queue-id="${escapeHtml(row.id)}" data-event-id="${escapeHtml(row.event_id)}">
       <div class="admin-sq-card__top">
@@ -3620,7 +4237,7 @@ function renderSocialQueueCard(row) {
         <div class="admin-sq-card__summary-main">
           <div class="admin-sq-card__head">
             <span class="admin-sq-card__platform">${pv.icon} ${escapeHtml(platformLabel)}</span>
-            <span class="admin-sq-badge admin-sq-badge--${tone}">${escapeHtml(row.status || "unknown")}</span>
+            <span class="admin-sq-badge admin-sq-badge--${tone}">${escapeHtml(socialQueueStatusLabel(row.status))}</span>
             ${invalid ? `<span class="admin-sq-badge admin-sq-badge--bad">Ungültig</span>` : ""}
           </div>
           <h3 class="admin-sq-card__title">${htmlTitleUsed}</h3>
@@ -3634,6 +4251,7 @@ function renderSocialQueueCard(row) {
         </button>
       </div>
       ${errBlock}
+      ${postizBlock}
       <div class="admin-sq-card__expand"${expanded ? "" : " hidden"}>
         ${expanded ? renderSocialQueueEditor(row) : ""}
       </div>
@@ -3749,6 +4367,7 @@ async function loadSocialQueueRows() {
   if (state.socialQueueExpandedId && !findSocialQueueRow(state.socialQueueExpandedId)) {
     state.socialQueueExpandedId = null;
   }
+  sanitizeSocialQueueDraftSnapshots();
 }
 
 async function ensureSocialReviewQueueForEvent(event) {
@@ -3844,10 +4463,14 @@ async function retrySocialQueueRow(queueId) {
       status: "pending",
       last_error: null,
       last_attempt_at: null,
+      admin_confirmed_at: null,
+      postiz_post_id: null,
+      postiz_synced_at: null,
       updated_at: new Date().toISOString()
     })
     .eq("id", queueId);
   if (error) throw new Error(error.message || "Retry failed.");
+  patchSocialQueueRowInState(queueId, { status: "pending", last_error: null });
 }
 
 async function deleteSocialQueueRow(queueId) {
@@ -6067,6 +6690,15 @@ function bindEvents() {
   dom.socialQueuePanel?.addEventListener("input", (event) => {
     const editor = event.target.closest("[data-sq-editor]");
     if (!editor) return;
+    if (event.target.matches('[name="scheduled_at"]')) {
+      warnIfInvalidSocialQueueDatetimeInput(event.target, "input");
+      const queueId = editor.dataset.queueId || editor.closest("[data-queue-id]")?.dataset?.queueId;
+      const row = findSocialQueueRow(queueId);
+      const raw = String(event.target.value ?? "").trim();
+      if (!isDatetimeLocalInputValue(raw)) {
+        setSocialQueueScheduledAtInputValue(event.target, row?.scheduled_at);
+      }
+    }
     if (event.target.matches("[data-autosize-caption]")) autosizeSocialCaptionTextarea(event.target);
     updateSocialCaptionEditorUi(editor);
   });
@@ -6074,6 +6706,9 @@ function bindEvents() {
   dom.socialQueuePanel?.addEventListener("change", (event) => {
     const editor = event.target.closest("[data-sq-editor]");
     if (!editor) return;
+    if (event.target.matches('[name="scheduled_at"]')) {
+      warnIfInvalidSocialQueueDatetimeInput(event.target, "change");
+    }
     if (event.target.matches('[name="style_mode"], [name="platform"]')) {
       console.log("style mode", { style_mode: editor.querySelector('[name="style_mode"]')?.value });
       updateSocialCaptionEditorUi(editor, { dirty: true });
@@ -6083,40 +6718,126 @@ function bindEvents() {
   dom.socialQueuePanel?.addEventListener("click", async (event) => {
     const captionBtn = event.target.closest("[data-caption-action]");
     if (captionBtn) {
-      const editorEl = captionBtn.closest("[data-sq-editor]");
-      const card = captionBtn.closest("[data-queue-id]");
-      const queueId = card?.dataset.queueId;
-      const row = findSocialQueueRow(queueId);
-      if (!editorEl || !row) return;
+      const { editorEl, queueId, row } = resolveSocialQueueActionContext(captionBtn);
+      if (!editorEl || !queueId || !row) return;
       const action = captionBtn.dataset.captionAction || "";
       captionBtn.disabled = true;
       try {
         if (action === "save") {
           setGlobalFeedback("Speichere Draft…", "info");
-          await saveSocialQueueDraftFromEditor(queueId, editorEl);
-          setGlobalFeedback("Draft gespeichert", "success");
+          await handleSocialQueueSaveDraftClick(captionBtn);
           renderSocialQueuePanel();
           requestAnimationFrame(() => {
-            const card = dom.socialQueuePanel?.querySelector(`[data-queue-id="${CSS.escape(String(queueId))}"]`);
+            const card = dom.socialQueuePanel?.querySelector(
+              `.admin-sq-card[data-queue-id="${CSS.escape(String(queueId))}"]`
+            );
             const editor = card?.querySelector("[data-sq-editor]");
             const savedRow = findSocialQueueRow(queueId);
-            if (editor && savedRow) initSocialCaptionEditor(editor, savedRow);
+            if (editor && savedRow) {
+              initSocialCaptionEditor(editor, savedRow);
+              showSocialQueueSaveSuccess(editor);
+            }
           });
         } else {
           applyCaptionStudioTransform(editorEl, action, row);
         }
       } catch (error) {
-        setGlobalFeedback(error.message || "Aktion fehlgeschlagen.", "error");
+        const msg = showSocialQueueSaveError(editorEl, error);
+        setGlobalFeedback(msg, "error");
       } finally {
         captionBtn.disabled = false;
       }
       return;
     }
 
+    const saveDraftBtn = event.target.closest('button[data-queue-action="save-draft"]');
+    if (saveDraftBtn) {
+      if (saveDraftBtn.disabled) return;
+      const saveCtx = resolveSocialQueueActionContext(saveDraftBtn);
+      const queueIdEarly = saveCtx.queueId;
+      console.log("admin action clicked", {
+        action: "save-draft",
+        context: "social-queue",
+        queueId: queueIdEarly,
+        eventId: saveCtx.eventId ?? null
+      });
+      saveDraftBtn.disabled = true;
+      const editorForSave = saveCtx.editorEl || resolveSocialQueueEditorEl(saveDraftBtn, queueIdEarly);
+      try {
+        setGlobalFeedback("Speichere Draft…", "info");
+        await handleSocialQueueSaveDraftClick(saveDraftBtn);
+        renderSocialQueuePanel();
+        requestAnimationFrame(() => {
+          if (!queueIdEarly) return;
+          const card = dom.socialQueuePanel?.querySelector(
+            `.admin-sq-card[data-queue-id="${CSS.escape(String(queueIdEarly))}"]`
+          );
+          const editor = card?.querySelector("[data-sq-editor]") || editorForSave;
+          const savedRow = findSocialQueueRow(queueIdEarly);
+          if (editor && savedRow) {
+            initSocialCaptionEditor(editor, savedRow);
+            showSocialQueueSaveSuccess(editor);
+          }
+        });
+      } catch (error) {
+        console.error("admin action social-queue save-draft error", { queueId: queueIdEarly }, error);
+        const msg = showSocialQueueSaveError(editorForSave, error);
+        setGlobalFeedback(msg, "error");
+      } finally {
+        saveDraftBtn.disabled = false;
+      }
+      return;
+    }
+
+    const sendToPostizBtn = event.target.closest('button[data-queue-action="send-to-postiz"]');
+    if (sendToPostizBtn) {
+      if (sendToPostizBtn.disabled) return;
+      const postizCtx = resolveSocialQueueActionContext(sendToPostizBtn);
+      const queueIdPostiz = postizCtx.queueId;
+      console.log("admin action clicked", {
+        action: "send-to-postiz",
+        context: "social-queue",
+        queueId: queueIdPostiz,
+        eventId: postizCtx.eventId ?? null,
+        scheduled_at: postizCtx.row?.scheduled_at ?? null,
+        platform: postizCtx.row?.platform ?? null,
+        status: postizCtx.row?.status ?? null
+      });
+      const editorForPostiz = postizCtx.editorEl || resolveSocialQueueEditorEl(sendToPostizBtn, queueIdPostiz);
+      try {
+        state.socialQueuePostizSendingId = queueIdPostiz;
+        renderSocialQueuePanel();
+        setGlobalFeedback("Sende an Postiz…", "info");
+        const savedRow = await confirmSocialQueueDraftForPostiz(queueIdPostiz, editorForPostiz, sendToPostizBtn);
+        renderSocialQueuePanel();
+        requestAnimationFrame(() => {
+          if (!queueIdPostiz) return;
+          const card = dom.socialQueuePanel?.querySelector(
+            `.admin-sq-card[data-queue-id="${CSS.escape(String(queueIdPostiz))}"]`
+          );
+          const editor = card?.querySelector("[data-sq-editor]") || editorForPostiz;
+          const row = findSocialQueueRow(queueIdPostiz) || savedRow;
+          if (editor && row) {
+            initSocialCaptionEditor(editor, row);
+            showSocialQueuePostizHandoffSuccess(editor, row);
+          } else {
+            showSocialQueuePostizHandoffSuccess(null, row);
+          }
+        });
+      } catch (error) {
+        console.error("admin action social-queue send-to-postiz error", { queueId: queueIdPostiz }, error);
+        const msg = showSocialQueueSaveError(editorForPostiz, error);
+        setGlobalFeedback(msg, "error");
+        renderSocialQueuePanel();
+      } finally {
+        state.socialQueuePostizSendingId = null;
+      }
+      return;
+    }
+
     const statusChip = event.target.closest("[data-sq-status]");
     if (statusChip) {
-      const card = statusChip.closest("[data-queue-id]");
-      const queueId = card?.dataset.queueId;
+      const queueId = resolveSocialQueueActionContext(statusChip).queueId;
       const status = statusChip.getAttribute("data-sq-status");
       if (!queueId || !status) return;
       setGlobalFeedback("Status wird aktualisiert…", "info");
@@ -6132,13 +6853,8 @@ function bindEvents() {
 
     const button = event.target.closest("button[data-queue-action]");
     if (!button || button.disabled) return;
-    const rowEl = button.closest("[data-queue-id]");
-    const queueId = rowEl?.dataset.queueId;
-    const eventId = rowEl?.dataset.eventId;
-    const queueAction = button.dataset.queueAction || "";
-    const row = findSocialQueueRow(queueId);
-    const eventData = state.allEvents.find((item) => String(item.id) === String(eventId));
-    const editorEl = rowEl?.querySelector("[data-sq-editor]");
+    const { editorEl, queueId, row, eventId, eventData } = resolveSocialQueueActionContext(button);
+    const queueAction = readSocialQueueActionName(button);
 
     if (queueAction === "toggle-expand") {
       const willExpand = String(state.socialQueueExpandedId) !== String(queueId);
@@ -6155,7 +6871,15 @@ function bindEvents() {
       return;
     }
 
-    console.log("admin action clicked", { action: queueAction, context: "social-queue", queueId, eventId });
+    console.log("admin action clicked", {
+      action: queueAction,
+      context: "social-queue",
+      queueId,
+      eventId: eventId ?? null,
+      scheduled_at: row?.scheduled_at ?? null,
+      platform: row?.platform ?? null,
+      status: row?.status ?? null
+    });
 
     button.disabled = true;
     try {
@@ -6164,19 +6888,12 @@ function bindEvents() {
         const title = await repairSocialQueueTitle(queueId);
         setGlobalFeedback(`Titel gespeichert: ${title}`, "success");
         renderSocialQueuePanel();
-      } else if (queueAction === "open-event" && eventData) {
-        openAdminEventFromSocialQueue(eventId, eventData);
-      } else if (queueAction === "save-draft" && editorEl) {
-        setGlobalFeedback("Speichere Draft…", "info");
-        await saveSocialQueueDraftFromEditor(queueId, editorEl);
-        setGlobalFeedback("Draft gespeichert", "success");
-        renderSocialQueuePanel();
-        requestAnimationFrame(() => {
-          const card = dom.socialQueuePanel?.querySelector(`[data-queue-id="${CSS.escape(String(queueId))}"]`);
-          const editor = card?.querySelector("[data-sq-editor]");
-          const savedRow = findSocialQueueRow(queueId);
-          if (editor && savedRow) initSocialCaptionEditor(editor, savedRow);
-        });
+      } else if (queueAction === "open-event") {
+        if (!eventData) {
+          setGlobalFeedback("Kein verknüpftes Event für diesen Draft.", "error");
+        } else {
+          openAdminEventFromSocialQueue(eventId, eventData);
+        }
       } else if (queueAction === "duplicate-draft" && row) {
         setGlobalFeedback("Dupliziere…", "info");
         const n = await duplicateSocialQueueDraft(row, editorEl);
@@ -6219,8 +6936,9 @@ function bindEvents() {
         await refreshAdminData({ reloadSocial: true });
       }
     } catch (error) {
-      console.error("admin action social-queue error", { queueAction, queueId, eventId }, error);
-      setGlobalFeedback(`Social: ${error.message || ""}`.trim(), "error");
+      console.error("admin action social-queue error", { queueAction, queueId, eventId: eventId ?? null }, error);
+      const msg = showSocialQueueSaveError(editorEl, error);
+      setGlobalFeedback(msg, "error");
     } finally {
       button.disabled = false;
     }
