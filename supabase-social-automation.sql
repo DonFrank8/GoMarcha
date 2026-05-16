@@ -46,6 +46,13 @@ alter table public.social_queue add column if not exists last_error text;
 alter table public.social_queue add column if not exists retry_count int default 0;
 alter table public.social_queue add column if not exists last_attempt_at timestamptz;
 alter table public.social_queue add column if not exists posted_at timestamptz;
+alter table public.social_queue add column if not exists title text;
+alter table public.social_queue add column if not exists image_url text;
+alter table public.social_queue add column if not exists event_date text;
+alter table public.social_queue add column if not exists location_name text;
+alter table public.social_queue add column if not exists city text;
+alter table public.social_queue add column if not exists hashtags text;
+alter table public.social_queue add column if not exists cta_text text;
 
 -- Best-effort constraints (skip if already present).
 do $$
@@ -72,7 +79,7 @@ begin
   ) then
     alter table public.social_queue
       add constraint social_queue_status_check
-      check (status in ('pending', 'processing', 'posted', 'failed', 'skipped'));
+      check (status in ('pending', 'draft', 'processing', 'posted', 'failed', 'skipped'));
   end if;
 exception
   when others then null;

@@ -2,7 +2,7 @@ const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
 const ADMIN_REQUIRED_ROLE = "admin";
 const ADMIN_ALLOWED_EMAILS = [];
-const ADMIN_DASHBOARD_BUILD = "2026.05.15-admin-analytics-1";
+const ADMIN_DASHBOARD_BUILD = "2026.05.16-caption-studio-1";
 const EVENT_LIST_PAGE_SIZE = 22;
 
 const EVENT_IMAGES_BUCKET = "event-images";
@@ -20,6 +20,44 @@ let editorLocationAutocompleteDispose = null;
 let editorPlacesHideSuggestionsFn = null;
 const ADMIN_MAPBOX_ACCESS_TOKEN = (window.PARTYRADAR_MAPBOX_TOKEN || "").toString().trim();
 const SOCIAL_REVIEW_PLATFORMS = ["instagram", "facebook"];
+
+const SOCIAL_QUEUE_INSERT_COLUMNS = new Set([
+  "event_id",
+  "platform",
+  "status",
+  "scheduled_at",
+  "title",
+  "caption",
+  "image_url",
+  "resolved_image_url",
+  "event_date",
+  "location_name",
+  "city",
+  "retry_count",
+  "hashtags",
+  "cta_text",
+  "postiz_response"
+]);
+
+/** Auto-delete posted rows older than N days (0 = disabled). */
+const SOCIAL_QUEUE_POSTED_RETENTION_DAYS = 30;
+
+const SOCIAL_QUEUE_UPDATE_COLUMNS = new Set([
+  "platform",
+  "status",
+  "scheduled_at",
+  "title",
+  "caption",
+  "image_url",
+  "resolved_image_url",
+  "hashtags",
+  "cta_text",
+  "postiz_response",
+  "last_error",
+  "updated_at"
+]);
+
+const SOCIAL_QUEUE_STATUS_ACTIONS = ["pending", "draft", "posted", "failed"];
 const SOCIAL_REVIEW_SLOTS = [
   { id: "week", daysBefore: 7, hour: 10, minute: 30 },
   { id: "three_days", daysBefore: 3, hour: 10, minute: 30 },
@@ -112,6 +150,13 @@ const state = {
   genre: "",
   statusFilter: "",
   socialQueueFilter: "all",
+  socialQueueFilterPlatform: "",
+  socialQueueFilterEventId: "",
+  socialQueueFilterRecurringOnly: false,
+  socialQueueFilterDateFrom: "",
+  socialQueueFilterDateTo: "",
+  socialQueueExpandedId: null,
+  socialQueueDraftSnapshots: new Map(),
   adminSession: null,
   navSection: "dashboard",
   lastFilterSignature: "",
@@ -163,7 +208,15 @@ const dom = {
   statusFilter: document.getElementById("filterStatus"),
   resetFiltersButton: document.getElementById("resetFiltersButton"),
   socialQueuePanel: document.getElementById("adminSocialQueuePanel"),
+  socialDeleteInvalidButton: document.getElementById("adminSocialDeleteInvalid"),
   socialQueueFilters: [...document.querySelectorAll(".admin-social-filter[data-social-filter]")],
+  socialQueueStats: document.getElementById("adminSocialQueueStats"),
+  socialQueueAdvancedFilters: document.getElementById("adminSocialQueueAdvancedFilters"),
+  socialQueueFilterPlatform: document.getElementById("adminSocialFilterPlatform"),
+  socialQueueFilterEvent: document.getElementById("adminSocialFilterEvent"),
+  socialQueueFilterRecurring: document.getElementById("adminSocialFilterRecurring"),
+  socialQueueFilterDateFrom: document.getElementById("adminSocialFilterDateFrom"),
+  socialQueueFilterDateTo: document.getElementById("adminSocialFilterDateTo"),
   eventGrid: document.getElementById("adminEventGrid"),
   eventSentinel: document.getElementById("adminEventSentinel"),
   emptyState: document.getElementById("adminEmptyState"),
@@ -755,8 +808,854 @@ function isRecurringEventPast(event, now = new Date()) {
   return getNextRecurringOccurrence(event, now) === null;
 }
 
+function socialEffectiveEventStart(event, now = new Date()) {
+  const coerced = adminCoerceRecurrenceFields(event);
+  if (isAdminRecurringEvent(coerced)) {
+    const next = getNextRecurringOccurrence(coerced, now);
+    if (next && !Number.isNaN(next.getTime())) return next;
+    return null;
+  }
+  return dateFromAdminEventWallTime(coerced);
+}
+
+function adminSocialEventDateYmd(event, eventStart) {
+  if (eventStart instanceof Date && !Number.isNaN(eventStart.getTime())) {
+    return adminFormatLocalYmd(eventStart);
+  }
+  return String(event?.event_date || event?.recurrence_start_date || "").trim() || null;
+}
+
+const SOCIAL_CAPTION_STYLE_MODES = [
+  "natural",
+  "emotional",
+  "premium",
+  "party",
+  "elegant",
+  "beach",
+  "latin",
+  "short",
+  "promo"
+];
+
+const SOCIAL_CAPTION_SPANISH_MONTHS = [
+  "enero",
+  "febrero",
+  "marzo",
+  "abril",
+  "mayo",
+  "junio",
+  "julio",
+  "agosto",
+  "septiembre",
+  "octubre",
+  "noviembre",
+  "diciembre"
+];
+
+const SOCIAL_CAPTION_BANNED = [/planazo/gi, /\b\d{4}-\d{2}-\d{2}\b/g, /\bAI\b/g, /don't miss/gi];
+
+function detectSocialCaptionLanguage(event) {
+  const country = String(event?.country || "").trim().toLowerCase();
+  if (/espa|spain|españa|andaluc/i.test(country)) return "es";
+  if (String(event?.description_es || "").trim().length > 20) return "es";
+  if (/deutsch|germany|deutschland|österreich|austria|schweiz/i.test(country)) return "de";
+  if (String(event?.description_de || "").trim().length > 20) return "de";
+  if (String(event?.description_en || "").trim().length > 20) return "en";
+  return "es";
+}
+
+function formatSocialCaptionDate(date, lang = "es", { withWeekday = false, withTime = false } = {}) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
+  const day = date.getDate();
+  const month = date.getMonth();
+  const year = date.getFullYear();
+  let line = "";
+  if (lang === "de") {
+    line = `${String(day).padStart(2, "0")}.${String(month + 1).padStart(2, "0")}.${year}`;
+  } else if (lang === "en") {
+    const enMonths = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    line = `${enMonths[month]} ${day}`;
+  } else {
+    const monthName = SOCIAL_CAPTION_SPANISH_MONTHS[month] || "";
+    const cap = monthName ? monthName.charAt(0).toUpperCase() + monthName.slice(1) : "";
+    if (withWeekday) {
+      const wd = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"][date.getDay()];
+      line = `${wd} ${day} ${cap}`;
+    } else {
+      line = `${day} ${cap}`;
+    }
+  }
+  if (withTime) {
+    const hh = String(date.getHours()).padStart(2, "0");
+    const mm = String(date.getMinutes()).padStart(2, "0");
+    line = line ? `${line} · ${hh}:${mm}` : `${hh}:${mm}`;
+  }
+  return line;
+}
+
+function slugHashtagToken(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]/g, "")
+    .slice(0, 28);
+}
+
+function buildSocialHashtags(event, platform = "instagram") {
+  const tags = [];
+  const seen = new Set();
+  const push = (raw) => {
+    const token = slugHashtagToken(raw);
+    if (!token || token.length < 3 || seen.has(token.toLowerCase())) return;
+    seen.add(token.toLowerCase());
+    tags.push(`#${token}`);
+  };
+  const city = String(event?.city || "").trim();
+  const venue = String(event?.location_name || "").trim();
+  const genre = String(event?.genre || "").trim().split(/[,/|]/)[0];
+  if (city) push(city.replace(/\s+/g, ""));
+  if (genre) push(genre);
+  if (venue) push(venue.split(/\s+/)[0]);
+  const vibes = {
+    instagram: ["LiveMusic", "NightOut"],
+    facebook: ["Events", "Local"],
+    tiktok: ["FYP", "Vibes"]
+  };
+  for (const v of vibes[String(platform).toLowerCase()] || vibes.instagram) push(v);
+  if (tags.length < 3) push("GoMarcha");
+  return tags.slice(0, 5).join(" ");
+}
+
+function sanitizeHumanCaptionText(text) {
+  let out = String(text || "").trim();
+  for (const re of SOCIAL_CAPTION_BANNED) out = out.replace(re, "").trim();
+  out = out.replace(/\s{2,}/g, " ").replace(/\n{3,}/g, "\n\n");
+  return out;
+}
+
+function socialCaptionTemplatePool(styleMode, platform, lang) {
+  const p = String(platform || "instagram").toLowerCase();
+  const s = SOCIAL_CAPTION_STYLE_MODES.includes(styleMode) ? styleMode : "natural";
+  const pools = {
+    es: {
+      natural: [
+        (c) => `${c.venue ? `Esta noche suena bien en ${c.venue}` : "Buen plan para salir"}${c.city ? ` (${c.city})` : ""}.`,
+        (c) => (c.genre ? `${c.genre} en vivo` : "Música en vivo") + (c.venue ? ` · ${c.venue}` : "") + ".",
+        (c) => `Si te apetece ambiente, ${c.name}${c.venue ? ` en ${c.venue}` : ""}.`
+      ],
+      emotional: [
+        (c) => `Hay noches que se quedan. Esta puede ser una.${c.venue ? `\n${c.venue}` : ""}`,
+        (c) => `Cuando la música encaja, no hace falta más.${c.city ? `\n${c.city}` : ""}`,
+        (c) => `Vibra buena, gente cercana${c.venue ? `, ${c.venue}` : ""}.`
+      ],
+      premium: [
+        (c) => `Una velada cuidada${c.venue ? ` en ${c.venue}` : ""}${c.city ? ` · ${c.city}` : ""}.`,
+        (c) => `Directo con estilo. ${c.name}${c.genre ? ` · ${c.genre}` : ""}.`,
+        (c) => `Plan elegante para quien busca algo distinto.`
+      ],
+      party: [
+        (c) => `Súbete el volumen: ${c.name}${c.venue ? ` @ ${c.venue}` : ""}.`,
+        (c) => `Noche larga, buena energía${c.city ? ` en ${c.city}` : ""}.`,
+        (c) => `A bailar se ha dicho.`
+      ],
+      elegant: [
+        (c) => `Detalles que marcan la diferencia${c.venue ? ` en ${c.venue}` : ""}.`,
+        (c) => `${c.name} — ambiente refinado, sin prisas.`
+      ],
+      beach: [
+        (c) => `Brisa, música y buena compañía${c.city ? ` · ${c.city}` : ""}.`,
+        (c) => `Tarde-noche con sabor a Costa.`
+      ],
+      latin: [
+        (c) => `Ritmo, calor y escena viva${c.venue ? ` en ${c.venue}` : ""}.`,
+        (c) => `${c.genre || "Latin"} que se siente en el cuerpo.`
+      ],
+      short: [(c) => `${c.name}${c.venue ? ` · ${c.venue}` : ""}.`, (c) => `Hoy toca ${c.genre || "música"}.`],
+      promo: [
+        (c) => `Entradas / info en el enlace.`,
+        (c) => `Reserva tu sitio — ${c.name}.`
+      ]
+    },
+    de: {
+      natural: [
+        (c) => `${c.name}${c.venue ? ` im ${c.venue}` : ""}${c.city ? `, ${c.city}` : ""}.`,
+        (c) => `Live-Musik, gute Stimmung.`
+      ],
+      emotional: [(c) => `Ein Abend, der bleibt — ${c.name}.`, (c) => `Gänsehaut-Momente inklusive.`],
+      premium: [(c) => `Stilvoller Abend${c.venue ? ` im ${c.venue}` : ""}.`],
+      party: [(c) => `Heute wird gefeiert: ${c.name}.`],
+      elegant: [(c) => `${c.name} — elegant & entspannt.`],
+      beach: [(c) => `Sonnenuntergang & Beats.`],
+      latin: [(c) => `Latin-Feeling live on stage.`],
+      short: [(c) => `${c.name}. Heute.`],
+      promo: [(c) => `Tickets & Infos im Link.`]
+    },
+    en: {
+      natural: [
+        (c) => `${c.name}${c.venue ? ` at ${c.venue}` : ""}${c.city ? `, ${c.city}` : ""}.`,
+        (c) => `Good crowd, good sound.`
+      ],
+      emotional: [(c) => `Nights like this stay with you.`, (c) => `Feel-it-in-your-chest kind of show.`],
+      premium: [(c) => `A polished night out${c.venue ? ` at ${c.venue}` : ""}.`],
+      party: [(c) => `Turn it up — ${c.name} tonight.`],
+      elegant: [(c) => `${c.name} — refined & unhurried.`],
+      beach: [(c) => `Coastline energy & live music.`],
+      latin: [(c) => `Latin heat on stage.`],
+      short: [(c) => `${c.name}. Tonight.`],
+      promo: [(c) => `Tickets & info in bio.`]
+    }
+  };
+  const langPool = pools[lang] || pools.es;
+  const stylePool = langPool[s] || langPool.natural;
+  const platformTweaks =
+    p === "facebook"
+      ? [(c) => `${stylePool[0](c)}\n${c.venue ? `Ort: ${c.venue}` : ""}${c.dateLine ? `\n${c.dateLine}` : ""}`.trim()]
+      : p === "tiktok"
+        ? [(c) => `${c.name}${c.venue ? ` · ${c.venue}` : ""}`.slice(0, 90)]
+        : stylePool;
+  return platformTweaks.length ? platformTweaks : stylePool;
+}
+
+function pickSocialCaptionTemplate(event, styleMode, platform, lang, seed = 0) {
+  const pool = socialCaptionTemplatePool(styleMode, platform, lang);
+  const key = `${event?.id}:${platform}:${styleMode}:${seed}`;
+  let h = 2166136261;
+  for (let i = 0; i < key.length; i += 1) {
+    h ^= key.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return pool[h % pool.length];
+}
+
+function buildHumanSocialCaptionContext(event, eventStart, lang) {
+  const name = String(event?.name || event?.title || "").trim() || "Event";
+  const venue = String(event?.location_name || "").trim();
+  const city = String(event?.city || "").trim();
+  const genre = String(event?.genre || "").trim();
+  const dateLine = eventStart ? formatSocialCaptionDate(eventStart, lang, { withWeekday: lang === "es" }) : "";
+  return { name, venue, city, genre, dateLine };
+}
+
+function generateHumanSocialCaptionBundle(event, platform, eventStartOrScheduled, options = {}) {
+  const platformKey = String(platform || "instagram").toLowerCase();
+  const styleMode = SOCIAL_CAPTION_STYLE_MODES.includes(options.styleMode) ? options.styleMode : "natural";
+  const lang = options.lang || detectSocialCaptionLanguage(event);
+  const includeDate = options.includeDate !== false;
+  const seed = Number(options.seed) || 0;
+  const start =
+    eventStartOrScheduled instanceof Date && !Number.isNaN(eventStartOrScheduled.getTime())
+      ? eventStartOrScheduled
+      : socialEffectiveEventStart(event, new Date());
+
+  const ctx = buildHumanSocialCaptionContext(event, start, lang);
+  const templateFn = pickSocialCaptionTemplate(event, styleMode, platformKey, lang, seed);
+  let caption = sanitizeHumanCaptionText(templateFn(ctx));
+
+  if (includeDate && ctx.dateLine && !caption.includes(ctx.dateLine)) {
+    if (platformKey === "facebook") caption = `${caption}\n${ctx.dateLine}`;
+    else if (platformKey !== "tiktok" && Math.random() > 0.35) caption = `${caption}\n${ctx.dateLine}`;
+  }
+
+  if (platformKey === "instagram" && caption.length > 280) {
+    caption = `${caption.slice(0, 277).trim()}…`;
+  }
+  if (platformKey === "tiktok" && caption.length > 120) {
+    caption = `${caption.slice(0, 117).trim()}…`;
+  }
+
+  const hashtags = options.hashtags ?? buildSocialHashtags(event, platformKey);
+  const cta_text =
+    options.cta_text ??
+    (styleMode === "promo" || platformKey === "facebook"
+      ? lang === "es"
+        ? "Más info en el enlace."
+        : lang === "de"
+          ? "Infos im Link."
+          : "Details in bio."
+      : "");
+
+  console.log("caption regenerate", { eventId: event?.id, platform: platformKey, styleMode, lang });
+
+  return { caption, hashtags, cta_text, styleMode, lang };
+}
+
+function buildAdminSocialCaption(event, eventStartOrScheduled, platform = "instagram", styleMode = "natural") {
+  return generateHumanSocialCaptionBundle(event, platform, eventStartOrScheduled, { styleMode }).caption;
+}
+
+function buildSocialQueuePayload(event, platform, scheduledAt) {
+  const scheduled =
+    scheduledAt instanceof Date
+      ? scheduledAt
+      : new Date(String(scheduledAt || ""));
+  const scheduledIso = Number.isNaN(scheduled.getTime()) ? null : scheduled.toISOString();
+  const eventStart = socialEffectiveEventStart(event, scheduled);
+  const imageUrl = String(resolvePrimaryImageUrl(event) || "").trim();
+  const title = String(event?.name || event?.title || "").trim();
+  const platformKey = String(platform || "instagram").toLowerCase();
+  const bundle = generateHumanSocialCaptionBundle(event, platformKey, eventStart || scheduled, {
+    styleMode: "natural"
+  });
+
+  return {
+    event_id: event?.id ?? null,
+    platform: platformKey,
+    status: "pending",
+    scheduled_at: scheduledIso,
+    title,
+    caption: bundle.caption,
+    hashtags: bundle.hashtags,
+    cta_text: bundle.cta_text || null,
+    image_url: imageUrl,
+    resolved_image_url: imageUrl,
+    event_date: adminSocialEventDateYmd(event, eventStart),
+    location_name: String(event?.location_name || "").trim() || null,
+    city: String(event?.city || "").trim() || null,
+    retry_count: 0,
+    postiz_response: mergeSocialQueuePostizResponse(null, bundle.hashtags, bundle.cta_text, {
+      style_mode: bundle.styleMode
+    })
+  };
+}
+
+function pickSocialQueueInsertRow(row) {
+  const out = {};
+  for (const key of Object.keys(row || {})) {
+    if (key.startsWith("_")) continue;
+    if (!SOCIAL_QUEUE_INSERT_COLUMNS.has(key)) continue;
+    out[key] = row[key];
+  }
+  return out;
+}
+
+function isValidSocialQueuePayload(payload) {
+  const eventId = String(payload?.event_id ?? "").trim();
+  const title = String(payload?.title ?? "").trim();
+  const imageUrl = String(payload?.image_url || payload?.resolved_image_url || "").trim();
+  const platform = String(payload?.platform || "").toLowerCase();
+  const scheduled = payload?.scheduled_at;
+  return Boolean(
+    eventId &&
+    title &&
+    imageUrl &&
+    SOCIAL_REVIEW_PLATFORMS.includes(platform) &&
+    scheduled &&
+    !Number.isNaN(new Date(scheduled).getTime())
+  );
+}
+
+function isSocialQueueRowInvalid(row) {
+  if (!String(row?.event_id ?? "").trim()) return true;
+  const title = String(row?.title || "").trim();
+  const imageUrl = String(row?.image_url || row?.resolved_image_url || "").trim();
+  return !title || !imageUrl;
+}
+
+function readSocialQueueExtras(row) {
+  const fromCol = {
+    hashtags: String(row?.hashtags || "").trim(),
+    cta_text: String(row?.cta_text || "").trim(),
+    style_mode: "natural"
+  };
+  const pr = row?.postiz_response;
+  const meta =
+    pr && typeof pr === "object" && pr._marcha_admin && typeof pr._marcha_admin === "object"
+      ? pr._marcha_admin
+      : null;
+  if (meta) {
+    if (!fromCol.hashtags && meta.hashtags) fromCol.hashtags = String(meta.hashtags).trim();
+    if (!fromCol.cta_text && meta.cta_text) fromCol.cta_text = String(meta.cta_text).trim();
+    if (meta.style_mode && SOCIAL_CAPTION_STYLE_MODES.includes(meta.style_mode)) {
+      fromCol.style_mode = meta.style_mode;
+    }
+  }
+  return fromCol;
+}
+
+function mergeSocialQueuePostizResponse(existing, hashtags, ctaText, adminMeta = {}) {
+  const base =
+    existing && typeof existing === "object" && !Array.isArray(existing) ? { ...existing } : {};
+  base._marcha_admin = {
+    hashtags: String(hashtags || "").trim(),
+    cta_text: String(ctaText || "").trim(),
+    style_mode: SOCIAL_CAPTION_STYLE_MODES.includes(adminMeta.style_mode) ? adminMeta.style_mode : "natural"
+  };
+  return base;
+}
+
+function socialQueueFullCaption(row, extras) {
+  const parts = [String(row?.caption || "").trim()];
+  const tags = String(extras?.hashtags || "").trim();
+  const cta = String(extras?.cta_text || "").trim();
+  if (tags) parts.push(tags);
+  if (cta) parts.push(cta);
+  return parts.filter(Boolean).join("\n\n");
+}
+
+function toDatetimeLocalValue(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function fromDatetimeLocalValue(value) {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+function validateSocialQueueDraftForm(data) {
+  const errors = [];
+  if (!String(data.caption || "").trim()) errors.push("Caption fehlt");
+  if (!String(data.image_url || "").trim()) errors.push("Bild fehlt");
+  const scheduled = fromDatetimeLocalValue(data.scheduled_at_local);
+  if (!scheduled) errors.push("Ungültiges Datum");
+  else if (new Date(scheduled) <= new Date()) errors.push("Zeitpunkt muss in der Zukunft liegen");
+  return { ok: !errors.length, errors, scheduled_at: scheduled };
+}
+
+function pickSocialQueueUpdateRow(patch) {
+  const out = { updated_at: new Date().toISOString() };
+  for (const key of Object.keys(patch || {})) {
+    if (SOCIAL_QUEUE_UPDATE_COLUMNS.has(key)) out[key] = patch[key];
+  }
+  return out;
+}
+
+function patchSocialQueueRowInState(queueId, patch) {
+  const key = String(queueId ?? "").trim();
+  if (!key) return;
+  for (const [eventId, rows] of state.socialQueueByEvent.entries()) {
+    const idx = rows.findIndex((r) => String(r.id) === key);
+    if (idx < 0) continue;
+    rows[idx] = { ...rows[idx], ...patch };
+    state.socialQueueByEvent.set(eventId, rows);
+    return;
+  }
+}
+
+function computeSocialQueueStats(rows) {
+  const now = new Date();
+  let pending = 0;
+  let failed = 0;
+  let postedToday = 0;
+  let nextScheduled = null;
+  for (const row of rows) {
+    const st = String(row.status || "").toLowerCase();
+    if (st === "pending" || st === "draft") pending += 1;
+    if (st === "failed") failed += 1;
+    if (st === "posted" && row.posted_at) {
+      const posted = new Date(row.posted_at);
+      if (!Number.isNaN(posted.getTime()) && isSameLocalDay(posted, now)) postedToday += 1;
+    }
+    const sched = new Date(row.scheduled_at);
+    if ((st === "pending" || st === "draft") && !Number.isNaN(sched.getTime()) && sched >= now) {
+      if (!nextScheduled || sched < nextScheduled) nextScheduled = sched;
+    }
+  }
+  return { pending, failed, postedToday, nextScheduled };
+}
+
+function renderSocialQueueStats() {
+  if (!dom.socialQueueStats) return;
+  const rows = socialQueueRowsFlat();
+  const stats = computeSocialQueueStats(rows);
+  const nextLabel = stats.nextScheduled ? formatAdminDateTime(stats.nextScheduled.toISOString()) : "—";
+  dom.socialQueueStats.innerHTML = `
+    <div class="admin-sq-stat"><span class="admin-sq-stat__n">${stats.pending}</span><span>Pending</span></div>
+    <div class="admin-sq-stat"><span class="admin-sq-stat__n">${stats.postedToday}</span><span>Posted heute</span></div>
+    <div class="admin-sq-stat"><span class="admin-sq-stat__n">${stats.failed}</span><span>Failed</span></div>
+    <div class="admin-sq-stat admin-sq-stat--wide"><span class="admin-sq-stat__n admin-sq-stat__n--sm">${escapeHtml(nextLabel)}</span><span>Nächster Post</span></div>
+  `;
+}
+
+function renderSocialPostPreviewCard(platform, draft) {
+  const pv = platformVisual(platform);
+  const imageUrl = String(draft.image_url || "").trim();
+  const caption = escapeHtml(draft.fullCaption || "").replace(/\n/g, "<br />");
+  const title = escapeHtml(draft.title || "Event");
+  const img = imageUrl
+    ? `<img class="admin-sq-preview__img" src="${escapeHtml(imageUrl)}" alt="" loading="lazy" />`
+    : `<div class="admin-sq-preview__img admin-sq-preview__img--empty">Kein Bild</div>`;
+  const p = String(platform || "instagram").toLowerCase();
+  const platformClass =
+    p === "facebook" ? "admin-sq-preview--fb" : p === "tiktok" ? "admin-sq-preview--tt" : "admin-sq-preview--ig";
+  const frameClass = p === "instagram" ? " admin-sq-preview--phone" : "";
+  return `
+    <div class="admin-sq-preview ${platformClass}${frameClass}">
+      <div class="admin-sq-preview__head">${pv.icon} ${escapeHtml(pv.label)}</div>
+      ${img}
+      <div class="admin-sq-preview__body">
+        <strong>${title}</strong>
+        <p>${caption || "—"}</p>
+      </div>
+    </div>`;
+}
+
+function renderCaptionStyleOptions(selected) {
+  return SOCIAL_CAPTION_STYLE_MODES.map(
+    (mode) =>
+      `<option value="${mode}"${mode === selected ? " selected" : ""}>${mode.charAt(0).toUpperCase() + mode.slice(1)}</option>`
+  ).join("");
+}
+
+function renderSocialQueueEditor(row) {
+  const ev = state.allEvents.find((e) => String(e.id) === String(row.event_id));
+  const extras = readSocialQueueExtras(row);
+  const imageUrl = String(row.image_url || row.resolved_image_url || ev?.image_url || "").trim();
+  const fullCaption = socialQueueFullCaption(row, extras);
+  const draftPreview = {
+    title: row.title || socialQueueEventTitle(row.event_id),
+    image_url: imageUrl,
+    fullCaption
+  };
+  const statusChips = SOCIAL_QUEUE_STATUS_ACTIONS.map(
+    (st) =>
+      `<button type="button" class="admin-sq-status-chip${String(row.status).toLowerCase() === st ? " is-active" : ""}" data-sq-status="${st}">${st}</button>`
+  ).join("");
+  const platformOptions = SOCIAL_REVIEW_PLATFORMS.map(
+    (p) =>
+      `<option value="${p}"${String(row.platform).toLowerCase() === p ? " selected" : ""}>${platformVisual(p).label}</option>`
+  ).join("");
+
+  return `
+    <div class="admin-sq-editor" data-sq-editor data-queue-id="${escapeHtml(row.id)}">
+      <section class="admin-sq-caption-studio">
+        <header class="admin-sq-caption-studio__head">
+          <span class="admin-sq-caption-studio__label">Caption Studio</span>
+          <span class="admin-sq-save-state" data-sq-save-state>Gespeichert</span>
+          <span class="admin-sq-char-count" data-sq-char-count>${String(row.caption || "").length} Zeichen</span>
+        </header>
+        <textarea class="admin-sq-caption-input" name="caption" rows="4" data-autosize-caption>${escapeHtml(String(row.caption || ""))}</textarea>
+        <div class="admin-sq-caption-toolbar">
+          <label class="admin-sq-caption-style">
+            <span>Stil</span>
+            <select name="style_mode">${renderCaptionStyleOptions(extras.style_mode)}</select>
+          </label>
+          <div class="admin-sq-caption-pills">
+            <button type="button" class="btn-pill btn-pill--hero btn-pill--xs" data-caption-action="save">Speichern</button>
+            <button type="button" class="btn-pill btn-pill--soft btn-pill--xs" data-caption-action="regenerate">Regenerate</button>
+            <button type="button" class="btn-pill btn-pill--soft btn-pill--xs" data-caption-action="shorter">Shorter</button>
+            <button type="button" class="btn-pill btn-pill--soft btn-pill--xs" data-caption-action="emotional">More Emotional</button>
+            <button type="button" class="btn-pill btn-pill--soft btn-pill--xs" data-caption-action="local">More Local</button>
+            <button type="button" class="btn-pill btn-pill--soft btn-pill--xs" data-caption-action="premium">More Premium</button>
+            <button type="button" class="btn-pill btn-pill--soft btn-pill--xs" data-caption-action="strip-hashtags">Remove Hashtags</button>
+            <button type="button" class="btn-pill btn-pill--soft btn-pill--xs" data-caption-action="add-cta">Add CTA</button>
+          </div>
+        </div>
+      </section>
+      <div class="admin-sq-editor__previews" data-sq-previews>
+        ${renderSocialPostPreviewCard("instagram", draftPreview)}
+        ${renderSocialPostPreviewCard("facebook", draftPreview)}
+        ${String(row.platform || "").toLowerCase() === "tiktok" ? renderSocialPostPreviewCard("tiktok", draftPreview) : ""}
+      </div>
+      <div class="admin-sq-editor__grid admin-sq-editor__grid--meta">
+        <label class="admin-sq-field admin-sq-field--full">
+          <span>Titel</span>
+          <input type="text" name="title" value="${escapeHtml(String(row.title || ""))}" />
+        </label>
+        <label class="admin-sq-field">
+          <span>Geplant</span>
+          <input type="datetime-local" name="scheduled_at" value="${escapeHtml(toDatetimeLocalValue(row.scheduled_at))}" />
+        </label>
+        <label class="admin-sq-field">
+          <span>Platform</span>
+          <select name="platform">${platformOptions}</select>
+        </label>
+        <label class="admin-sq-field admin-sq-field--full">
+          <span>Hashtags</span>
+          <input type="text" name="hashtags" value="${escapeHtml(extras.hashtags)}" placeholder="#Calahonda #SalsaNight" />
+        </label>
+        <label class="admin-sq-field admin-sq-field--full">
+          <span>CTA</span>
+          <input type="text" name="cta_text" value="${escapeHtml(extras.cta_text)}" placeholder="Link in Bio" />
+        </label>
+      </div>
+      <div class="admin-sq-editor__status">${statusChips}</div>
+      <div class="admin-sq-editor__actions">
+        <button type="button" class="btn-pill btn-pill--hero" data-queue-action="save-draft">Speichern</button>
+        <button type="button" class="btn-pill btn-pill--soft" data-queue-action="duplicate-draft">Duplizieren</button>
+        <button type="button" class="btn-pill btn-pill--soft" data-queue-action="open-event">Event öffnen</button>
+        <button type="button" class="btn-pill btn-pill--soft" data-queue-action="preview-image">Bild</button>
+        <button type="button" class="btn-pill btn-pill--outline btn-pill--danger" data-queue-action="delete">Löschen</button>
+      </div>
+    </div>`;
+}
+
+function readSocialQueueEditorForm(editorEl) {
+  const title = editorEl.querySelector('[name="title"]')?.value ?? "";
+  const caption = editorEl.querySelector('[name="caption"]')?.value ?? "";
+  const scheduled_at_local = editorEl.querySelector('[name="scheduled_at"]')?.value ?? "";
+  const platform = editorEl.querySelector('[name="platform"]')?.value ?? "";
+  const hashtags = editorEl.querySelector('[name="hashtags"]')?.value ?? "";
+  const cta_text = editorEl.querySelector('[name="cta_text"]')?.value ?? "";
+  const style_mode = editorEl.querySelector('[name="style_mode"]')?.value ?? "natural";
+  return { title, caption, scheduled_at_local, platform, hashtags, cta_text, style_mode };
+}
+
+function serializeSocialDraftForm(form) {
+  return JSON.stringify(form);
+}
+
+function autosizeSocialCaptionTextarea(textarea) {
+  if (!textarea) return;
+  textarea.style.height = "auto";
+  textarea.style.height = `${Math.min(Math.max(textarea.scrollHeight, 96), 320)}px`;
+}
+
+function updateSocialCaptionEditorUi(editorEl, { dirty = null } = {}) {
+  if (!editorEl) return;
+  const form = readSocialQueueEditorForm(editorEl);
+  const fullCaption = socialQueueFullCaption({ caption: form.caption }, { hashtags: form.hashtags, cta_text: form.cta_text });
+  const charEl = editorEl.querySelector("[data-sq-char-count]");
+  if (charEl) charEl.textContent = `${fullCaption.length} Zeichen`;
+  const saveEl = editorEl.querySelector("[data-sq-save-state]");
+  const queueId = editorEl.dataset.queueId || editorEl.closest("[data-queue-id]")?.dataset?.queueId;
+  const snap = queueId ? state.socialQueueDraftSnapshots.get(String(queueId)) : null;
+  const isDirty = dirty !== null ? dirty : snap ? serializeSocialDraftForm(form) !== snap : false;
+  if (saveEl) {
+    saveEl.textContent = isDirty ? "Ungespeichert" : "Gespeichert";
+    saveEl.classList.toggle("is-dirty", isDirty);
+  }
+  const row = findSocialQueueRow(queueId);
+  const ev = state.allEvents.find((e) => String(e.id) === String(row?.event_id));
+  const thumb = String(row?.image_url || row?.resolved_image_url || ev?.image_url || "").trim();
+  const draftPreview = {
+    title: form.title || row?.title,
+    image_url: thumb,
+    fullCaption
+  };
+  const previews = editorEl.querySelector("[data-sq-previews]");
+  if (previews) {
+    previews.innerHTML =
+      renderSocialPostPreviewCard("instagram", draftPreview) +
+      renderSocialPostPreviewCard("facebook", draftPreview) +
+      (String(form.platform).toLowerCase() === "tiktok" ? renderSocialPostPreviewCard("tiktok", draftPreview) : "");
+    console.log("preview updated", { queueId, chars: fullCaption.length });
+  }
+}
+
+function initSocialCaptionEditor(editorEl, row) {
+  if (!editorEl || !row) return;
+  const ta = editorEl.querySelector("[data-autosize-caption]");
+  autosizeSocialCaptionTextarea(ta);
+  const form = readSocialQueueEditorForm(editorEl);
+  state.socialQueueDraftSnapshots.set(String(row.id), serializeSocialDraftForm(form));
+  updateSocialCaptionEditorUi(editorEl, { dirty: false });
+}
+
+function applyCaptionStudioTransform(editorEl, action, row) {
+  const ev = state.allEvents.find((e) => String(e.id) === String(row.event_id));
+  const form = readSocialQueueEditorForm(editorEl);
+  const lang = detectSocialCaptionLanguage(ev || row);
+  let caption = sanitizeHumanCaptionText(form.caption);
+  let hashtags = form.hashtags;
+  let cta_text = form.cta_text;
+
+  if (action === "regenerate") {
+    const scheduled = fromDatetimeLocalValue(form.scheduled_at_local);
+    const bundle = generateHumanSocialCaptionBundle(ev || row, form.platform, scheduled ? new Date(scheduled) : null, {
+      styleMode: form.style_mode,
+      seed: Date.now()
+    });
+    caption = bundle.caption;
+    hashtags = bundle.hashtags;
+    cta_text = bundle.cta_text;
+    console.log("style mode", { style_mode: form.style_mode });
+  } else if (action === "shorter") {
+    const parts = caption.split(/(?<=[.!?])\s+/).filter(Boolean);
+    caption = sanitizeHumanCaptionText((parts.slice(0, 2).join(" ") || caption).slice(0, 200));
+  } else if (action === "emotional") {
+    const openers =
+      lang === "es"
+        ? ["Se siente en el aire.", "Esta noche pide música."]
+        : lang === "de"
+          ? ["Das wird emotional.", "Heute zählt die Stimmung."]
+          : ["You'll feel this one.", "Tonight hits different."];
+    caption = `${openers[Date.now() % openers.length]}\n${caption}`.trim();
+  } else if (action === "local") {
+    const city = String(ev?.city || row?.city || "").trim();
+    const venue = String(ev?.location_name || row?.location_name || "").trim();
+    if (city && !caption.toLowerCase().includes(city.toLowerCase())) caption = `${caption}\n${city}.`.trim();
+    if (venue && !caption.toLowerCase().includes(venue.toLowerCase())) caption = `${caption}\n${venue}`.trim();
+    hashtags = buildSocialHashtags(ev || row, form.platform);
+  } else if (action === "premium") {
+    caption = caption
+      .replace(/\b(noche|night)\b/gi, lang === "es" ? "velada" : "evening")
+      .replace(/\bfiesta\b/gi, lang === "es" ? "celebración" : "celebration");
+  } else if (action === "strip-hashtags") {
+    caption = caption.replace(/#\w+/g, "").trim();
+    hashtags = "";
+  } else if (action === "add-cta") {
+    cta_text =
+      cta_text ||
+      (lang === "es" ? "Reserva / info en el enlace." : lang === "de" ? "Infos im Link." : "Tap link for details.");
+  }
+
+  const ta = editorEl.querySelector('[name="caption"]');
+  const hashInput = editorEl.querySelector('[name="hashtags"]');
+  const ctaInput = editorEl.querySelector('[name="cta_text"]');
+  if (ta) ta.value = caption;
+  if (hashInput) hashInput.value = hashtags;
+  if (ctaInput) ctaInput.value = cta_text;
+  autosizeSocialCaptionTextarea(ta);
+  updateSocialCaptionEditorUi(editorEl, { dirty: true });
+}
+
+function showAdminConfirmModal(message, { confirmLabel = "Löschen", danger = true } = {}) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "admin-modal-overlay";
+    overlay.innerHTML = `
+      <div class="admin-modal" role="dialog" aria-modal="true">
+        <p class="admin-modal__text">${escapeHtml(message)}</p>
+        <div class="admin-modal__actions">
+          <button type="button" class="btn-pill btn-pill--soft" data-modal-cancel>Abbrechen</button>
+          <button type="button" class="btn-pill ${danger ? "btn-pill--danger" : "btn-pill--hero"}" data-modal-confirm>${escapeHtml(confirmLabel)}</button>
+        </div>
+      </div>`;
+    const close = (result) => {
+      overlay.remove();
+      resolve(result);
+    };
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) close(false);
+    });
+    overlay.querySelector("[data-modal-cancel]")?.addEventListener("click", () => close(false));
+    overlay.querySelector("[data-modal-confirm]")?.addEventListener("click", () => close(true));
+    document.body.appendChild(overlay);
+  });
+}
+
+function showAdminImageLightbox(imageUrl, title = "") {
+  const overlay = document.createElement("div");
+  overlay.className = "admin-lightbox-overlay";
+  overlay.innerHTML = `
+    <button type="button" class="admin-lightbox__close" aria-label="Schließen">✕</button>
+    <figure class="admin-lightbox__figure">
+      <img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(title)}" class="admin-lightbox__img" />
+      ${title ? `<figcaption>${escapeHtml(title)}</figcaption>` : ""}
+    </figure>`;
+  const close = () => overlay.remove();
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay || e.target.closest(".admin-lightbox__close")) close();
+  });
+  document.addEventListener(
+    "keydown",
+    function onKey(e) {
+      if (e.key === "Escape") {
+        close();
+        document.removeEventListener("keydown", onKey);
+      }
+    },
+    { once: true }
+  );
+  document.body.appendChild(overlay);
+}
+
+async function saveSocialQueueDraftFromEditor(queueId, editorEl) {
+  const row = findSocialQueueRow(queueId);
+  if (!row || !editorEl) throw new Error("Draft nicht gefunden.");
+  const form = readSocialQueueEditorForm(editorEl);
+  const ev = state.allEvents.find((e) => String(e.id) === String(row.event_id));
+  const imageUrl = String(row.image_url || row.resolved_image_url || ev?.image_url || "").trim();
+  const validation = validateSocialQueueDraftForm({ ...form, image_url: imageUrl });
+  if (!validation.ok) throw new Error(validation.errors.join(" · "));
+
+  const patch = pickSocialQueueUpdateRow({
+    title: String(form.title || "").trim(),
+    caption: String(form.caption || "").trim(),
+    scheduled_at: validation.scheduled_at,
+    platform: String(form.platform || row.platform).toLowerCase(),
+    image_url: imageUrl,
+    resolved_image_url: imageUrl,
+    hashtags: String(form.hashtags || "").trim() || null,
+    cta_text: String(form.cta_text || "").trim() || null,
+    postiz_response: mergeSocialQueuePostizResponse(row.postiz_response, form.hashtags, form.cta_text, {
+      style_mode: form.style_mode
+    })
+  });
+
+  const client = supabaseClient();
+  let body = { ...patch };
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const { error } = await client.from("social_queue").update(body).eq("id", queueId);
+    if (!error) {
+      patchSocialQueueRowInState(queueId, body);
+      state.socialQueueDraftSnapshots.set(String(queueId), serializeSocialDraftForm(form));
+      console.log("caption saved", { queueId, style_mode: form.style_mode });
+      return;
+    }
+    const missing = parseMissingColumn(error);
+    if (!missing || !Object.prototype.hasOwnProperty.call(body, missing)) throw new Error(error.message);
+    delete body[missing];
+  }
+  throw new Error("Speichern fehlgeschlagen.");
+}
+
+async function duplicateSocialQueueDraft(row, editorEl) {
+  const form = editorEl ? readSocialQueueEditorForm(editorEl) : null;
+  const ev = state.allEvents.find((e) => String(e.id) === String(row.event_id));
+  const baseScheduled = form?.scheduled_at_local
+    ? fromDatetimeLocalValue(form.scheduled_at_local)
+    : row.scheduled_at;
+  const nextDate = new Date(baseScheduled || Date.now());
+  if (Number.isNaN(nextDate.getTime())) nextDate.setTime(Date.now() + 7 * 86400000);
+  else nextDate.setDate(nextDate.getDate() + 7);
+
+  const platform = form?.platform || row.platform;
+  const payload = buildSocialQueuePayload(ev || row, platform, nextDate);
+  if (form) {
+    payload.title = String(form.title || payload.title || "").trim();
+    payload.caption = String(form.caption || payload.caption || "").trim();
+    payload.hashtags = String(form.hashtags || "").trim() || null;
+    payload.cta_text = String(form.cta_text || "").trim() || null;
+    payload.postiz_response = mergeSocialQueuePostizResponse(null, form.hashtags, form.cta_text, {
+      style_mode: form.style_mode
+    });
+  }
+  const n = await insertSocialQueueRows([payload]);
+  if (!n) throw new Error("Duplikat konnte nicht erstellt werden (ungültige Daten).");
+  return n;
+}
+
+async function updateSocialQueueDraftStatus(queueId, status) {
+  const patch = pickSocialQueueUpdateRow({ status });
+  if (status !== "failed") patch.last_error = null;
+  const client = supabaseClient();
+  const { error } = await client.from("social_queue").update(patch).eq("id", queueId);
+  if (error) throw new Error(error.message || "Status-Update fehlgeschlagen.");
+  patchSocialQueueRowInState(queueId, patch);
+}
+
+async function purgeOldPostedSocialQueueRows() {
+  if (SOCIAL_QUEUE_POSTED_RETENTION_DAYS <= 0) return 0;
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - SOCIAL_QUEUE_POSTED_RETENTION_DAYS);
+  const client = supabaseClient();
+  const { data, error } = await client
+    .from("social_queue")
+    .select("id,posted_at")
+    .eq("status", "posted")
+    .lt("posted_at", cutoff.toISOString());
+  if (error) {
+    console.warn("social queue purge skipped", error.message);
+    return 0;
+  }
+  const ids = (data || []).map((r) => r.id).filter(Boolean);
+  if (!ids.length) return 0;
+  const { error: delErr } = await client.from("social_queue").delete().in("id", ids);
+  if (delErr) {
+    console.warn("social queue purge delete failed", delErr.message);
+    return 0;
+  }
+  console.log("social queue purged old posted", { count: ids.length, days: SOCIAL_QUEUE_POSTED_RETENTION_DAYS });
+  return ids.length;
+}
+
 function shortNoticeInfoForEvent(event, now = new Date()) {
-  const eventStart = dateFromAdminEventWallTime(event);
+  const eventStart = socialEffectiveEventStart(event, now);
   if (!eventStart || Number.isNaN(eventStart.getTime()) || eventStart <= now) {
     return { active: false, urgent: false, eventStart: null, hoursUntilStart: null };
   }
@@ -770,7 +1669,7 @@ function shortNoticeInfoForEvent(event, now = new Date()) {
 }
 
 function socialSlotDateForEvent(event, slot) {
-  const eventStart = dateFromAdminEventWallTime(event);
+  const eventStart = socialEffectiveEventStart(event);
   if (!eventStart || Number.isNaN(eventStart.getTime())) return null;
   const slotDate = new Date(eventStart);
   slotDate.setDate(slotDate.getDate() - slot.daysBefore);
@@ -794,20 +1693,18 @@ function immediateLastCallDateForEvent(event, now = new Date()) {
 
 function buildSocialReviewQueueRows(event) {
   const now = new Date();
-  const eventStart = dateFromAdminEventWallTime(event);
-  if (!eventStart || Number.isNaN(eventStart.getTime()) || eventStart <= now) return [];
+  const eventStart = socialEffectiveEventStart(event, now);
+  if (!eventStart || Number.isNaN(eventStart.getTime()) || eventStart <= now) {
+    console.log("social draft skipped", { event_id: event?.id, reason: "no_future_event_start" });
+    return [];
+  }
   const rows = [];
   const immediateLastCall = immediateLastCallDateForEvent(event, now);
   if (immediateLastCall && immediateLastCall < eventStart) {
     for (const platform of SOCIAL_REVIEW_PLATFORMS) {
-      rows.push({
-        event_id: event.id,
-        platform,
-        scheduled_at: immediateLastCall.toISOString(),
-        status: "pending",
-        retry_count: 0,
-        _slot_id: "short_notice_last_call"
-      });
+      const payload = buildSocialQueuePayload(event, platform, immediateLastCall);
+      payload._slot_id = "short_notice_last_call";
+      rows.push(payload);
     }
   }
   for (const slot of SOCIAL_REVIEW_SLOTS) {
@@ -816,16 +1713,55 @@ function buildSocialReviewQueueRows(event) {
     if (scheduled <= now) continue;
     if (scheduled >= eventStart) continue;
     for (const platform of SOCIAL_REVIEW_PLATFORMS) {
-      rows.push({
-        event_id: event.id,
-        platform,
-        scheduled_at: scheduled.toISOString(),
-        status: "pending",
-        retry_count: 0
-      });
+      rows.push(buildSocialQueuePayload(event, platform, scheduled));
     }
   }
   return rows;
+}
+
+async function insertSocialQueueRows(rows) {
+  const client = supabaseClient();
+  const toInsert = [];
+  for (const row of rows || []) {
+    const payload = pickSocialQueueInsertRow(row);
+    if (!isValidSocialQueuePayload(payload)) {
+      console.error("INVALID SOCIAL PAYLOAD", payload);
+      console.log("social draft invalid", {
+        event_id: payload?.event_id,
+        platform: payload?.platform,
+        scheduled_at: payload?.scheduled_at
+      });
+      continue;
+    }
+    console.log("social draft generated", {
+      event_id: payload.event_id,
+      platform: payload.platform,
+      scheduled_at: payload.scheduled_at
+    });
+    toInsert.push(payload);
+  }
+  if (!toInsert.length) return 0;
+
+  let batch = toInsert;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const { error } = await client.from("social_queue").insert(batch);
+    if (!error) return batch.length;
+    const missing = parseMissingColumn(error);
+    console.error("admin social_queue insert error", {
+      attempt,
+      missingColumn: missing || null,
+      message: error.message,
+      code: error.code
+    });
+    if (!missing || !SOCIAL_QUEUE_INSERT_COLUMNS.has(missing)) throw new Error(error.message || "Social Queue konnte nicht erstellt werden.");
+    batch = batch.map((row) => {
+      const next = { ...row };
+      delete next[missing];
+      return next;
+    });
+    if (!batch.every((row) => Object.keys(row).length)) break;
+  }
+  throw new Error("Social Queue Insert fehlgeschlagen (Schema-Spalten prüfen).");
 }
 
 function socialQueueRowsForEvent(eventId) {
@@ -2293,14 +3229,35 @@ function socialQueueRowsFlat() {
   return [...state.socialQueueByEvent.values()].flat();
 }
 
+function socialQueueRowMatchesAdvancedFilters(row) {
+  if (state.socialQueueFilterPlatform && String(row.platform) !== state.socialQueueFilterPlatform) return false;
+  if (state.socialQueueFilterEventId && String(row.event_id) !== String(state.socialQueueFilterEventId)) return false;
+  if (state.socialQueueFilterRecurringOnly) {
+    const ev = state.allEvents.find((e) => String(e.id) === String(row.event_id));
+    if (!ev || !isAdminRecurringEvent(adminCoerceRecurrenceFields(ev))) return false;
+  }
+  if (state.socialQueueFilterDateFrom) {
+    const from = new Date(`${state.socialQueueFilterDateFrom}T00:00:00`);
+    const scheduled = new Date(row.scheduled_at);
+    if (!Number.isNaN(from.getTime()) && !Number.isNaN(scheduled.getTime()) && scheduled < from) return false;
+  }
+  if (state.socialQueueFilterDateTo) {
+    const to = new Date(`${state.socialQueueFilterDateTo}T23:59:59`);
+    const scheduled = new Date(row.scheduled_at);
+    if (!Number.isNaN(to.getTime()) && !Number.isNaN(scheduled.getTime()) && scheduled > to) return false;
+  }
+  return true;
+}
+
 function socialQueueRowMatchesFilter(row) {
+  if (!socialQueueRowMatchesAdvancedFilters(row)) return false;
   const filter = state.socialQueueFilter;
   const status = String(row.status || "pending").toLowerCase();
   if (filter === "all") return true;
-  if (filter === "draft") return status === "posted";
+  if (filter === "draft") return status === "draft" || status === "posted";
   if (filter === "today") {
     const scheduled = new Date(row.scheduled_at);
-    return !Number.isNaN(scheduled.getTime()) && scheduled >= new Date() && isSameLocalDay(scheduled, new Date());
+    return !Number.isNaN(scheduled.getTime()) && isSameLocalDay(scheduled, new Date());
   }
   return status === filter;
 }
@@ -2319,12 +3276,14 @@ function platformVisual(platform) {
   const p = String(platform || "").toLowerCase();
   if (p === "instagram") return { icon: "📸", label: "Instagram" };
   if (p === "facebook") return { icon: "📘", label: "Facebook" };
+  if (p === "tiktok") return { icon: "🎵", label: "TikTok" };
   return { icon: "🌐", label: platform || "-" };
 }
 
 function socialQueueStatusTone(status) {
   const s = String(status || "").toLowerCase();
   if (s === "posted") return "ok";
+  if (s === "draft") return "ok";
   if (s === "failed") return "bad";
   if (s === "processing") return "progress";
   if (s === "skipped") return "muted";
@@ -2333,57 +3292,99 @@ function socialQueueStatusTone(status) {
 
 function renderSocialQueuePanel() {
   if (!dom.socialQueuePanel) return;
+  renderSocialQueueStats();
   dom.socialQueueFilters.forEach((button) => {
     button.classList.toggle("is-active", button.dataset.socialFilter === state.socialQueueFilter);
   });
+  syncSocialQueueAdvancedFilterOptions();
   const rows = socialQueueRowsFlat().filter(socialQueueRowMatchesFilter);
   if (!rows.length) {
     dom.socialQueuePanel.innerHTML = `<p class="empty-state empty-state--premium">Keine Einträge für diesen Filter.</p>`;
     return;
   }
-  dom.socialQueuePanel.innerHTML = rows
-    .map((row) => {
-      const ev = state.allEvents.find((e) => String(e.id) === String(row.event_id));
-      const thumb = String(row.resolved_image_url || ev?.image_url || "").trim();
-      const cap = String(row.caption || "");
-      const pv = platformVisual(row.platform);
-      const tone = socialQueueStatusTone(row.status);
-      const thumbInner = thumb
-        ? `<img src="${escapeHtml(thumb)}" alt="" loading="lazy" class="admin-sq-card__thumb-img" />`
-        : `<span class="admin-sq-card__thumb-fallback">${pv.icon}</span>`;
-      return `
-        <article class="admin-sq-card" data-queue-id="${escapeHtml(row.id)}" data-event-id="${escapeHtml(row.event_id)}">
-          <div class="admin-sq-card__thumb">${thumbInner}</div>
-          <div class="admin-sq-card__main">
-            <header class="admin-sq-card__head">
-              <span class="admin-sq-card__platform" title="${escapeHtml(pv.label)}">${pv.icon} ${escapeHtml(pv.label)}</span>
-              <span class="admin-sq-badge admin-sq-badge--${tone}">${escapeHtml(row.status || "-")}</span>
-            </header>
-            <h3 class="admin-sq-card__title">${escapeHtml(socialQueueEventTitle(row.event_id))}</h3>
-            <p class="admin-sq-card__when">🗓 ${escapeHtml(formatAdminDateTime(row.scheduled_at))}
-              <span class="admin-sq-card__retry"> · Retry ${escapeHtml(String(row.retry_count ?? 0))}</span>
-            </p>
-            <details class="admin-sq-caption">
-              <summary>Caption ${cap.length ? `(${cap.length} Zeichen)` : ""}</summary>
-              <div class="admin-sq-caption__body">${cap ? escapeHtml(cap) : "—"}</div>
-            </details>
-            ${
-              row.last_error
-                ? `<p class="admin-sq-card__err">${escapeHtml(String(row.last_error).slice(0, 280))}</p>`
-                : ""
-      }
-            <div class="admin-sq-card__actions">
-              <button type="button" class="btn-pill btn-pill--soft" data-queue-action="open-event">Event</button>
-              <button type="button" class="btn-pill btn-pill--soft" data-queue-action="copy-caption">Copy</button>
-              <button type="button" class="btn-pill btn-pill--soft" data-queue-action="open-image">Bild</button>
-              <button type="button" class="btn-pill btn-pill--soft" data-queue-action="retry">Retry</button>
-              <button type="button" class="btn-pill btn-pill--soft" data-queue-action="regenerate">Neu</button>
-              <button type="button" class="btn-pill btn-pill--soft btn-pill--danger" data-queue-action="delete">Löschen</button>
-            </div>
+  dom.socialQueuePanel.innerHTML = rows.map((row) => renderSocialQueueCard(row)).join("");
+  console.log("social queue panel render", { build: ADMIN_DASHBOARD_BUILD, rows: rows.length, editor: "caption-studio" });
+}
+
+function syncSocialQueueAdvancedFilterOptions() {
+  if (dom.socialQueueFilterEvent) {
+    const prev = state.socialQueueFilterEventId;
+    const eventIds = [...new Set(socialQueueRowsFlat().map((r) => String(r.event_id)).filter(Boolean))];
+    dom.socialQueueFilterEvent.innerHTML = [
+      `<option value="">Alle Events</option>`,
+      ...eventIds.map((id) => {
+        const label = socialQueueEventTitle(id);
+        return `<option value="${escapeHtml(id)}"${id === prev ? " selected" : ""}>${escapeHtml(label)}</option>`;
+      })
+    ].join("");
+  }
+  if (dom.socialQueueFilterRecurring) {
+    dom.socialQueueFilterRecurring.checked = Boolean(state.socialQueueFilterRecurringOnly);
+  }
+  if (dom.socialQueueFilterPlatform) {
+    dom.socialQueueFilterPlatform.value = state.socialQueueFilterPlatform || "";
+  }
+  if (dom.socialQueueFilterDateFrom) dom.socialQueueFilterDateFrom.value = state.socialQueueFilterDateFrom || "";
+  if (dom.socialQueueFilterDateTo) dom.socialQueueFilterDateTo.value = state.socialQueueFilterDateTo || "";
+}
+
+function renderSocialQueueItem(row) {
+  return renderSocialQueueCard(row);
+}
+
+function renderSocialQueueCard(row) {
+  const ev = state.allEvents.find((e) => String(e.id) === String(row.event_id));
+  const invalid = isSocialQueueRowInvalid(row);
+  const thumb = String(row.image_url || row.resolved_image_url || ev?.image_url || "").trim();
+  const cap = String(row.caption || "");
+  const displayTitle = invalid
+    ? "Ungültiger Draft"
+    : String(row.title || socialQueueEventTitle(row.event_id)).trim() || "Ungültiger Draft";
+  const pv = platformVisual(row.platform);
+  const tone = socialQueueStatusTone(row.status);
+  const expanded = String(state.socialQueueExpandedId) === String(row.id);
+  const thumbInner = thumb
+    ? `<img src="${escapeHtml(thumb)}" alt="" loading="lazy" class="admin-sq-card__thumb-img" />`
+    : `<span class="admin-sq-card__thumb-fallback">${invalid ? "⚠️" : pv.icon}</span>`;
+  const capPreview = cap
+    ? escapeHtml(cap.length > 120 ? `${cap.slice(0, 120)}…` : cap)
+    : "—";
+  const errBlock = row.last_error
+    ? `<p class="admin-sq-card__err">${escapeHtml(String(row.last_error).slice(0, 280))}</p>`
+    : "";
+  return `
+    <article class="admin-sq-card${invalid ? " admin-sq-card--invalid" : ""}${expanded ? " is-expanded" : ""}" data-queue-id="${escapeHtml(row.id)}" data-event-id="${escapeHtml(row.event_id)}">
+      <div class="admin-sq-card__top">
+        <div class="admin-sq-card__thumb">${thumbInner}</div>
+        <div class="admin-sq-card__summary-main">
+          <div class="admin-sq-card__head">
+            <span class="admin-sq-card__platform">${pv.icon} ${escapeHtml(pv.label)}</span>
+            <span class="admin-sq-badge admin-sq-badge--${tone}">${escapeHtml(row.status || "-")}</span>
+            ${invalid ? `<span class="admin-sq-badge admin-sq-badge--bad">Ungültig</span>` : ""}
           </div>
-        </article>`;
-    })
-    .join("");
+          <h3 class="admin-sq-card__title">${escapeHtml(displayTitle)}</h3>
+          <p class="admin-sq-card__when">🗓 ${escapeHtml(formatAdminDateTime(row.scheduled_at))}
+            <span class="admin-sq-card__retry"> · Retry ${escapeHtml(String(row.retry_count ?? 0))}</span>
+            · ${cap.length} Zeichen</p>
+          ${expanded ? "" : `<p class="admin-sq-card__cap-preview">${capPreview}</p>`}
+        </div>
+        <button type="button" class="btn-pill btn-pill--hero btn-pill--xs admin-sq-card__edit-btn" data-queue-action="toggle-expand" aria-expanded="${expanded}">
+          ${expanded ? "Schließen" : "Bearbeiten"}
+        </button>
+      </div>
+      ${errBlock}
+      <div class="admin-sq-card__expand"${expanded ? "" : " hidden"}>
+        ${expanded ? renderSocialQueueEditor(row) : ""}
+      </div>
+      <div class="admin-sq-card__actions">
+        <button type="button" class="btn-pill btn-pill--soft btn-pill--xs" data-queue-action="open-event">Event</button>
+        <button type="button" class="btn-pill btn-pill--soft btn-pill--xs" data-queue-action="copy-caption">Copy</button>
+        <button type="button" class="btn-pill btn-pill--soft btn-pill--xs" data-queue-action="open-image">Bild</button>
+        <button type="button" class="btn-pill btn-pill--soft btn-pill--xs" data-queue-action="retry">Retry</button>
+        <button type="button" class="btn-pill btn-pill--soft btn-pill--xs" data-queue-action="regenerate">Neu</button>
+        <button type="button" class="btn-pill btn-pill--soft btn-pill--xs btn-pill--danger" data-queue-action="delete">Löschen</button>
+      </div>
+    </article>`;
 }
 
 function parseMissingColumn(error) {
@@ -2453,10 +3454,11 @@ async function updateEventWithFallback(eventId, updates) {
 }
 
 async function loadSocialQueueRows() {
+  await purgeOldPostedSocialQueueRows();
   const client = supabaseClient();
   const { data, error } = await client
     .from("social_queue")
-    .select("id,event_id,platform,scheduled_at,status,last_error,posted_at,created_at,retry_count,caption,caption_template_id,resolved_image_url")
+    .select("*")
     .order("scheduled_at", { ascending: true });
   if (error) {
     console.warn("Social queue konnte nicht geladen werden:", error);
@@ -2471,6 +3473,9 @@ async function loadSocialQueueRows() {
     grouped.get(key).push(row);
   }
   state.socialQueueByEvent = grouped;
+  if (state.socialQueueExpandedId && !findSocialQueueRow(state.socialQueueExpandedId)) {
+    state.socialQueueExpandedId = null;
+  }
 }
 
 async function ensureSocialReviewQueueForEvent(event) {
@@ -2504,14 +3509,44 @@ async function ensureSocialReviewQueueForEvent(event) {
   });
   if (!missing.length) return 0;
 
-  const insertRows = missing.map(({ _slot_id, ...row }) => row);
-  const { error } = await client.from("social_queue").insert(insertRows);
-  if (error) throw new Error(error.message || "Social Queue konnte nicht erstellt werden.");
-  return missing.length;
+  return insertSocialQueueRows(missing);
+}
+
+async function deleteBrokenSocialDraftsForEvent(eventId) {
+  const client = supabaseClient();
+  const { data, error } = await client
+    .from("social_queue")
+    .select("id,event_id,platform,status,title,image_url,resolved_image_url,caption")
+    .eq("event_id", eventId)
+    .in("status", ["pending", "failed", "skipped"]);
+  if (error) throw new Error(error.message || "Social Queue konnte nicht geprüft werden.");
+  const brokenIds = (data || []).filter((row) => isSocialQueueRowInvalid(row)).map((row) => row.id);
+  if (!brokenIds.length) return 0;
+  const { error: delErr } = await client.from("social_queue").delete().in("id", brokenIds);
+  if (delErr) throw new Error(delErr.message || "Ungültige Drafts konnten nicht gelöscht werden.");
+  return brokenIds.length;
+}
+
+async function deleteInvalidSocialDrafts() {
+  const client = supabaseClient();
+  const { data, error } = await client
+    .from("social_queue")
+    .select("id,event_id,title,image_url,resolved_image_url,caption,status")
+    .in("status", ["pending", "failed"]);
+  if (error) throw new Error(error.message || "Social Queue konnte nicht geladen werden.");
+  const ids = (data || []).filter((row) => isSocialQueueRowInvalid(row)).map((row) => row.id);
+  if (!ids.length) return 0;
+  const { error: delErr } = await client.from("social_queue").delete().in("id", ids);
+  if (delErr) throw new Error(delErr.message || "Ungültige Drafts konnten nicht gelöscht werden.");
+  return ids.length;
 }
 
 async function regenerateSocialDraftsForEvent(event) {
   const client = supabaseClient();
+  const removedBroken = await deleteBrokenSocialDraftsForEvent(event.id);
+  if (removedBroken) {
+    console.log("social draft invalid removed", { event_id: event.id, count: removedBroken });
+  }
   await client
     .from("social_queue")
     .delete()
@@ -4667,7 +5702,118 @@ function bindEvents() {
     });
   });
 
+  dom.socialDeleteInvalidButton?.addEventListener("click", async () => {
+    const btn = dom.socialDeleteInvalidButton;
+    if (!btn || btn.disabled) return;
+    if (!window.confirm("Alle ungültigen Social-Drafts (pending/failed ohne Titel/Bild) löschen?")) return;
+    btn.disabled = true;
+    setGlobalFeedback("");
+    try {
+      const n = await deleteInvalidSocialDrafts();
+      setGlobalFeedback(n ? `${n} ungültige Draft(s) gelöscht.` : "Keine ungültigen Drafts gefunden.", "success");
+      await refreshAdminData({ reloadSocial: true });
+    } catch (error) {
+      console.error("admin delete invalid social drafts error", error);
+      setGlobalFeedback(`Löschen fehlgeschlagen: ${error.message || ""}`.trim(), "error");
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  const openAdminEventFromSocialQueue = (eventId, eventData) => {
+    if (!eventId || !eventData) return;
+    state.navSection = "events";
+    state.search = eventData.name || "";
+    if (dom.searchInput) dom.searchInput.value = state.search;
+    render();
+    window.requestAnimationFrame(() => {
+      const escapedEventId = window.CSS?.escape ? window.CSS.escape(String(eventId)) : String(eventId).replace(/"/g, '\\"');
+      document.querySelector(`.event-card[data-event-id="${escapedEventId}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    setGlobalFeedback("Event in der Liste.", "success");
+  };
+
+  const applySocialQueueAdvancedFiltersFromDom = () => {
+    state.socialQueueFilterPlatform = dom.socialQueueFilterPlatform?.value || "";
+    state.socialQueueFilterEventId = dom.socialQueueFilterEvent?.value || "";
+    state.socialQueueFilterRecurringOnly = Boolean(dom.socialQueueFilterRecurring?.checked);
+    state.socialQueueFilterDateFrom = dom.socialQueueFilterDateFrom?.value || "";
+    state.socialQueueFilterDateTo = dom.socialQueueFilterDateTo?.value || "";
+    renderSocialQueuePanel();
+  };
+
+  dom.socialQueueFilterPlatform?.addEventListener("change", applySocialQueueAdvancedFiltersFromDom);
+  dom.socialQueueFilterEvent?.addEventListener("change", applySocialQueueAdvancedFiltersFromDom);
+  dom.socialQueueFilterRecurring?.addEventListener("change", applySocialQueueAdvancedFiltersFromDom);
+  dom.socialQueueFilterDateFrom?.addEventListener("change", applySocialQueueAdvancedFiltersFromDom);
+  dom.socialQueueFilterDateTo?.addEventListener("change", applySocialQueueAdvancedFiltersFromDom);
+
+  dom.socialQueuePanel?.addEventListener("input", (event) => {
+    const editor = event.target.closest("[data-sq-editor]");
+    if (!editor) return;
+    if (event.target.matches("[data-autosize-caption]")) autosizeSocialCaptionTextarea(event.target);
+    updateSocialCaptionEditorUi(editor);
+  });
+
+  dom.socialQueuePanel?.addEventListener("change", (event) => {
+    const editor = event.target.closest("[data-sq-editor]");
+    if (!editor) return;
+    if (event.target.matches('[name="style_mode"], [name="platform"]')) {
+      console.log("style mode", { style_mode: editor.querySelector('[name="style_mode"]')?.value });
+      updateSocialCaptionEditorUi(editor, { dirty: true });
+    }
+  });
+
   dom.socialQueuePanel?.addEventListener("click", async (event) => {
+    const captionBtn = event.target.closest("[data-caption-action]");
+    if (captionBtn) {
+      const editorEl = captionBtn.closest("[data-sq-editor]");
+      const card = captionBtn.closest("[data-queue-id]");
+      const queueId = card?.dataset.queueId;
+      const row = findSocialQueueRow(queueId);
+      if (!editorEl || !row) return;
+      const action = captionBtn.dataset.captionAction || "";
+      captionBtn.disabled = true;
+      try {
+        if (action === "save") {
+          setGlobalFeedback("Speichere Draft…", "info");
+          await saveSocialQueueDraftFromEditor(queueId, editorEl);
+          setGlobalFeedback("Draft gespeichert", "success");
+          renderSocialQueuePanel();
+          requestAnimationFrame(() => {
+            const card = dom.socialQueuePanel?.querySelector(`[data-queue-id="${CSS.escape(String(queueId))}"]`);
+            const editor = card?.querySelector("[data-sq-editor]");
+            const savedRow = findSocialQueueRow(queueId);
+            if (editor && savedRow) initSocialCaptionEditor(editor, savedRow);
+          });
+        } else {
+          applyCaptionStudioTransform(editorEl, action, row);
+        }
+      } catch (error) {
+        setGlobalFeedback(error.message || "Aktion fehlgeschlagen.", "error");
+      } finally {
+        captionBtn.disabled = false;
+      }
+      return;
+    }
+
+    const statusChip = event.target.closest("[data-sq-status]");
+    if (statusChip) {
+      const card = statusChip.closest("[data-queue-id]");
+      const queueId = card?.dataset.queueId;
+      const status = statusChip.getAttribute("data-sq-status");
+      if (!queueId || !status) return;
+      setGlobalFeedback("Status wird aktualisiert…", "info");
+      try {
+        await updateSocialQueueDraftStatus(queueId, status);
+        setGlobalFeedback(`Status: ${status}`, "success");
+        renderSocialQueuePanel();
+      } catch (error) {
+        setGlobalFeedback(`Status: ${error.message || ""}`.trim(), "error");
+      }
+      return;
+    }
+
     const button = event.target.closest("button[data-queue-action]");
     if (!button || button.disabled) return;
     const rowEl = button.closest("[data-queue-id]");
@@ -4676,40 +5822,55 @@ function bindEvents() {
     const queueAction = button.dataset.queueAction || "";
     const row = findSocialQueueRow(queueId);
     const eventData = state.allEvents.find((item) => String(item.id) === String(eventId));
+    const editorEl = rowEl?.querySelector("[data-sq-editor]");
 
-    console.log("admin action clicked", {
-      action: queueAction,
-      context: "social-queue",
-      queueId,
-      eventId
-    });
+    if (queueAction === "toggle-expand") {
+      const willExpand = String(state.socialQueueExpandedId) !== String(queueId);
+      state.socialQueueExpandedId = willExpand ? queueId : null;
+      renderSocialQueuePanel();
+      if (willExpand && queueId) {
+        requestAnimationFrame(() => {
+          const card = dom.socialQueuePanel?.querySelector(`[data-queue-id="${CSS.escape(String(queueId))}"]`);
+          const editor = card?.querySelector("[data-sq-editor]");
+          const expandedRow = findSocialQueueRow(queueId);
+          if (editor && expandedRow) initSocialCaptionEditor(editor, expandedRow);
+        });
+      }
+      return;
+    }
+
+    console.log("admin action clicked", { action: queueAction, context: "social-queue", queueId, eventId });
 
     button.disabled = true;
     try {
       if (queueAction === "open-event" && eventData) {
-        state.navSection = "events";
-        state.search = eventData.name || "";
-        if (dom.searchInput) dom.searchInput.value = state.search;
-        render();
-        window.requestAnimationFrame(() => {
-          const escapedEventId = window.CSS?.escape ? window.CSS.escape(String(eventId)) : String(eventId).replace(/"/g, '\\"');
-          document.querySelector(`.event-card[data-event-id="${escapedEventId}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+        openAdminEventFromSocialQueue(eventId, eventData);
+      } else if (queueAction === "save-draft" && editorEl) {
+        setGlobalFeedback("Speichere Draft…", "info");
+        await saveSocialQueueDraftFromEditor(queueId, editorEl);
+        setGlobalFeedback("Draft gespeichert", "success");
+        renderSocialQueuePanel();
+        requestAnimationFrame(() => {
+          const card = dom.socialQueuePanel?.querySelector(`[data-queue-id="${CSS.escape(String(queueId))}"]`);
+          const editor = card?.querySelector("[data-sq-editor]");
+          const savedRow = findSocialQueueRow(queueId);
+          if (editor && savedRow) initSocialCaptionEditor(editor, savedRow);
         });
-        setGlobalFeedback("Event in der Liste.", "success");
-      } else if (queueAction === "retry") {
-        await retrySocialQueueRow(queueId);
-        setGlobalFeedback("Retry geplant.", "success");
+      } else if (queueAction === "duplicate-draft" && row) {
+        setGlobalFeedback("Dupliziere…", "info");
+        const n = await duplicateSocialQueueDraft(row, editorEl);
+        setGlobalFeedback(`Draft dupliziert (${n}).`, "success");
         await refreshAdminData({ reloadSocial: true });
-      } else if (queueAction === "delete") {
-        await deleteSocialQueueRow(queueId);
-        setGlobalFeedback("Eintrag gelöscht.", "success");
-        await refreshAdminData({ reloadSocial: true });
-      } else if (queueAction === "regenerate" && eventData) {
-        const count = await regenerateSocialDraftsForEvent(eventData);
-        setGlobalFeedback(`Drafts neu (${count}).`, "success");
-        await refreshAdminData({ reloadSocial: true });
+      } else if (queueAction === "preview-image" || queueAction === "open-image") {
+        const imageUrl = row?.image_url || row?.resolved_image_url || eventData?.image_url;
+        if (imageUrl) {
+          showAdminImageLightbox(imageUrl, row?.title || "");
+        } else {
+          setGlobalFeedback("Kein Bild verfügbar.", "error");
+        }
       } else if (queueAction === "copy-caption") {
-        const text = String(row?.caption || "");
+        const extras = readSocialQueueExtras(row || {});
+        const text = socialQueueFullCaption(row || {}, extras);
         if (!text) {
           setGlobalFeedback("Keine Caption vorhanden.", "error");
         } else if (!navigator.clipboard?.writeText) {
@@ -4718,14 +5879,23 @@ function bindEvents() {
           await navigator.clipboard.writeText(text);
           setGlobalFeedback("Caption kopiert.", "success");
         }
-      } else if (queueAction === "open-image") {
-        const imageUrl = row?.resolved_image_url || eventData?.image_url;
-        if (imageUrl) {
-          window.open(imageUrl, "_blank", "noopener,noreferrer");
-          setGlobalFeedback("Bild geöffnet.", "success");
-        } else {
-          setGlobalFeedback("Kein Bild verfügbar.", "error");
-        }
+      } else if (queueAction === "retry") {
+        await retrySocialQueueRow(queueId);
+        setGlobalFeedback("Retry geplant.", "success");
+        await refreshAdminData({ reloadSocial: true });
+      } else if (queueAction === "delete") {
+        const ok = await showAdminConfirmModal("Diesen Social-Draft wirklich löschen?");
+        if (!ok) return;
+        await deleteSocialQueueRow(queueId);
+        if (String(state.socialQueueExpandedId) === String(queueId)) state.socialQueueExpandedId = null;
+        setGlobalFeedback("Eintrag gelöscht.", "success");
+        await refreshAdminData({ reloadSocial: true });
+      } else if (queueAction === "regenerate" && eventData) {
+        const ok = await showAdminConfirmModal("Alle pending/failed Drafts dieses Events ersetzen?");
+        if (!ok) return;
+        const count = await regenerateSocialDraftsForEvent(eventData);
+        setGlobalFeedback(`Drafts neu (${count}).`, "success");
+        await refreshAdminData({ reloadSocial: true });
       }
     } catch (error) {
       console.error("admin action social-queue error", { queueAction, queueId, eventId }, error);

@@ -219,6 +219,36 @@
               <h2 class="admin-view__h">Social Queue</h2>
               <p class="card__intro">Geplante Posts, Drafts und Fehler — getrennt vom Event-Feed.</p>
             </div>
+            <div id="adminSocialQueueStats" class="admin-sq-stats" aria-live="polite"></div>
+            <div class="admin-social-head__actions">
+              <button type="button" class="btn-pill btn-pill--soft btn-pill--danger" id="adminSocialDeleteInvalid">Ungültige Drafts löschen</button>
+            </div>
+            <div id="adminSocialQueueAdvancedFilters" class="admin-sq-advanced-filters">
+              <label class="admin-sq-filter-field">
+                <span>Platform</span>
+                <select id="adminSocialFilterPlatform">
+                  <option value="">Alle</option>
+                  <option value="instagram">Instagram</option>
+                  <option value="facebook">Facebook</option>
+                </select>
+              </label>
+              <label class="admin-sq-filter-field">
+                <span>Event</span>
+                <select id="adminSocialFilterEvent"><option value="">Alle Events</option></select>
+              </label>
+              <label class="admin-sq-filter-field admin-sq-filter-field--check">
+                <input type="checkbox" id="adminSocialFilterRecurring" />
+                <span>Nur Recurring</span>
+              </label>
+              <label class="admin-sq-filter-field">
+                <span>Von</span>
+                <input type="date" id="adminSocialFilterDateFrom" />
+              </label>
+              <label class="admin-sq-filter-field">
+                <span>Bis</span>
+                <input type="date" id="adminSocialFilterDateTo" />
+              </label>
+            </div>
             <div class="admin-social-filters" role="group" aria-label="Queue Filter">
               <button type="button" class="admin-social-filter is-active" data-social-filter="all">Alle</button>
               <button type="button" class="admin-social-filter" data-social-filter="pending">Pending</button>
