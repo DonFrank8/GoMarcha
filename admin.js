@@ -2,7 +2,7 @@ const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
 const ADMIN_REQUIRED_ROLE = "admin";
 const ADMIN_ALLOWED_EMAILS = [];
-const ADMIN_DASHBOARD_BUILD = "2026.05.16-caption-studio-1";
+const ADMIN_DASHBOARD_BUILD = "2026.05.16-social-title-fix-2";
 const EVENT_LIST_PAGE_SIZE = 22;
 
 const EVENT_IMAGES_BUCKET = "event-images";
@@ -1284,7 +1284,7 @@ function renderSocialPostPreviewCard(platform, draft) {
   const pv = platformVisual(platform);
   const imageUrl = String(draft.image_url || "").trim();
   const caption = escapeHtml(draft.fullCaption || "").replace(/\n/g, "<br />");
-  const title = escapeHtml(draft.title || "Event");
+  const title = escapeHtml(cleanSocialQueueDisplayText(draft.title) || "Event");
   const img = imageUrl
     ? `<img class="admin-sq-preview__img" src="${escapeHtml(imageUrl)}" alt="" loading="lazy" />`
     : `<div class="admin-sq-preview__img admin-sq-preview__img--empty">Kein Bild</div>`;
@@ -1316,7 +1316,7 @@ function renderSocialQueueEditor(row) {
   const imageUrl = String(row.image_url || row.resolved_image_url || ev?.image_url || "").trim();
   const fullCaption = socialQueueFullCaption(row, extras);
   const draftPreview = {
-    title: row.title || socialQueueEventTitle(row.event_id),
+    title: resolveSocialQueueDisplayTitle(row),
     image_url: imageUrl,
     fullCaption
   };
@@ -1363,7 +1363,7 @@ function renderSocialQueueEditor(row) {
       <div class="admin-sq-editor__grid admin-sq-editor__grid--meta">
         <label class="admin-sq-field admin-sq-field--full">
           <span>Titel</span>
-          <input type="text" name="title" value="${escapeHtml(String(row.title || ""))}" />
+          <input type="text" name="title" value="${escapeHtml(String(row.title || resolveSocialQueueTitleForSave(row) || ""))}" />
         </label>
         <label class="admin-sq-field">
           <span>Geplant</span>
@@ -1429,10 +1429,10 @@ function updateSocialCaptionEditorUi(editorEl, { dirty = null } = {}) {
     saveEl.classList.toggle("is-dirty", isDirty);
   }
   const row = findSocialQueueRow(queueId);
-  const ev = state.allEvents.find((e) => String(e.id) === String(row?.event_id));
+  const ev = getSocialQueueRelatedEvent(row);
   const thumb = String(row?.image_url || row?.resolved_image_url || ev?.image_url || "").trim();
   const draftPreview = {
-    title: form.title || row?.title,
+    title: cleanSocialQueueDisplayText(form.title) || (row ? resolveSocialQueueDisplayTitle(row) : ""),
     image_url: thumb,
     fullCaption
   };
@@ -1562,6 +1562,23 @@ function showAdminImageLightbox(imageUrl, title = "") {
     { once: true }
   );
   document.body.appendChild(overlay);
+}
+
+async function repairSocialQueueTitle(queueId) {
+  const row = findSocialQueueRow(queueId);
+  if (!row) throw new Error("Draft nicht gefunden.");
+  const ev = getSocialQueueRelatedEvent(row);
+  const title =
+    resolveSocialQueueTitleForSave(row) ||
+    extractTitleFromCaption(row?.caption, [row?.event_title, row?._event?.name, ev?.name, ev?.title]);
+  if (!title) throw new Error("Kein Titel ableitbar.");
+  const patch = pickSocialQueueUpdateRow({ title });
+  const client = supabaseClient();
+  const { error } = await client.from("social_queue").update(patch).eq("id", queueId);
+  if (error) throw new Error(error.message || "Titel konnte nicht gespeichert werden.");
+  patchSocialQueueRowInState(queueId, { title, event_title: title });
+  console.log("social queue title repaired", { queueId, title });
+  return title;
 }
 
 async function saveSocialQueueDraftFromEditor(queueId, editorEl) {
@@ -3272,8 +3289,163 @@ function socialQueueRowMatchesFilter(row) {
   return status === filter;
 }
 
-function socialQueueEventTitle(eventId) {
-  return state.allEvents.find((event) => String(event.id) === String(eventId))?.name || String(eventId || "-");
+function cleanSocialQueueDisplayText(value) {
+  if (value === null || value === undefined) return "";
+  const s = String(value).trim();
+  if (!s) return "";
+  if (/^[-–—‐‑‒―]+$/u.test(s)) return "";
+  return s;
+}
+
+function socialQueuePlatformPostLabel(platform) {
+  const pv = platformVisual(platform);
+  const label = cleanSocialQueueDisplayText(pv.label) || "Social";
+  return `${label} Post`;
+}
+
+function finalizeSocialQueueCardDisplayTitle(row, resolvedTitle) {
+  let title = cleanSocialQueueDisplayText(resolvedTitle);
+  if (!title || /^[-–—]+$/u.test(title)) {
+    title = socialQueuePlatformPostLabel(row?.platform);
+  }
+  return title;
+}
+
+function getSocialQueueRelatedEvent(row) {
+  if (row?._event && typeof row._event === "object") return row._event;
+  return state.allEvents.find((e) => String(e.id) === String(row?.event_id)) || null;
+}
+
+function extractTitleFromCaption(caption, knownNames = []) {
+  const cap = String(caption || "").trim();
+  if (!cap) return "";
+
+  for (const raw of knownNames) {
+    const name = cleanSocialQueueDisplayText(raw);
+    if (name.length >= 3 && cap.toLowerCase().includes(name.toLowerCase())) return name;
+  }
+
+  const phrasePatterns = [
+    /\b([A-Z][\w'&À-ÿ]+(?:\s+[A-Za-z0-9'&À-ÿ]+){0,8}\s+by\s+the\s+[A-Za-z\s]+)/i,
+    /\b([A-Z][\w'&À-ÿ]+(?:\s+[A-Za-z0-9'&À-ÿ]+){0,8}\s+@\s+[\w\s]+)/i,
+    /\b([A-Z][\w'&À-ÿ]+(?:\s+[A-Za-z0-9'&À-ÿ]+){1,8})\s+(?:·|—|–|-)\s+/,
+    /(?:^|\n)\s*([A-Z][\w'&À-ÿ][^\n#@]{6,78})\s*(?:\n|$)/
+  ];
+  for (const re of phrasePatterns) {
+    const m = cap.match(re);
+    const candidate = cleanSocialQueueDisplayText(m?.[1]);
+    if (candidate.length >= 6 && candidate.length <= 80 && !/^https?:/i.test(candidate)) {
+      return candidate;
+    }
+  }
+
+  const lines = cap.split(/\n/).map((line) => line.trim()).filter(Boolean);
+  for (const line of lines) {
+    const stripped = cleanSocialQueueDisplayText(line.replace(/\s+#\w+.*$/, "").trim());
+    if (
+      stripped.length >= 6 &&
+      stripped.length <= 80 &&
+      /^[A-ZÀ-Ý]/.test(stripped) &&
+      !stripped.startsWith("#") &&
+      !/^https?:/i.test(stripped)
+    ) {
+      if (/\bby\s+the\b/i.test(stripped) || stripped.split(/\s+/).length <= 10) return stripped;
+    }
+  }
+
+  const firstLine = cleanSocialQueueDisplayText(lines[0]?.replace(/\s+#\w+.*$/, "").trim() || "");
+  if (firstLine.length >= 3 && firstLine.length <= 120 && !firstLine.startsWith("#")) return firstLine;
+  return "";
+}
+
+function resolveSocialQueueDisplayTitle(row) {
+  const ev = getSocialQueueRelatedEvent(row);
+  const platformPost = socialQueuePlatformPostLabel(row?.platform);
+  const knownNames = [row?.title, row?.event_title, row?._event?.name, row?._event?.title, ev?.name, ev?.title];
+
+  const candidates = [
+    { value: row?.title, source: "row.title" },
+    { value: row?.event_title, source: "row.event_title" },
+    { value: row?._event?.name, source: "row._event.name" },
+    { value: row?._event?.title, source: "row._event.title" },
+    { value: ev?.name, source: "allEvents.name" },
+    { value: ev?.title, source: "allEvents.title" }
+  ];
+
+  let finalTitle = "";
+  let source = "platform";
+
+  for (const c of candidates) {
+    const cleaned = cleanSocialQueueDisplayText(c.value);
+    if (cleaned) {
+      finalTitle = cleaned;
+      source = c.source;
+      break;
+    }
+  }
+
+  if (!finalTitle) {
+    const fromCaption = extractTitleFromCaption(row?.caption, knownNames);
+    if (fromCaption) {
+      finalTitle = fromCaption;
+      source = "caption";
+    }
+  }
+
+  finalTitle = finalizeSocialQueueCardDisplayTitle(row, finalTitle || platformPost);
+  if (source === "platform" && finalTitle === platformPost) {
+    source = "platform";
+  }
+
+  console.log("resolved social title", { id: row?.id, finalTitle, source });
+  return finalTitle;
+}
+
+function resolveSocialQueueTitleForSave(row) {
+  const ev = getSocialQueueRelatedEvent(row);
+  return (
+    cleanSocialQueueDisplayText(row?.title) ||
+    cleanSocialQueueDisplayText(row?.event_title) ||
+    cleanSocialQueueDisplayText(row?._event?.name) ||
+    cleanSocialQueueDisplayText(ev?.name) ||
+    cleanSocialQueueDisplayText(ev?.title) ||
+    ""
+  );
+}
+
+function normalizeSocialQueueRow(row) {
+  const join = row?.events;
+  const evFromState = state.allEvents.find((e) => String(e.id) === String(row?.event_id));
+  const joinedName = cleanSocialQueueDisplayText(join?.name);
+  const stateName = cleanSocialQueueDisplayText(evFromState?.name) || cleanSocialQueueDisplayText(evFromState?.title);
+  let eventRef = evFromState || null;
+  if (join && typeof join === "object" && !Array.isArray(join)) {
+    eventRef = {
+      id: row.event_id,
+      name: joinedName || stateName,
+      title: joinedName || stateName,
+      location_name: join.location_name,
+      city: join.city,
+      image_url: join.image_url
+    };
+  } else if (eventRef) {
+    eventRef = {
+      ...eventRef,
+      name: stateName || cleanSocialQueueDisplayText(eventRef.name),
+      title: stateName || cleanSocialQueueDisplayText(eventRef.title)
+    };
+  }
+  const event_title = joinedName || stateName || "";
+  const out = { ...(row || {}) };
+  delete out.events;
+  const cleanTitle = cleanSocialQueueDisplayText(out.title);
+  return { ...out, title: cleanTitle || null, event_title, _event: eventRef };
+}
+
+function socialQueueEventTitle(eventId, row = null) {
+  if (row) return resolveSocialQueueDisplayTitle(row);
+  const ev = state.allEvents.find((event) => String(event.id) === String(eventId));
+  return cleanSocialQueueDisplayText(ev?.name) || cleanSocialQueueDisplayText(ev?.title) || "";
 }
 
 function formatAdminDateTime(raw) {
@@ -3323,7 +3495,8 @@ function syncSocialQueueAdvancedFilterOptions() {
     dom.socialQueueFilterEvent.innerHTML = [
       `<option value="">Alle Events</option>`,
       ...eventIds.map((id) => {
-        const label = socialQueueEventTitle(id);
+        const sample = socialQueueRowsForEvent(id)[0];
+        const label = resolveSocialQueueDisplayTitle(sample || { event_id: id }) || "Event";
         return `<option value="${escapeHtml(id)}"${id === prev ? " selected" : ""}>${escapeHtml(label)}</option>`;
       })
     ].join("");
@@ -3343,14 +3516,33 @@ function renderSocialQueueItem(row) {
 }
 
 function renderSocialQueueCard(row) {
-  const ev = state.allEvents.find((e) => String(e.id) === String(row.event_id));
+  const ev = getSocialQueueRelatedEvent(row);
+  const pv = platformVisual(row.platform);
+  const platformLabel = cleanSocialQueueDisplayText(pv.label) || "Social";
   const invalid = isSocialQueueRowInvalid(row);
   const thumb = String(row.image_url || row.resolved_image_url || ev?.image_url || "").trim();
   const cap = String(row.caption || "");
-  const displayTitle = invalid
-    ? "Ungültiger Draft"
-    : String(row.title || socialQueueEventTitle(row.event_id) || pv.label).trim() || "Social Post";
-  const pv = platformVisual(row.platform);
+  const resolvedTitle = invalid ? "Ungültiger Draft" : resolveSocialQueueDisplayTitle(row);
+  let displayTitle = resolvedTitle;
+  if (!invalid) {
+    if (!displayTitle || displayTitle === "-" || displayTitle === "–" || displayTitle === "—") {
+      displayTitle = socialQueuePlatformPostLabel(row.platform);
+    }
+    displayTitle = finalizeSocialQueueCardDisplayTitle(row, displayTitle);
+  }
+  const htmlTitleUsed = escapeHtml(displayTitle);
+  console.log("SOCIAL TITLE RENDER FINAL", {
+    rowId: row.id,
+    rawTitle: row.title,
+    eventTitle: row.event_title,
+    caption: row.caption,
+    resolvedTitle,
+    htmlTitleUsed
+  });
+  const repairableTitle =
+    resolveSocialQueueTitleForSave(row) ||
+    extractTitleFromCaption(row?.caption, [row?.event_title, row?._event?.name, ev?.name, ev?.title]);
+  const needsTitleRepair = !invalid && !cleanSocialQueueDisplayText(row?.title) && Boolean(repairableTitle);
   const tone = socialQueueStatusTone(row.status);
   const expanded = String(state.socialQueueExpandedId) === String(row.id);
   const thumbInner = thumb
@@ -3368,11 +3560,11 @@ function renderSocialQueueCard(row) {
         <div class="admin-sq-card__thumb">${thumbInner}</div>
         <div class="admin-sq-card__summary-main">
           <div class="admin-sq-card__head">
-            <span class="admin-sq-card__platform">${pv.icon} ${escapeHtml(pv.label)}</span>
-            <span class="admin-sq-badge admin-sq-badge--${tone}">${escapeHtml(row.status || "-")}</span>
+            <span class="admin-sq-card__platform">${pv.icon} ${escapeHtml(platformLabel)}</span>
+            <span class="admin-sq-badge admin-sq-badge--${tone}">${escapeHtml(row.status || "unknown")}</span>
             ${invalid ? `<span class="admin-sq-badge admin-sq-badge--bad">Ungültig</span>` : ""}
           </div>
-          <h3 class="admin-sq-card__title">${escapeHtml(displayTitle)}</h3>
+          <h3 class="admin-sq-card__title">${htmlTitleUsed}</h3>
           <p class="admin-sq-card__when">🗓 ${escapeHtml(formatAdminDateTime(row.scheduled_at))}
             <span class="admin-sq-card__retry"> · Retry ${escapeHtml(String(row.retry_count ?? 0))}</span>
             · ${cap.length} Zeichen</p>
@@ -3387,6 +3579,7 @@ function renderSocialQueueCard(row) {
         ${expanded ? renderSocialQueueEditor(row) : ""}
       </div>
       <div class="admin-sq-card__actions">
+        ${needsTitleRepair ? `<button type="button" class="btn-pill btn-pill--soft btn-pill--xs" data-queue-action="repair-title">Titel reparieren</button>` : ""}
         <button type="button" class="btn-pill btn-pill--soft btn-pill--xs" data-queue-action="open-event">Event</button>
         <button type="button" class="btn-pill btn-pill--soft btn-pill--xs" data-queue-action="copy-caption">Copy</button>
         <button type="button" class="btn-pill btn-pill--soft btn-pill--xs" data-queue-action="open-image">Bild</button>
@@ -3466,17 +3659,28 @@ async function updateEventWithFallback(eventId, updates) {
 async function loadSocialQueueRows() {
   await purgeOldPostedSocialQueueRows();
   const client = supabaseClient();
-  const { data, error } = await client
+  let data = null;
+  let error = null;
+  const enriched = await client
     .from("social_queue")
-    .select("*")
+    .select("*, events(name, location_name, city, image_url)")
     .order("scheduled_at", { ascending: true });
+  if (enriched.error) {
+    console.warn("Social queue join load fallback:", enriched.error.message || enriched.error);
+    const plain = await client.from("social_queue").select("*").order("scheduled_at", { ascending: true });
+    data = plain.data;
+    error = plain.error;
+  } else {
+    data = enriched.data;
+  }
   if (error) {
     console.warn("Social queue konnte nicht geladen werden:", error);
     state.socialQueueByEvent = new Map();
     return;
   }
   const grouped = new Map();
-  for (const row of data || []) {
+  for (const raw of data || []) {
+    const row = normalizeSocialQueueRow(raw);
     const key = String(row.event_id || "");
     if (!key) continue;
     if (!grouped.has(key)) grouped.set(key, []);
@@ -5853,7 +6057,12 @@ function bindEvents() {
 
     button.disabled = true;
     try {
-      if (queueAction === "open-event" && eventData) {
+      if (queueAction === "repair-title" && queueId) {
+        setGlobalFeedback("Titel wird repariert…", "info");
+        const title = await repairSocialQueueTitle(queueId);
+        setGlobalFeedback(`Titel gespeichert: ${title}`, "success");
+        renderSocialQueuePanel();
+      } else if (queueAction === "open-event" && eventData) {
         openAdminEventFromSocialQueue(eventId, eventData);
       } else if (queueAction === "save-draft" && editorEl) {
         setGlobalFeedback("Speichere Draft…", "info");
@@ -5874,7 +6083,7 @@ function bindEvents() {
       } else if (queueAction === "preview-image" || queueAction === "open-image") {
         const imageUrl = row?.image_url || row?.resolved_image_url || eventData?.image_url;
         if (imageUrl) {
-          showAdminImageLightbox(imageUrl, row?.title || "");
+          showAdminImageLightbox(imageUrl, resolveSocialQueueDisplayTitle(row || {}));
         } else {
           setGlobalFeedback("Kein Bild verfügbar.", "error");
         }
