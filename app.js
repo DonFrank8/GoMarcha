@@ -3962,7 +3962,75 @@ function readFirstNonEmptyValue(payload, fieldNames = []) {
   return "";
 }
 
+const GERMAN_PHRASE_MARKERS_IN_LOCALIZED_FIELD = [
+  "erleben sie",
+  "freuen sie sich",
+  "freut sich",
+  "können sie",
+  "wir freuen",
+  "bei uns",
+  "veranstaltung",
+  "abend in",
+  "besonderen abend",
+  "schönen abend",
+  "klassiker",
+  "begleitet von",
+  "abend"
+];
+const SPANISH_PHRASE_MARKERS_IN_DE_FIELD = [
+  "disfruta",
+  "disfrute",
+  "una noche",
+  "en directo",
+  "noche especial",
+  "ven a",
+  "no te pierdas"
+];
+
+function normalizeTextForPhraseMatch(text) {
+  return String(text || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "");
+}
+
+function textMatchesPhraseList(text, phrases) {
+  const lower = normalizeTextForPhraseMatch(text);
+  if (!lower) return false;
+  return phrases.some((phrase) => lower.includes(phrase));
+}
+
+function localizedDescriptionSanityFailed(text, languageCode) {
+  const code = String(languageCode || "").toLowerCase();
+  const raw = String(text || "").trim();
+  if (!raw) return false;
+  if (code === "es" || code === "en") {
+    if (textMatchesPhraseList(raw, GERMAN_PHRASE_MARKERS_IN_LOCALIZED_FIELD)) return true;
+    const deScore = languageMarkerScore(raw, "de");
+    const targetScore = languageMarkerScore(raw, code);
+    if (deScore >= 2 && deScore > targetScore) return true;
+  }
+  if (code === "de") {
+    if (textMatchesPhraseList(raw, SPANISH_PHRASE_MARKERS_IN_DE_FIELD)) return true;
+    const esScore = languageMarkerScore(raw, "es");
+    const deScore = languageMarkerScore(raw, "de");
+    if (esScore >= 2 && esScore > deScore) return true;
+  }
+  return false;
+}
+
 function resolveTranslationGroupSource(payload, group) {
+  if (group.key === "description") {
+    const mainSource = readFirstNonEmptyValue(payload, group.sourceCandidates || []);
+    if (mainSource) {
+      let sourceLanguageCode = resolveLocalizedFieldLanguage(state.lang);
+      if (hasLanguageQuality(mainSource, "es")) sourceLanguageCode = "es";
+      else if (hasLanguageQuality(mainSource, "en")) sourceLanguageCode = "en";
+      else if (hasLanguageQuality(mainSource, "de")) sourceLanguageCode = "de";
+      return { sourceText: mainSource, sourceLanguageCode };
+    }
+  }
+
   const languageCodesByPriority = ["es", "de", "en"];
   for (const languageCode of languageCodesByPriority) {
     const fieldName = group.languageFieldByCode?.[languageCode];
@@ -3999,9 +4067,7 @@ function fillMissingLocalizedFieldsWithSource(payload) {
     for (const languageCode of targetLanguageCodes) {
       const fieldName = group.languageFieldByCode?.[languageCode];
       if (!fieldName) continue;
-      const avoidSourceFallbackForSpanishDescription =
-        group.key === "description" && languageCode === "es" && sourceLanguageCode !== "es";
-      if (avoidSourceFallbackForSpanishDescription) continue;
+      if (languageCode !== sourceLanguageCode) continue;
       if (!String(workingPayload[fieldName] || "").trim()) {
         workingPayload[fieldName] = sourceText;
       }
@@ -4011,6 +4077,12 @@ function fillMissingLocalizedFieldsWithSource(payload) {
     }
   }
   return normalizeDescriptionColumnVariants(workingPayload);
+}
+
+function shouldAvoidCrossLanguageTranslationFallback(group, languageCode, sourceLanguageCode) {
+  if (languageCode === sourceLanguageCode) return false;
+  if (group.key === "description") return true;
+  return false;
 }
 
 async function generateMissingEventTranslations(eventPayload) {
@@ -4056,12 +4128,19 @@ async function generateMissingEventTranslations(eventPayload) {
           console.log("ES result:", result);
         }
         if (result) {
-          payload[fieldName] = result;
+          if (group.key === "description" && localizedDescriptionSanityFailed(result, languageCode)) {
+            failedTargets.push(fieldName);
+            payload[fieldName] = null;
+          } else {
+            payload[fieldName] = result;
+          }
         } else {
           failedTargets.push(fieldName);
-          const avoidSourceFallbackForSpanishDescription =
-            group.key === "description" && languageCode === "es" && sourceLanguageCode !== "es";
-          payload[fieldName] = avoidSourceFallbackForSpanishDescription ? null : sourceText;
+          payload[fieldName] = shouldAvoidCrossLanguageTranslationFallback(group, languageCode, sourceLanguageCode)
+            ? null
+            : sourceLanguageCode === languageCode
+              ? sourceText
+              : null;
         }
       } catch (error) {
         if (group.key === "description" && languageCode === "en") {
@@ -4071,9 +4150,11 @@ async function generateMissingEventTranslations(eventPayload) {
           console.log("ES result:", "");
         }
         failedTargets.push(fieldName);
-        const avoidSourceFallbackForSpanishDescription =
-          group.key === "description" && languageCode === "es" && sourceLanguageCode !== "es";
-        payload[fieldName] = avoidSourceFallbackForSpanishDescription ? null : sourceText;
+        payload[fieldName] = shouldAvoidCrossLanguageTranslationFallback(group, languageCode, sourceLanguageCode)
+          ? null
+          : sourceLanguageCode === languageCode
+            ? sourceText
+            : null;
         console.warn(
           `[Marcha Debug] Translation failed for ${fieldName} (${targetLanguage}): ${error?.message || error}`
         );

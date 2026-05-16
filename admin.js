@@ -2,7 +2,7 @@ const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
 const ADMIN_REQUIRED_ROLE = "admin";
 const ADMIN_ALLOWED_EMAILS = [];
-const ADMIN_DASHBOARD_BUILD = "2026.05.17-recurring-weekly-auto-prep";
+const ADMIN_DASHBOARD_BUILD = "2026.05.17-recurrence-translation-fix";
 if (typeof window !== "undefined") {
   window.PARTYRADAR_ADMIN_BUILD = ADMIN_DASHBOARD_BUILD;
   console.log("[admin-build]", ADMIN_DASHBOARD_BUILD);
@@ -132,6 +132,7 @@ const ADMIN_EVENT_SAVE_COLUMN_WHITELIST = new Set([
   "recurrence_day_of_month",
   "is_recurring",
   "recurring_social_enabled",
+  "recurring_group_id",
   "original_event_id",
   "archived_at"
 ]);
@@ -143,6 +144,46 @@ const RECURRING_SOCIAL_SLOT_SPECS = [
 ];
 /** Weekly auto-prep: child events + social drafts for occurrences within this window. */
 const RECURRING_SOCIAL_AUTO_PREP_HORIZON_DAYS = 7;
+
+const ADMIN_SMART_ACTION_ENDPOINT = `${SUPABASE_URL}/functions/v1/smart-action`;
+const ADMIN_TRANSLATION_TARGET_LANGUAGE_BY_CODE = Object.freeze({
+  de: "German",
+  en: "English",
+  es: "Spanish"
+});
+const ADMIN_DESCRIPTION_LOCALIZED_FIELDS = Object.freeze([
+  { code: "es", field: "description_es", label: "Beschreibung ES" },
+  { code: "de", field: "description_de", label: "Beschreibung DE" },
+  { code: "en", field: "description_en", label: "Beschreibung EN" }
+]);
+const GERMAN_PHRASE_MARKERS_IN_LOCALIZED_FIELD = [
+  "erleben sie",
+  "freuen sie sich",
+  "freut sich",
+  "können sie",
+  "wir freuen",
+  "bei uns",
+  "veranstaltung",
+  "abend in",
+  "besonderen abend",
+  "schönen abend",
+  "klassiker",
+  "begleitet von",
+  "und die",
+  "mit uns",
+  "ihnen",
+  "lassen sie",
+  "abend"
+];
+const SPANISH_PHRASE_MARKERS_IN_DE_FIELD = [
+  "disfruta",
+  "disfrute",
+  "una noche",
+  "en directo",
+  "noche especial",
+  "ven a",
+  "no te pierdas"
+];
 
 /** Known missing on live DB — never send (avoids repeated 400 schema errors). */
 const ADMIN_EVENT_SAVE_COLUMNS_DISALLOWED = new Set([
@@ -589,7 +630,86 @@ function normalizeAdminRecurrenceType(value) {
 }
 
 function isAdminRecurringEvent(event) {
-  return normalizeAdminRecurrenceType(event?.recurrence_type) !== "none";
+  return getAdminEffectiveRecurrenceType(event) !== "none";
+}
+
+/** Stored recurrence_type only — never infer weekly from orphan weekday fields. */
+function getAdminEffectiveRecurrenceType(event) {
+  if (event?.is_recurring !== true) return "none";
+  const type = normalizeAdminRecurrenceType(event?.recurrence_type);
+  if (type !== "weekly" && type !== "monthly") return "none";
+  return type;
+}
+
+function adminHasValidRecurrencePattern(event) {
+  const type = getAdminEffectiveRecurrenceType(event);
+  if (type === "none") return false;
+  const start = String(event?.recurrence_start_date || event?.event_date || "").trim();
+  if (!start) return false;
+  if (type === "weekly") {
+    return normalizeAdminRecurrenceWeekday(event?.recurrence_weekday, start) !== null;
+  }
+  if (type === "monthly") {
+    return normalizeAdminRecurrenceDayOfMonth(event?.recurrence_day_of_month, start) !== null;
+  }
+  return false;
+}
+
+/**
+ * In-memory normalization: one-time events must not keep dirty recurrence columns.
+ * Invalid is_recurring + pattern combos are treated as single events in admin UI state.
+ */
+function adminNormalizeRecurrenceState(event) {
+  if (!event || typeof event !== "object") return event;
+  const storedType = normalizeAdminRecurrenceType(event.recurrence_type);
+  const explicitRecurring = event.is_recurring === true;
+  const validWeeklyMonthly =
+    explicitRecurring && (storedType === "weekly" || storedType === "monthly") && adminHasValidRecurrencePattern(event);
+
+  if (!validWeeklyMonthly) {
+    const hadDirty =
+      explicitRecurring ||
+      storedType !== "none" ||
+      event.recurrence_weekday != null ||
+      event.recurrence_day_of_month != null ||
+      String(event.recurrence_start_date || "").trim() ||
+      String(event.recurrence_end_date || "").trim();
+    const normalized = {
+      ...event,
+      is_recurring: false,
+      recurrence_type: "none",
+      recurrence_start_date: null,
+      recurrence_end_date: null,
+      recurrence_weekday: null,
+      recurrence_day_of_month: null,
+      recurring_social_enabled: false
+    };
+    if (Object.prototype.hasOwnProperty.call(event, "recurring_group_id")) {
+      normalized.recurring_group_id = null;
+    }
+    if (hadDirty) {
+      console.log("admin recurrence normalized", {
+        eventId: event.id ?? null,
+        storedType,
+        is_recurring: explicitRecurring,
+        result: "one-time"
+      });
+    }
+    return normalized;
+  }
+
+  const coerced = adminCoerceRecurrenceFields({
+    ...event,
+    is_recurring: true,
+    recurrence_type: storedType
+  });
+  console.log("admin recurrence normalized", {
+    eventId: event.id ?? null,
+    result: storedType,
+    recurrence_weekday: coerced.recurrence_weekday ?? null,
+    recurrence_day_of_month: coerced.recurrence_day_of_month ?? null
+  });
+  return coerced;
 }
 
 /** Explicit DB flag; missing/false keeps legacy one-time behaviour unchanged. */
@@ -614,8 +734,8 @@ function adminFormatLocalYmd(date = new Date()) {
 /** In-memory + filter coercion: start date and weekday/day-of-month from event_date when missing. */
 function adminCoerceRecurrenceFields(event) {
   if (!event || typeof event !== "object") return event;
-  const type = normalizeAdminRecurrenceType(event.recurrence_type);
-  if (type === "none") return event;
+  const type = getAdminEffectiveRecurrenceType(event);
+  if (type === "none") return adminNormalizeRecurrenceState(event);
 
   const recurrence_start_date =
     String(event.recurrence_start_date || "").trim() || String(event.event_date || "").trim();
@@ -728,10 +848,9 @@ function isAdminDefectiveEvent(event) {
 }
 
 function isAdminRecurringIncomplete(event) {
+  if (event?.is_recurring !== true) return false;
   const storedType = normalizeAdminRecurrenceType(event?.recurrence_type);
-  const hint = detectAdminRecurrenceTextHint(event);
-  if (storedType === "none" && hint) return true;
-  if (storedType === "none") return false;
+  if (storedType !== "weekly" && storedType !== "monthly") return false;
   const start = String(event?.recurrence_start_date || event?.event_date || "").trim();
   if (!start) return true;
   const coerced = adminCoerceRecurrenceFields(event);
@@ -3536,7 +3655,7 @@ function normalizeEvent(event) {
     return "none";
   };
   const recurrenceType = normalizeRecurrenceType(event.recurrence_type);
-  return {
+  const base = {
     id: event.id,
     name: event.name || "-",
     title: event.title || event.name || "",
@@ -3598,6 +3717,18 @@ function normalizeEvent(event) {
     is_recurring: event.is_recurring === true,
     recurring_social_enabled: event.recurring_social_enabled === true
   };
+  const normalized = adminNormalizeRecurrenceState(base);
+  return {
+    ...base,
+    is_recurring: normalized.is_recurring === true,
+    recurrence_type: normalized.recurrence_type || "none",
+    recurrence_start_date: normalized.recurrence_start_date || "",
+    recurrence_end_date: normalized.recurrence_end_date || "",
+    recurrence_weekday: normalized.recurrence_weekday ?? null,
+    recurrence_day_of_month: normalized.recurrence_day_of_month ?? null,
+    recurring_social_enabled: normalized.recurring_social_enabled === true,
+    recurring_group_id: normalized.recurring_group_id ?? base.recurring_group_id ?? null
+  };
 }
 
 function formatDate(dateValue) {
@@ -3617,10 +3748,10 @@ function formatDateTime(event) {
 }
 
 function recurrenceLabel(event) {
-  const type = inferAdminRecurrenceType(event);
+  const type = getAdminEffectiveRecurrenceType(event);
   if (type === "weekly") return "Wöchentlich";
   if (type === "monthly") return "Monatlich";
-  return "Einmalig";
+  return "Einzel-Event";
 }
 
 function renderEventRepairActionsMarkup(event) {
@@ -3655,7 +3786,9 @@ function renderEventRepairActionsMarkup(event) {
 }
 
 function recurrenceDetails(event) {
-  const coerced = adminCoerceRecurrenceFields(event);
+  const type = getAdminEffectiveRecurrenceType(event);
+  if (type === "none") return "";
+  const coerced = adminCoerceRecurrenceFields({ ...event, is_recurring: true, recurrence_type: type });
   if (coerced.recurrence_type === "weekly") {
     const weekdays = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
     const weekdayLabel =
@@ -3672,7 +3805,7 @@ function recurrenceDetails(event) {
     const end = coerced.recurrence_end_date ? formatDate(coerced.recurrence_end_date) : "offen";
     return `Tag ${day}, ab ${start}, bis ${end}`;
   }
-  return "Kein Wiederholungsmuster";
+  return "";
 }
 
 function eventPlace(event) {
@@ -5208,6 +5341,273 @@ function hasLocationChanged(event, payload) {
   );
 }
 
+function adminTokenizeLanguageQuality(text) {
+  return String(text || "")
+    .toLowerCase()
+    .replace(/[^a-zA-ZÀ-ÿ0-9\s]/g, " ")
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+}
+
+function adminLanguageMarkerScore(text, languageCode) {
+  const tokens = new Set(adminTokenizeLanguageQuality(text));
+  const markersByLanguage = {
+    en: ["the", "and", "for", "with", "event", "description", "this", "is", "are", "to", "an", "of", "you"],
+    es: ["el", "la", "los", "las", "y", "para", "con", "evento", "descripcion", "es", "de", "una", "un", "que"],
+    de: ["der", "die", "das", "und", "mit", "fuer", "für", "veranstaltung", "beschreibung", "ist", "zu", "ein", "sie", "ihr"]
+  };
+  const markers = markersByLanguage[languageCode] || [];
+  return markers.reduce((count, marker) => count + (tokens.has(marker) ? 1 : 0), 0);
+}
+
+function adminHasLanguageQuality(translatedText, languageCode) {
+  const tokens = adminTokenizeLanguageQuality(translatedText);
+  if (!tokens.length) return false;
+  const targetScore = adminLanguageMarkerScore(translatedText, languageCode);
+  if (targetScore < 1) return false;
+  const competitorScores = ["de", "en", "es"]
+    .filter((code) => code !== languageCode)
+    .map((code) => adminLanguageMarkerScore(translatedText, code));
+  const strongestCompetitor = Math.max(0, ...competitorScores);
+  if (targetScore < strongestCompetitor) return false;
+  if (targetScore === strongestCompetitor && targetScore < 2) return false;
+  return true;
+}
+
+function adminNormalizeTextForPhraseMatch(text) {
+  return String(text || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "");
+}
+
+function adminTextMatchesPhraseList(text, phrases) {
+  const lower = adminNormalizeTextForPhraseMatch(text);
+  if (!lower) return false;
+  return phrases.some((phrase) => lower.includes(phrase));
+}
+
+function adminLocalizedDescriptionSanityFailed(text, languageCode) {
+  const code = String(languageCode || "").toLowerCase();
+  const raw = String(text || "").trim();
+  if (!raw) return false;
+  if (code === "es" || code === "en") {
+    if (adminTextMatchesPhraseList(raw, GERMAN_PHRASE_MARKERS_IN_LOCALIZED_FIELD)) {
+      console.log("translation sanity failed", { languageCode: code, reason: "german_phrases", sample: raw.slice(0, 80) });
+      return true;
+    }
+  }
+  if (code === "de" && adminTextMatchesPhraseList(raw, SPANISH_PHRASE_MARKERS_IN_DE_FIELD)) {
+    console.log("translation sanity failed", { languageCode: code, reason: "spanish_phrases", sample: raw.slice(0, 80) });
+    return true;
+  }
+  if (code === "es" || code === "en") {
+    const deScore = adminLanguageMarkerScore(raw, "de");
+    const targetScore = adminLanguageMarkerScore(raw, code);
+    if (deScore >= 2 && deScore > targetScore) {
+      console.log("translation sanity failed", { languageCode: code, reason: "language_score", deScore, targetScore });
+      return true;
+    }
+  }
+  if (code === "de") {
+    const esScore = adminLanguageMarkerScore(raw, "es");
+    const deScore = adminLanguageMarkerScore(raw, "de");
+    if (esScore >= 2 && esScore > deScore) {
+      console.log("translation sanity failed", { languageCode: code, reason: "language_score", esScore, deScore });
+      return true;
+    }
+  }
+  return false;
+}
+
+function isClearlyWrongLocalizedDescription(text, languageCode) {
+  const value = String(text || "").trim();
+  if (!value) return false;
+  const code = String(languageCode || "").toLowerCase();
+  if (adminLocalizedDescriptionSanityFailed(value, code)) return true;
+  const targetScore = adminLanguageMarkerScore(value, code);
+  const bestOther = ["de", "en", "es"]
+    .filter((c) => c !== code)
+    .map((c) => adminLanguageMarkerScore(value, c));
+  const strongestOther = Math.max(0, ...bestOther);
+  return strongestOther > targetScore + 1;
+}
+
+function shouldRegenerateAdminLocalizedField(currentValue, languageCode) {
+  const text = String(currentValue || "").trim();
+  if (!text) return true;
+  return isClearlyWrongLocalizedDescription(text, languageCode);
+}
+
+function resolveAdminDescriptionTranslationSource(payload) {
+  const main = String(payload?.description || "").trim();
+  if (main) {
+    let sourceLanguageCode = "de";
+    if (adminHasLanguageQuality(main, "es")) sourceLanguageCode = "es";
+    else if (adminHasLanguageQuality(main, "en")) sourceLanguageCode = "en";
+    else if (adminHasLanguageQuality(main, "de")) sourceLanguageCode = "de";
+    return { sourceText: main, sourceLanguageCode };
+  }
+  return { sourceText: "", sourceLanguageCode: "" };
+}
+
+async function translateAdminText(text, targetLang) {
+  const sourceText = String(text || "").trim();
+  const targetLanguage = String(targetLang || "").trim();
+  if (!sourceText || !targetLanguage) return "";
+  const response = await fetch(ADMIN_SMART_ACTION_ENDPOINT, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`
+    },
+    body: JSON.stringify({ text: sourceText, targetLang: targetLanguage })
+  });
+  if (!response.ok) throw new Error(`Translation HTTP ${response.status}`);
+  const data = await response.json();
+  const translated = String(data?.translated || "").trim();
+  if (!translated) throw new Error("Translation response missing translated text.");
+  return translated;
+}
+
+function normalizeAdminTranslationOutput(translatedText, sourceText = "") {
+  const raw = String(translatedText || "").trim();
+  if (!raw) return "";
+  const source = String(sourceText || "").trim();
+  const lowerRaw = raw.toLowerCase();
+  const lowerSource = source.toLowerCase();
+  if (lowerSource && (lowerRaw === lowerSource || lowerRaw.includes(lowerSource))) return "";
+  return raw.replace(/^["“”'`]+|["“”'`]+$/g, "").trim();
+}
+
+function buildAdminStrictTranslationPrompt(sourceText, languageCode) {
+  const cleanSource = String(sourceText || "").trim();
+  if (!cleanSource) return "";
+  const targetLanguageName = ADMIN_TRANSLATION_TARGET_LANGUAGE_BY_CODE[languageCode] || languageCode;
+  return [
+    `Translate the following text into ${targetLanguageName}.`,
+    "Return only the translated text in the target language.",
+    "Do not include explanations, labels, or prefixes.",
+    "",
+    cleanSource
+  ].join("\n");
+}
+
+async function translateAdminTextByLanguageCode(text, languageCode) {
+  const code = String(languageCode || "").trim().toLowerCase();
+  const targetLanguage = ADMIN_TRANSLATION_TARGET_LANGUAGE_BY_CODE[code];
+  if (!targetLanguage) throw new Error(`Unknown language code: ${languageCode}`);
+  let lastError = null;
+  try {
+    const translated = await translateAdminText(text, code);
+    const normalized = normalizeAdminTranslationOutput(translated, text);
+    if (normalized && adminHasLanguageQuality(normalized, code)) {
+      if (adminLocalizedDescriptionSanityFailed(normalized, code)) {
+        throw new Error(`${code} translation failed language sanity check.`);
+      }
+      return normalized;
+    }
+  } catch (error) {
+    lastError = error;
+  }
+  const strictPrompt = buildAdminStrictTranslationPrompt(text, code);
+  if (strictPrompt) {
+    try {
+      const translated = await translateAdminText(strictPrompt, code);
+      const normalized = normalizeAdminTranslationOutput(translated, text);
+      if (normalized && adminHasLanguageQuality(normalized, code)) {
+        if (adminLocalizedDescriptionSanityFailed(normalized, code)) {
+          throw new Error(`${code} translation failed language sanity check.`);
+        }
+        return normalized;
+      }
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError || new Error(`Translation failed for ${code}`);
+}
+
+function applyAdminTranslationUpdatesToForm(form, updates) {
+  if (!form || !updates) return;
+  for (const [fieldName, value] of Object.entries(updates)) {
+    const el = form.querySelector(`[name="${fieldName}"]`);
+    if (!el) continue;
+    el.value = value == null ? "" : String(value);
+  }
+}
+
+/**
+ * Regenerate localized descriptions from main Beschreibung (description).
+ * Only fills empty or clearly wrong localized description fields.
+ */
+async function regenerateAdminEventTranslations(eventData, form, { forceOverwrite = false } = {}) {
+  let payload;
+  try {
+    payload = { ...eventData, ...eventEditPayloadFromForm(form), id: eventData.id };
+  } catch (error) {
+    throw new Error(error?.message || "Formular ungültig.");
+  }
+  const { sourceText, sourceLanguageCode } = resolveAdminDescriptionTranslationSource(payload);
+  if (!sourceText) {
+    throw new Error("Bitte zuerst die Haupt-Beschreibung ausfüllen.");
+  }
+
+  const updates = {};
+  const failedFields = [];
+  const skippedManual = [];
+  const needsConfirm = [];
+
+  for (const { code, field, label } of ADMIN_DESCRIPTION_LOCALIZED_FIELDS) {
+    const current = String(payload[field] || "").trim();
+    const wrong = isClearlyWrongLocalizedDescription(current, code);
+    const looksManualOk = Boolean(current) && !wrong;
+
+    if (looksManualOk && !forceOverwrite) {
+      skippedManual.push(label);
+      needsConfirm.push({ field, label });
+      continue;
+    }
+
+    if (code === sourceLanguageCode) {
+      updates[field] = sourceText;
+      continue;
+    }
+
+    try {
+      const translated = await translateAdminTextByLanguageCode(sourceText, code);
+      if (!translated) {
+        failedFields.push(label);
+        if (wrong) updates[field] = "";
+        continue;
+      }
+      updates[field] = translated;
+    } catch (error) {
+      console.warn("admin translation failed", { field, code, message: error?.message || error });
+      failedFields.push(label);
+      if (wrong) updates[field] = "";
+    }
+  }
+
+  console.log("translations regenerated", {
+    eventId: eventData?.id ?? null,
+    updatedFields: Object.keys(updates),
+    failedFields,
+    skippedManual,
+    forceOverwrite
+  });
+
+  return {
+    updates,
+    failedFields,
+    skippedManual,
+    needsConfirm,
+    sourceLanguageCode
+  };
+}
+
 function eventEditPayloadFromForm(form) {
   const formData = new FormData(form);
   const latRaw = String(formData.get("lat") || "").trim();
@@ -5261,6 +5661,14 @@ function applyRecurringEditorFieldsToPayload(payload, form) {
     payload.recurrence_weekday = null;
     payload.recurrence_day_of_month = null;
     payload.recurring_social_enabled = false;
+    if (Object.prototype.hasOwnProperty.call(payload, "recurring_group_id")) {
+      payload.recurring_group_id = null;
+    }
+    console.log("admin recurrence payload", {
+      is_recurring: false,
+      recurrence_type: "none",
+      cleared: true
+    });
     return payload;
   }
   const type = normalizeAdminRecurrenceType(form.querySelector('[name="recurrence_type"]')?.value);
@@ -5280,13 +5688,21 @@ function applyRecurringEditorFieldsToPayload(payload, form) {
     payload.recurrence_weekday = null;
     payload.recurrence_day_of_month = null;
   }
+  console.log("admin recurrence payload", {
+    is_recurring: true,
+    recurrence_type: payload.recurrence_type,
+    recurrence_weekday: payload.recurrence_weekday ?? null,
+    recurrence_day_of_month: payload.recurrence_day_of_month ?? null
+  });
+  return payload;
 }
 
 function renderAdminEditorRecurringFields(eventData) {
-  const isRecurring = eventData?.is_recurring === true;
-  const type = normalizeAdminRecurrenceType(eventData?.recurrence_type);
-  const weekday = eventData?.recurrence_weekday;
-  const dom = eventData?.recurrence_day_of_month;
+  const normalized = adminNormalizeRecurrenceState(eventData || {});
+  const isRecurring = normalized.is_recurring === true;
+  const type = getAdminEffectiveRecurrenceType(normalized);
+  const weekday = normalized.recurrence_weekday;
+  const dom = normalized.recurrence_day_of_month;
   const weekdays = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
   const weekdayOptions = weekdays
     .map(
@@ -5309,10 +5725,10 @@ function renderAdminEditorRecurringFields(eventData) {
           </select>
         </label>
         <label class="field"><span>Serien-Start</span>
-          <input type="date" name="recurrence_start_date" value="${escapeHtml(String(eventData?.recurrence_start_date || eventData?.event_date || ""))}" />
+          <input type="date" name="recurrence_start_date" value="${escapeHtml(String(normalized.recurrence_start_date || normalized.event_date || ""))}" />
         </label>
         <label class="field"><span>Serien-Ende (optional)</span>
-          <input type="date" name="recurrence_end_date" value="${escapeHtml(String(eventData?.recurrence_end_date || ""))}" />
+          <input type="date" name="recurrence_end_date" value="${escapeHtml(String(normalized.recurrence_end_date || ""))}" />
         </label>
         <label class="field" data-editor-recurrence-weekly${type === "weekly" ? "" : " hidden"}><span>Wochentag</span>
           <select name="recurrence_weekday">${weekdayOptions}</select>
@@ -5321,7 +5737,7 @@ function renderAdminEditorRecurringFields(eventData) {
           <input type="number" name="recurrence_day_of_month" min="1" max="31" value="${escapeHtml(String(dom ?? ""))}" />
         </label>
         <label class="field admin-editor-span-2 admin-editor-recurring__social-flag">
-          <input type="checkbox" name="recurring_social_enabled" value="1"${eventData?.recurring_social_enabled === true ? " checked" : ""} />
+          <input type="checkbox" name="recurring_social_enabled" value="1"${normalized.recurring_social_enabled === true ? " checked" : ""} />
           <span>Social Automation (Serie) — wöchentliche Auto-Vorbereitung ${RECURRING_SOCIAL_AUTO_PREP_HORIZON_DAYS} Tage voraus · Slots: −3 Tage 18:00, −1 Tag 18:00, −90 min</span>
         </label>
       </div>
@@ -6400,6 +6816,7 @@ function initEditorLocationAutocomplete(overlay, form, eventData) {
 function openEventEditorModal(eventData) {
   closeActiveAdminEditorIfAny();
   disposeEditorLocationAutocomplete();
+  eventData = adminNormalizeRecurrenceState(eventData || {});
   const overlay = document.createElement("div");
   overlay.className = "admin-editor-overlay admin-editor-overlay--drawer";
   overlay.setAttribute("role", "dialog");
@@ -6440,7 +6857,13 @@ function openEventEditorModal(eventData) {
       <header class="admin-editor-drawer__head">
         <div>
           <h3 class="admin-editor-drawer__title">${escapeHtml(eventData.name || "Event")}</h3>
-          <p class="admin-editor-drawer__sub">${escapeHtml(recurrenceLabel(eventData))} · ${escapeHtml(recurrenceDetails(eventData))}</p>
+          <p class="admin-editor-drawer__sub">${escapeHtml(
+            (() => {
+              const label = recurrenceLabel(eventData);
+              const details = recurrenceDetails(eventData);
+              return details ? `${label} · ${details}` : label;
+            })()
+          )}</p>
         </div>
         <button type="button" class="btn-pill btn-pill--soft" data-editor-close data-admin-action="editor-close">✕</button>
       </header>
@@ -6469,6 +6892,10 @@ function openEventEditorModal(eventData) {
           <label class="field admin-editor-span-2"><span>Beschreibung ES</span><textarea name="description_es" rows="2">${escapeHtml(eventData.description_es)}</textarea></label>
           <label class="field admin-editor-span-2"><span>Beschreibung DE</span><textarea name="description_de" rows="2">${escapeHtml(eventData.description_de)}</textarea></label>
           <label class="field admin-editor-span-2"><span>Beschreibung EN</span><textarea name="description_en" rows="2">${escapeHtml(eventData.description_en)}</textarea></label>
+          <div class="admin-editor-span-2 admin-editor-translation-row">
+            <button type="button" class="btn-pill btn-pill--soft" data-editor-regenerate-translations data-admin-action="editor-regenerate-translations">Übersetzungen neu erzeugen</button>
+            <span class="card__intro">Leer oder falsch erkannte Felder (z. B. Deutsch in ES) werden aus der Haupt-Beschreibung übersetzt. Manuelle Texte bleiben erhalten.</span>
+          </div>
           ${renderAdminEditorRecurringFields(adminCoerceRecurrenceFields(eventData))}
           </div>
         </div>
@@ -6634,6 +7061,57 @@ function openEventEditorModal(eventData) {
             console.error("admin action editor-regenerate-social error", error);
             setBusy(false, error.message || "Fehler");
             setGlobalFeedback(`Social: ${error.message}`, "error");
+          }
+          return;
+        }
+        if (action === "editor-regenerate-translations") {
+          e.preventDefault();
+          setBusy(true, "Übersetzungen…");
+          try {
+            let result = await regenerateAdminEventTranslations(eventData, form, { forceOverwrite: false });
+            let mergedUpdates = { ...result.updates };
+            if (result.needsConfirm.length) {
+              const labels = result.needsConfirm.map((x) => x.label).join(", ");
+              const ok = await showAdminConfirmModal(
+                `Manuell bearbeitete Übersetzungen überschreiben? (${labels})`,
+                { confirmLabel: "Überschreiben", danger: false }
+              );
+              if (ok) {
+                const forced = await regenerateAdminEventTranslations(eventData, form, { forceOverwrite: true });
+                mergedUpdates = { ...mergedUpdates, ...forced.updates };
+                result = {
+                  ...forced,
+                  failedFields: [...new Set([...result.failedFields, ...forced.failedFields])],
+                  skippedManual: []
+                };
+              }
+            }
+            applyAdminTranslationUpdatesToForm(form, mergedUpdates);
+            const updatedCount = Object.keys(mergedUpdates).length;
+            if (result.failedFields.length) {
+              setGlobalFeedback(
+                `Übersetzung teilweise fehlgeschlagen (${result.failedFields.join(", ")}). Betroffene Felder wurden nicht überschrieben.`,
+                "error"
+              );
+            } else if (updatedCount) {
+              const skippedNote =
+                result.skippedManual.length > 0
+                  ? ` (${result.skippedManual.join(", ")} unverändert gelassen.)`
+                  : "";
+              setGlobalFeedback(`${updatedCount} Beschreibungsfeld(er) aktualisiert.${skippedNote}`, "success");
+            } else {
+              setGlobalFeedback(
+                result.skippedManual.length
+                  ? "Alle Beschreibungsfelder wirken manuell bearbeitet — nichts geändert."
+                  : "Keine leeren oder falsch erkannten Felder zum Aktualisieren.",
+                "info"
+              );
+            }
+            setBusy(false, "");
+          } catch (error) {
+            console.error("admin action editor-regenerate-translations error", error);
+            setBusy(false, error.message || "Fehler");
+            setGlobalFeedback(error.message || "Übersetzungen fehlgeschlagen.", "error");
           }
           return;
         }
