@@ -1145,10 +1145,20 @@ function isValidSocialQueuePayload(payload) {
 }
 
 function isSocialQueueRowInvalid(row) {
-  if (!String(row?.event_id ?? "").trim()) return true;
-  const title = String(row?.title || "").trim();
-  const imageUrl = String(row?.image_url || row?.resolved_image_url || "").trim();
-  return !title || !imageUrl;
+  const hasEventId = Boolean(String(row?.event_id ?? "").trim());
+  const hasTitle = Boolean(String(row?.title || "").trim());
+  const hasCaption = Boolean(String(row?.caption || "").trim());
+  const hasImage = Boolean(String(row?.image_url || row?.resolved_image_url || "").trim());
+  const isInvalid = !hasEventId && !hasTitle && !hasCaption && !hasImage;
+  console.log("social invalid check", {
+    id: row?.id,
+    status: row?.status,
+    invalid: isInvalid,
+    title: Boolean(String(row?.title || "").trim()),
+    caption: Boolean(String(row?.caption || "").trim()),
+    image: Boolean(String(row?.image_url || "").trim())
+  });
+  return isInvalid;
 }
 
 function readSocialQueueExtras(row) {
@@ -3339,7 +3349,7 @@ function renderSocialQueueCard(row) {
   const cap = String(row.caption || "");
   const displayTitle = invalid
     ? "Ungültiger Draft"
-    : String(row.title || socialQueueEventTitle(row.event_id)).trim() || "Ungültiger Draft";
+    : String(row.title || socialQueueEventTitle(row.event_id) || pv.label).trim() || "Social Post";
   const pv = platformVisual(row.platform);
   const tone = socialQueueStatusTone(row.status);
   const expanded = String(state.socialQueueExpandedId) === String(row.id);
