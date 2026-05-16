@@ -73,6 +73,8 @@ const EVENT_ANALYTICS_TABLE = "event_analytics";
 
 const VALID_STATUS = new Set(["pending", "approved", "rejected"]);
 const ADMIN_CARD_STATUS_ACTIONS = new Set(["pending", "approved", "rejected", "save-notes"]);
+const ADMIN_EVENT_APPROVAL_INCOMPLETE_MSG =
+  "Event unvollständig: Bitte Titel, Datum, Uhrzeit, Ort, Kategorie und Bild prüfen.";
 const adminEventActionLocks = new Set();
 
 /**
@@ -495,13 +497,31 @@ async function adminEditorSaveEventPayload(form, eventData, { regenerateSocial }
     }
   }
 
+  const merged = { ...eventData, ...payload, id: eventId };
+  const effectiveStatus = String(merged.status || "").toLowerCase();
+  if (effectiveStatus === "approved" && isAdminEventIncompleteForApproval(merged)) {
+    console.error("event approval blocked: incomplete event", {
+      context: "editor-save",
+      eventId,
+      missing: getAdminEventApprovalMissingFields(merged)
+    });
+    throw new Error(ADMIN_EVENT_APPROVAL_INCOMPLETE_MSG);
+  }
+
   console.log("admin save payload", { eventId, payload });
   await updateEventWithFallback(eventId, payload);
   console.log("admin save success", { eventId });
 
   if (regenerateSocial) {
+    if (isAdminEventIncompleteForApproval(merged)) {
+      console.error("event approval blocked: incomplete event", {
+        context: "editor-regenerate-social",
+        eventId,
+        missing: getAdminEventApprovalMissingFields(merged)
+      });
+      throw new Error(ADMIN_EVENT_APPROVAL_INCOMPLETE_MSG);
+    }
     try {
-      const merged = { ...eventData, ...payload, id: eventId };
       await regenerateSocialDraftsForEvent(merged);
       console.log("admin social regenerate success", { eventId });
       return { saved: true, socialOk: true };
@@ -620,18 +640,57 @@ function adminEventHasImage(event) {
 
 function adminEventHasName(event) {
   const name = String(event?.name || event?.title || "").trim();
-  return Boolean(name && name !== "-");
+  return Boolean(name && name !== "-" && name !== "–" && name !== "—");
+}
+
+function adminEventHasDate(event) {
+  return Boolean(String(event?.event_date || "").trim());
+}
+
+function adminEventHasTime(event) {
+  return Boolean(String(event?.event_time || "").trim());
+}
+
+function adminEventHasLocation(event) {
+  return Boolean(
+    String(event?.location_name || "").trim() || String(event?.address || "").trim()
+  );
+}
+
+function adminEventHasGenre(event) {
+  return Boolean(String(event?.genre || event?.category || "").trim());
+}
+
+function getAdminEventApprovalMissingFields(event) {
+  const missing = [];
+  if (!adminEventHasName(event)) missing.push("name");
+  if (!adminEventHasDate(event)) missing.push("event_date");
+  if (!adminEventHasTime(event)) missing.push("event_time");
+  if (!adminEventHasLocation(event)) missing.push("location");
+  if (!adminEventHasImage(event)) missing.push("image");
+  if (!adminEventHasGenre(event)) missing.push("genre");
+  return missing;
+}
+
+function isAdminEventIncompleteForApproval(event) {
+  return getAdminEventApprovalMissingFields(event).length > 0;
+}
+
+function blockAdminEventApprovalIfIncomplete(event, context = "approval") {
+  if (!isAdminEventIncompleteForApproval(event)) return false;
+  console.error("event approval blocked: incomplete event", {
+    context,
+    eventId: event?.id,
+    status: event?.status,
+    missing: getAdminEventApprovalMissingFields(event)
+  });
+  setGlobalFeedback(ADMIN_EVENT_APPROVAL_INCOMPLETE_MSG, "error");
+  return true;
 }
 
 function isAdminDefectiveEvent(event) {
-  if (event?.status !== "approved" && event?.status !== "pending") return false;
-  return (
-    !adminEventHasName(event) &&
-    !String(event?.event_date || "").trim() &&
-    !adminEventHasImage(event) &&
-    !String(event?.location_name || "").trim() &&
-    !String(event?.description || "").trim()
-  );
+  if (String(event?.status || "").toLowerCase() !== "approved") return false;
+  return isAdminEventIncompleteForApproval(event);
 }
 
 function isAdminRecurringIncomplete(event) {
@@ -3756,6 +3815,14 @@ async function deleteInvalidSocialDrafts() {
 }
 
 async function regenerateSocialDraftsForEvent(event) {
+  if (isAdminEventIncompleteForApproval(event)) {
+    console.error("event approval blocked: incomplete event", {
+      context: "regenerate-social-drafts",
+      eventId: event?.id,
+      missing: getAdminEventApprovalMissingFields(event)
+    });
+    throw new Error(ADMIN_EVENT_APPROVAL_INCOMPLETE_MSG);
+  }
   const client = supabaseClient();
   const removedBroken = await deleteBrokenSocialDraftsForEvent(event.id);
   if (removedBroken) {
@@ -5455,9 +5522,17 @@ function openEventEditorModal(eventData) {
         }
         if (action === "editor-regenerate-social") {
           e.preventDefault();
+          let mergedForSocial = eventData;
+          try {
+            const rawPayload = eventEditPayloadFromForm(form);
+            mergedForSocial = { ...eventData, ...rawPayload, id: eventData.id };
+          } catch (_formErr) {
+            mergedForSocial = eventData;
+          }
+          if (blockAdminEventApprovalIfIncomplete(mergedForSocial, "editor-regenerate-social")) return;
           setBusy(true, "Social Drafts…");
           try {
-            const n = await regenerateSocialDraftsForEvent(eventData);
+            const n = await regenerateSocialDraftsForEvent(mergedForSocial);
             console.log("admin action editor-regenerate-social success", { n, eventId: eventData?.id });
             setGlobalFeedback(`Social Drafts neu (${n}).`, "success");
             close();
@@ -5609,6 +5684,7 @@ async function handleCardAction(clickEvent) {
     }
 
     if (action === "regenerate-drafts") {
+      if (blockAdminEventApprovalIfIncomplete(eventData, "regenerate-drafts")) return;
       setGlobalFeedback("");
       await withAdminButtonBusy(button, "Social…", async () => {
         console.log("admin action regenerate-drafts start", { eventId: eventData?.id });
@@ -5741,6 +5817,16 @@ async function handleCardAction(clickEvent) {
     const featuredVal = state.featureColumns.featured && featuredInput ? Boolean(featuredInput.checked) : eventData.featured;
     const promotedVal = state.featureColumns.promoted && promotedInput ? Boolean(promotedInput.checked) : eventData.promoted;
 
+    if (action === "approved") {
+      const mergedForApproval = {
+        ...eventData,
+        verification_notes: notes,
+        featured: featuredVal,
+        promoted: promotedVal
+      };
+      if (blockAdminEventApprovalIfIncomplete(mergedForApproval, "freigeben")) return;
+    }
+
     const optimisticPatch =
       action === "save-notes"
         ? { verification_notes: notes, featured: featuredVal, promoted: promotedVal }
@@ -5760,6 +5846,22 @@ async function handleCardAction(clickEvent) {
           patchAdminEventInState(eventData.id, { verification_notes: notes, featured: featuredVal, promoted: promotedVal });
           setGlobalFeedback("Notizen gespeichert.", "success");
         } else {
+          if (action === "approved") {
+            const mergedForApproval = {
+              ...eventData,
+              verification_notes: notes,
+              featured: featuredVal,
+              promoted: promotedVal
+            };
+            if (isAdminEventIncompleteForApproval(mergedForApproval)) {
+              console.error("event approval blocked: incomplete event", {
+                context: "freigeben-persist",
+                eventId: eventData?.id,
+                missing: getAdminEventApprovalMissingFields(mergedForApproval)
+              });
+              throw new Error(ADMIN_EVENT_APPROVAL_INCOMPLETE_MSG);
+            }
+          }
           const updatedRow = await updateEventWithFallback(eventData.id, {
             status: action,
             verification_notes: notes,
