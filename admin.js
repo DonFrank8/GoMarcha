@@ -64,7 +64,9 @@ const state = {
   analyticsPanelRequestId: 0,
   analyticsLoading: false,
   analyticsLastFetchAt: 0,
-  prevNavSection: "dashboard"
+  prevNavSection: "dashboard",
+  /** @type {null | (() => void)} */
+  adminEditorClose: null
 };
 
 const dom = {
@@ -187,9 +189,145 @@ function parseCoordinate(value) {
 }
 
 function hasValidMarkerCoordinates(event) {
-  const lat = parseCoordinate(event?.lat);
-  const lng = parseCoordinate(event?.lng);
+  const lat = parseCoordinate(event?.latitude ?? event?.lat);
+  const lng = parseCoordinate(event?.longitude ?? event?.lng);
   return lat !== null && lng !== null && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
+}
+
+/** Save path: accept lat/lng or latitude/longitude on payload. */
+function adminSaveCoordsFromPayload(payload) {
+  const lat = parseCoordinate(payload?.latitude ?? payload?.lat);
+  const lng = parseCoordinate(payload?.longitude ?? payload?.lng);
+  if (lat === null || lng === null || Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+  return { lat, lng };
+}
+
+function adminSavePayloadHasSkippableGeocodeCoords(payload) {
+  return adminSaveCoordsFromPayload(payload) !== null;
+}
+
+/**
+ * FormData can omit fields on hidden tabs; map still reads namedItem. Merge into payload before save.
+ */
+function adminEditorMergeLatLngIntoPayload(rawPayload, form, eventData) {
+  const latEl = form?.elements?.namedItem?.("lat") ?? form?.elements?.namedItem?.("latitude");
+  const lngEl = form?.elements?.namedItem?.("lng") ?? form?.elements?.namedItem?.("longitude");
+  let lat = parseCoordinate(latEl?.value);
+  let lng = parseCoordinate(lngEl?.value);
+  if (lat !== null && lng !== null) {
+    rawPayload.lat = lat;
+    rawPayload.lng = lng;
+    return;
+  }
+  lat = parseCoordinate(eventData?.latitude ?? eventData?.lat);
+  lng = parseCoordinate(eventData?.longitude ?? eventData?.lng);
+  if (lat !== null && lng !== null) {
+    rawPayload.lat = lat;
+    rawPayload.lng = lng;
+  }
+}
+
+function closeActiveAdminEditorIfAny() {
+  if (typeof state.adminEditorClose === "function") {
+    try {
+      state.adminEditorClose();
+    } catch (_err) {
+      /* ignore */
+    }
+  }
+  state.adminEditorClose = null;
+}
+
+/**
+ * Drawer / „Adresse suchen“: Geocoding nur hier erzwingen (nicht im Save-Handler).
+ */
+async function adminEditorGeocodeFromForm(form, eventData, busyButtons = []) {
+  const manualBtn = form?.querySelector?.("[data-editor-geocode-manual]");
+  const searchBtn = form?.querySelector?.("[data-editor-geocode-search]");
+  const busyBtns = [...new Set([...busyButtons, manualBtn, searchBtn].filter(Boolean))];
+  busyBtns.forEach((b) => {
+    b.disabled = true;
+  });
+  console.log("admin geocode start", { eventId: eventData?.id });
+  try {
+    const snapshot = readAdminEditorLocationSnapshot(form, eventData);
+    const coords = await resolveAdminCoordinates(snapshot);
+    const latInput = form?.elements?.namedItem("lat");
+    const lngInput = form?.elements?.namedItem("lng");
+    if (latInput) latInput.value = String(coords.lat);
+    if (lngInput) lngInput.value = String(coords.lng);
+    refreshAdminEditorMapInForm(form);
+    console.log("admin geocode success", { lat: coords.lat, lng: coords.lng });
+    setGlobalFeedback("Koordinaten aus Adresse berechnet.", "success");
+  } catch (error) {
+    console.error("admin geocode error", error);
+    setGlobalFeedback(error.message || "Geocoding fehlgeschlagen.", "error");
+    throw error;
+  } finally {
+    busyBtns.forEach((b) => {
+      b.disabled = false;
+    });
+  }
+}
+
+/**
+ * Speichern aus dem Event-Editor (ein Codepfad für „Speichern“ und „Speichern + Social neu“).
+ */
+async function adminEditorSaveEventPayload(form, eventData, { regenerateSocial }) {
+  const eventId = eventData?.id;
+  if (!eventId) throw new Error("Event-ID fehlt.");
+
+  console.log("admin save start", { eventId, regenerateSocial });
+
+  const rawPayload = eventEditPayloadFromForm(form);
+  adminEditorMergeLatLngIntoPayload(rawPayload, form, eventData);
+  let payload = sanitizeEventPayloadForDb(rawPayload);
+
+  if (hasLocationChanged(eventData, payload)) {
+    const skipCoords = adminSavePayloadHasSkippableGeocodeCoords(payload);
+    if (skipCoords) {
+      const pair = adminSaveCoordsFromPayload(payload);
+      console.log("admin save skip geocode existing coords", {
+        lat: pair?.lat,
+        lng: pair?.lng
+      });
+    } else {
+      try {
+        const coords = await resolveAdminCoordinates({ ...eventData, ...payload });
+        payload.lat = coords.lat;
+        payload.lng = coords.lng;
+        payload.geocoding_query = coords.geocoding_query;
+        if (coords.formatted_address) payload.formatted_address = coords.formatted_address;
+      } catch (geoErr) {
+        const stored = adminSaveCoordsFromPayload(eventData);
+        if (stored) {
+          payload.lat = stored.lat;
+          payload.lng = stored.lng;
+          console.warn("admin save geocode failed, using stored coordinates", geoErr);
+        } else {
+          throw geoErr;
+        }
+      }
+      payload = sanitizeEventPayloadForDb(payload);
+    }
+  }
+
+  console.log("admin save payload", { eventId, payload });
+  await updateEventWithFallback(eventId, payload);
+  console.log("admin save success", { eventId });
+
+  if (regenerateSocial) {
+    try {
+      const merged = { ...eventData, ...payload, id: eventId };
+      await regenerateSocialDraftsForEvent(merged);
+      console.log("admin social regenerate success", { eventId });
+      return { saved: true, socialOk: true };
+    } catch (socErr) {
+      console.error("admin save social error", socErr);
+      return { saved: true, socialOk: false, socialError: socErr };
+    }
+  }
+  return { saved: true, socialOk: true };
 }
 
 function parseAdminYmd(rawDate) {
@@ -1056,8 +1194,8 @@ function normalizeEvent(event) {
     verification_notes: event.verification_notes || "",
     image_url: resolvePrimaryImageUrl(event),
     image_urls: event.image_urls ?? null,
-    lat: parseCoordinate(event.lat),
-    lng: parseCoordinate(event.lng),
+    lat: parseCoordinate(event.lat ?? event.latitude),
+    lng: parseCoordinate(event.lng ?? event.longitude),
     recurrence_type: recurrenceType,
     recurrence_start_date: String(event.recurrence_start_date || "").trim(),
     recurrence_end_date: String(event.recurrence_end_date || "").trim(),
@@ -1947,12 +2085,20 @@ async function deleteSocialQueueRow(queueId) {
   if (error) throw new Error(error.message || "Delete failed.");
 }
 
+function isMissingRelationError(error) {
+  const msg = `${error?.message || ""} ${error?.details || ""} ${error?.hint || ""}`;
+  return /does not exist|relation.*not found|42P01/i.test(msg) || error?.code === "42P01";
+}
+
 async function deleteEventById(eventId, eventSnapshot) {
-  if (!eventId) return;
+  const idKey = String(eventId ?? "").trim();
+  console.log("admin delete eventId", idKey, typeof eventId);
+  if (!idKey) return;
   if (!isSessionAdmin(state.adminSession)) {
     throw new Error("Admin-Anmeldung erforderlich.");
   }
   const client = supabaseClient();
+
   const storagePaths = eventSnapshot ? collectEventImageStoragePaths(eventSnapshot) : [];
   if (storagePaths.length) {
     const { error: storageError } = await client.storage.from(EVENT_IMAGES_BUCKET).remove(storagePaths);
@@ -1960,14 +2106,67 @@ async function deleteEventById(eventId, eventSnapshot) {
       console.warn("Event-Bilder Storage cleanup:", storageError);
     }
   }
-  const { error: capErr } = await client.from("social_caption_usage").delete().eq("event_id", eventId);
-  if (capErr) throw new Error(capErr.message || "social_caption_usage konnte nicht gelöscht werden.");
-  const { error: queueErr } = await client.from("social_queue").delete().eq("event_id", eventId);
+
+  const { data: queueData, error: queueErr, count: queueCount } = await client
+    .from("social_queue")
+    .delete({ count: "exact" })
+    .eq("event_id", idKey)
+    .select("id");
+  console.error("admin delete supabase response", {
+    table: "social_queue",
+    data: queueData,
+    error: queueErr,
+    count: queueCount
+  });
   if (queueErr) throw new Error(queueErr.message || "social_queue konnte nicht gelöscht werden.");
-  const { data: deletedRows, error: evErr } = await client.from("events").delete().eq("id", eventId).select("id");
+
+  const { data: capData, error: capErr, count: capCount } = await client
+    .from("social_caption_usage")
+    .delete({ count: "exact" })
+    .eq("event_id", idKey)
+    .select("id");
+  console.error("admin delete supabase response", {
+    table: "social_caption_usage",
+    data: capData,
+    error: capErr,
+    count: capCount
+  });
+  if (capErr && !isMissingRelationError(capErr)) {
+    throw new Error(capErr.message || "social_caption_usage konnte nicht gelöscht werden.");
+  }
+  if (capErr) {
+    console.warn("admin delete: social_caption_usage skipped (table missing?)", capErr);
+  }
+
+  const { data: analyticsData, error: analyticsErr, count: analyticsCount } = await client
+    .from(EVENT_ANALYTICS_TABLE)
+    .delete({ count: "exact" })
+    .eq("event_id", idKey)
+    .select("id");
+  console.error("admin delete supabase response", {
+    table: EVENT_ANALYTICS_TABLE,
+    data: analyticsData,
+    error: analyticsErr,
+    count: analyticsCount
+  });
+  if (analyticsErr && !isMissingRelationError(analyticsErr)) {
+    console.warn("admin delete: event_analytics cleanup failed (non-fatal)", analyticsErr);
+  }
+
+  const { data: deletedRows, error: evErr, count: evCount } = await client
+    .from("events")
+    .delete({ count: "exact" })
+    .eq("id", idKey)
+    .select("id");
+  console.error("admin delete supabase response", {
+    table: "events",
+    data: deletedRows,
+    error: evErr,
+    count: evCount
+  });
   if (evErr) throw new Error(evErr.message || "Event konnte nicht gelöscht werden.");
   if (!Array.isArray(deletedRows) || !deletedRows.length) {
-    throw new Error("Event wurde nicht gelöscht (nicht gefunden oder keine Berechtigung).");
+    throw new Error("Kein Event gelöscht – ID nicht gefunden oder RLS blockiert");
   }
 }
 
@@ -2303,14 +2502,16 @@ async function handleRegeocodeEvent(eventData, card, button) {
   setCardGeoBusy(card, eventData.id, true);
   if (button) button.disabled = true;
   setGlobalFeedback("Standort wird geprüft...", "info");
+  console.log("admin geocode start", { eventId: eventData?.id, context: "event-card" });
   try {
     await updateEventLocationWithGeocoding(eventData);
     setCardGeoBusy(card, eventData.id, false);
     markGeoPulse(eventData.id);
+    console.log("admin geocode success", { eventId: eventData?.id, context: "event-card" });
     setGlobalFeedback("Koordinaten aktualisiert.", "success");
     await loadEvents();
   } catch (error) {
-    console.error("Admin geocoding failed:", error);
+    console.error("admin geocode error", error);
     setGlobalFeedback("Standort konnte nicht gefunden werden.", "error");
   } finally {
     setCardGeoBusy(card, eventData.id, false);
@@ -2906,8 +3107,6 @@ function initEditorLocationAutocomplete(overlay, form, eventData) {
   });
 
   const locInputs = form.querySelectorAll("[data-editor-loc-field]");
-  const manualBtn = form.querySelector("[data-editor-geocode-manual]");
-  const searchBtn = form.querySelector("[data-editor-geocode-search]");
   const hintEl = form.querySelector("[data-editor-places-hint]");
 
   console.log("admin autocomplete init", {
@@ -2928,30 +3127,7 @@ function initEditorLocationAutocomplete(overlay, form, eventData) {
   latInput?.addEventListener("input", onLatLngInput);
   lngInput?.addEventListener("input", onLatLngInput);
 
-  const runManualGeocode = async () => {
-    const busyBtns = [manualBtn, searchBtn].filter(Boolean);
-    busyBtns.forEach((b) => {
-      b.disabled = true;
-    });
-    try {
-      const snapshot = readAdminEditorLocationSnapshot(form, eventData);
-      const coords = await resolveAdminCoordinates(snapshot);
-      if (latInput) latInput.value = String(coords.lat);
-      if (lngInput) lngInput.value = String(coords.lng);
-      refreshAdminEditorMapInForm(form);
-      setGlobalFeedback("Koordinaten aus Adresse berechnet.", "success");
-    } catch (error) {
-      console.warn("admin autocomplete error", error);
-      setGlobalFeedback(error.message || "Geocoding fehlgeschlagen.", "error");
-    } finally {
-      busyBtns.forEach((b) => {
-        b.disabled = false;
-      });
-    }
-  };
-
-  manualBtn?.addEventListener("click", runManualGeocode);
-  searchBtn?.addEventListener("click", runManualGeocode);
+  /* Geocode buttons: delegated from editor overlay via data-admin-action="editor-geocode" (keeps a single listener). */
 
   if (hintEl && !resolvedKey) {
     hintEl.hidden = false;
@@ -2964,8 +3140,6 @@ function initEditorLocationAutocomplete(overlay, form, eventData) {
     editorLocationAutocompleteDispose = () => {
       latInput?.removeEventListener("input", onLatLngInput);
       lngInput?.removeEventListener("input", onLatLngInput);
-      manualBtn?.removeEventListener("click", runManualGeocode);
-      searchBtn?.removeEventListener("click", runManualGeocode);
       if (coordTimer) window.clearTimeout(coordTimer);
     };
     editorPlacesHideSuggestionsFn = null;
@@ -3238,8 +3412,6 @@ function initEditorLocationAutocomplete(overlay, form, eventData) {
     document.removeEventListener("click", onDocClick);
     drawer.removeEventListener("scroll", onScrollOrResize);
     window.removeEventListener("resize", onScrollOrResize);
-    manualBtn?.removeEventListener("click", runManualGeocode);
-    searchBtn?.removeEventListener("click", runManualGeocode);
     suggestionRoot.remove();
     ariaTargets.forEach((el) => el.removeAttribute("aria-controls"));
     if (editorPlacesHideSuggestionsFn === hideSuggestionsUi) editorPlacesHideSuggestionsFn = null;
@@ -3249,6 +3421,7 @@ function initEditorLocationAutocomplete(overlay, form, eventData) {
 }
 
 function openEventEditorModal(eventData) {
+  closeActiveAdminEditorIfAny();
   disposeEditorLocationAutocomplete();
   const overlay = document.createElement("div");
   overlay.className = "admin-editor-overlay admin-editor-overlay--drawer";
@@ -3273,8 +3446,8 @@ function openEventEditorModal(eventData) {
 
   let mapEmbed = '<p class="card__intro">Keine Koordinaten — „Fix“ auf der Event-Karte oder Ort speichern.</p>';
   try {
-    const latN = parseCoordinate(eventData.lat);
-    const lngN = parseCoordinate(eventData.lng);
+    const latN = parseCoordinate(eventData.lat ?? eventData.latitude);
+    const lngN = parseCoordinate(eventData.lng ?? eventData.longitude);
     const rawLat = eventData.lat;
     const rawLng = eventData.lng;
     console.log("admin editor map coords", { rawLat, rawLng, lat: latN, lng: lngN });
@@ -3292,7 +3465,7 @@ function openEventEditorModal(eventData) {
           <h3 class="admin-editor-drawer__title">${escapeHtml(eventData.name || "Event")}</h3>
           <p class="admin-editor-drawer__sub">${escapeHtml(recurrenceLabel(eventData))} · ${escapeHtml(recurrenceDetails(eventData))}</p>
         </div>
-        <button type="button" class="btn-pill btn-pill--soft" data-editor-close>✕</button>
+        <button type="button" class="btn-pill btn-pill--soft" data-editor-close data-admin-action="editor-close">✕</button>
       </header>
       <div class="admin-editor-tabs" role="tablist">
         <button type="button" class="admin-editor-tab is-active" data-editor-tab="general" role="tab">Allgemein</button>
@@ -3331,13 +3504,13 @@ function openEventEditorModal(eventData) {
           <label class="field"><span>Latitude</span><input name="lat" type="text" inputmode="decimal" autocomplete="off" value="${eventData.lat ?? ""}"></label>
           <label class="field"><span>Longitude</span><input name="lng" type="text" inputmode="decimal" autocomplete="off" value="${eventData.lng ?? ""}"></label>
           <div class="admin-editor-span-2 admin-editor-location-toolbar">
-            <button type="button" class="btn-pill btn-pill--soft" data-editor-geocode-search>Adresse suchen</button>
-            <button type="button" class="btn-pill btn-pill--soft" data-editor-geocode-manual>📍 Adresse neu berechnen</button>
+            <button type="button" class="btn-pill btn-pill--soft" data-editor-geocode-search data-admin-action="editor-geocode">Adresse suchen</button>
+            <button type="button" class="btn-pill btn-pill--soft" data-editor-geocode-manual data-admin-action="editor-geocode">📍 Adresse neu berechnen</button>
             <span class="card__intro admin-editor-places-hint" data-editor-places-hint hidden></span>
           </div>
           <p class="card__intro admin-editor-span-2" data-editor-coords-warning hidden role="status">Koordinaten ungültig oder fehlen</p>
           <div class="admin-editor-map-wrap admin-editor-span-2" data-editor-map-wrap>${mapEmbed}</div>
-          <p class="card__intro admin-editor-span-2">Bei geänderter Adresse aktualisiert Speichern die Koordinaten wie bisher (Geocoding). Adress-Vorschläge wie auf der Hauptseite (Google Places API).</p>
+          <p class="card__intro admin-editor-span-2">Koordinaten: „Adresse suchen“ / „Adresse neu berechnen“ setzt den Marker neu. Speichern nutzt vorhandene gültige Koordinaten und blockiert nicht bei Geocoder-Ausfällen.</p>
           </div>
         </div>
         <div class="admin-editor-panel-page" data-editor-panel="media" hidden>
@@ -3351,7 +3524,7 @@ function openEventEditorModal(eventData) {
           <p class="card__intro">Captions &amp; geplante Slots (Read-only); Regeneration unten.</p>
           <div class="admin-editor-share-row">
             <a class="btn-pill btn-pill--soft" href="./index.html?event_id=${encodeURIComponent(String(eventData.id))}" target="_blank" rel="noopener">Share-Vorschau</a>
-            <button type="button" class="btn-pill btn-pill--soft" data-editor-regenerate-social>♻️ Drafts regenerieren</button>
+            <button type="button" class="btn-pill btn-pill--soft" data-editor-regenerate-social data-admin-action="editor-regenerate-social">♻️ Drafts regenerieren</button>
           </div>
           ${socialList}
         </div>
@@ -3363,8 +3536,8 @@ function openEventEditorModal(eventData) {
         </div>
         <p class="admin-editor-status" data-editor-status hidden></p>
         <div class="admin-editor-actions admin-editor-actions--sticky">
-          <button type="button" class="btn-pill btn-pill--outline btn-pill--danger-glow admin-editor-delete-event" data-editor-delete-event>🗑 Event löschen</button>
-          <button type="button" class="btn-pill btn-pill--outline" data-editor-cancel>Abbrechen</button>
+          <button type="button" class="btn-pill btn-pill--outline btn-pill--danger-glow admin-editor-delete-event" data-editor-delete-event data-admin-action="editor-delete">🗑 Event löschen</button>
+          <button type="button" class="btn-pill btn-pill--outline" data-editor-cancel data-admin-action="editor-cancel">Abbrechen</button>
           <button type="submit" class="btn-pill btn-pill--soft" data-editor-save>Speichern</button>
           <button type="submit" class="btn-pill btn-pill--hero" data-editor-save-social>Speichern + Social neu</button>
         </div>
@@ -3372,11 +3545,13 @@ function openEventEditorModal(eventData) {
     </aside>
   `;
 
-  console.log("DRAWER HTML INSERTED");
   const form = overlay.querySelector(".admin-editor-form");
   const status = overlay.querySelector("[data-editor-status]");
   const tabs = overlay.querySelectorAll("[data-editor-tab]");
   const panels = overlay.querySelectorAll("[data-editor-panel]");
+
+  const editorAbort = new AbortController();
+  const { signal } = editorAbort;
 
   document.body.appendChild(overlay);
 
@@ -3394,10 +3569,14 @@ function openEventEditorModal(eventData) {
   });
 
   const close = () => {
+    editorAbort.abort();
+    state.adminEditorClose = null;
     disposeEditorLocationAutocomplete();
     document.removeEventListener("keydown", onKeyDown);
     overlay.remove();
   };
+  state.adminEditorClose = close;
+
   const onKeyDown = (e) => {
     if (e.key === "Escape" && !overlay.classList.contains("is-busy")) close();
   };
@@ -3406,6 +3585,7 @@ function openEventEditorModal(eventData) {
     overlay.classList.toggle("is-busy", busy);
     form?.querySelectorAll("input, textarea, button").forEach((control) => {
       if (control.hasAttribute("data-editor-close")) return;
+      if (control.getAttribute("data-admin-action") === "editor-close") return;
       control.disabled = busy;
     });
     if (status) {
@@ -3413,102 +3593,116 @@ function openEventEditorModal(eventData) {
       status.textContent = message;
     }
   };
-  overlay.querySelector("[data-editor-close]")?.addEventListener("click", close);
-  overlay.querySelector("[data-editor-cancel]")?.addEventListener("click", close);
-  overlay.addEventListener("click", (e) => {
-    if (e.target === overlay && !overlay.classList.contains("is-busy")) close();
-  });
 
-  overlay.querySelector("[data-editor-regenerate-social]")?.addEventListener("click", async () => {
-    setBusy(true, "Social Drafts…");
-    try {
-      const n = await regenerateSocialDraftsForEvent(eventData);
-      setGlobalFeedback(`Social Drafts neu (${n}).`, "success");
-      close();
-      await loadEvents();
-    } catch (error) {
-      console.error("Regenerate social failed:", error);
-      setBusy(false, error.message || "Fehler");
-      setGlobalFeedback(`Social: ${error.message}`, "error");
-    }
-  });
+  overlay.addEventListener(
+    "click",
+    async (e) => {
+      const t = e.target;
+      if (!(t instanceof Element)) return;
 
-  overlay.querySelector("[data-editor-delete-event]")?.addEventListener("click", async () => {
-    const eventId = eventData?.id;
-    if (!eventId) return;
-    if (!window.confirm("Dieses Event wirklich dauerhaft löschen?")) return;
-    setBusy(true, "Lösche Event...");
-    setGlobalFeedback("");
-    try {
-      await deleteEventById(eventId, eventData);
-      setGlobalFeedback("Event gelöscht", "success");
-      close();
-      await loadEvents();
-    } catch (error) {
-      console.error("Delete event failed:", error);
-      setBusy(false, error.message || "Löschen fehlgeschlagen.");
-      setGlobalFeedback(`Löschen fehlgeschlagen: ${error.message || ""}`.trim(), "error");
-    }
-  });
-
-  form?.addEventListener("submit", async (submitEvent) => {
-    submitEvent.preventDefault();
-    const regenerate = Boolean(submitEvent.submitter?.hasAttribute("data-editor-save-social"));
-    try {
-      setBusy(true, "Speichern…");
-      const rawPayload = eventEditPayloadFromForm(form);
-      let payload = sanitizeEventPayloadForDb(rawPayload);
-      if (hasLocationChanged(eventData, payload)) {
-        if (hasValidMarkerCoordinates(payload)) {
-          console.log("admin save skip geocode existing coords", {
-            lat: payload.lat,
-            lng: payload.lng
-          });
-        } else {
+      const btn = t.closest("button[data-admin-action]");
+      if (btn) {
+        const action = btn.getAttribute("data-admin-action");
+        console.log("admin action clicked", { action, context: "editor-drawer", eventId: eventData?.id });
+        if (action === "editor-geocode") {
+          e.preventDefault();
+          if (overlay.classList.contains("is-busy")) return;
           try {
-            const coords = await resolveAdminCoordinates({ ...eventData, ...payload });
-            payload.lat = coords.lat;
-            payload.lng = coords.lng;
-            payload.geocoding_query = coords.geocoding_query;
-            if (coords.formatted_address) payload.formatted_address = coords.formatted_address;
-          } catch (geoErr) {
-            if (hasValidMarkerCoordinates(eventData)) {
-              payload.lat = parseCoordinate(eventData.lat);
-              payload.lng = parseCoordinate(eventData.lng);
-              console.warn("admin save geocode failed, using stored coordinates", geoErr);
-            } else {
-              throw geoErr;
-            }
+            await adminEditorGeocodeFromForm(form, eventData, [btn]);
+          } catch (_err) {
+            /* feedback + log inside geocode */
           }
-          payload = sanitizeEventPayloadForDb(payload);
+          return;
+        }
+        if (action === "editor-close" || action === "editor-cancel") {
+          e.preventDefault();
+          if (!overlay.classList.contains("is-busy")) close();
+          return;
+        }
+        if (action === "editor-regenerate-social") {
+          e.preventDefault();
+          setBusy(true, "Social Drafts…");
+          try {
+            const n = await regenerateSocialDraftsForEvent(eventData);
+            console.log("admin action editor-regenerate-social success", { n, eventId: eventData?.id });
+            setGlobalFeedback(`Social Drafts neu (${n}).`, "success");
+            close();
+            await loadEvents();
+          } catch (error) {
+            console.error("admin action editor-regenerate-social error", error);
+            setBusy(false, error.message || "Fehler");
+            setGlobalFeedback(`Social: ${error.message}`, "error");
+          }
+          return;
+        }
+        if (action === "editor-delete") {
+          e.preventDefault();
+          const eventId = eventData?.id;
+          if (!eventId) return;
+          if (!window.confirm("Dieses Event wirklich dauerhaft löschen?")) return;
+          setBusy(true, "Lösche Event...");
+          setGlobalFeedback("");
+          try {
+            await deleteEventById(eventId, eventData);
+            setGlobalFeedback("Event gelöscht", "success");
+            close();
+            await loadEvents();
+          } catch (error) {
+            console.error("admin action editor-delete error", error);
+            setBusy(false, error.message || "Löschen fehlgeschlagen.");
+            setGlobalFeedback(`Löschen fehlgeschlagen: ${error.message || ""}`.trim(), "error");
+          }
+          return;
         }
       }
-      console.log("admin save payload", { eventId: eventData.id, payload });
-      await updateEventWithFallback(eventData.id, payload);
-      if (regenerate) {
-        await regenerateSocialDraftsForEvent({ ...eventData, ...payload, id: eventData.id });
+
+      if (e.target === overlay && !overlay.classList.contains("is-busy")) close();
+    },
+    { signal }
+  );
+
+  form?.addEventListener(
+    "submit",
+    async (submitEvent) => {
+      submitEvent.preventDefault();
+      const regenerateSocial = Boolean(submitEvent.submitter?.hasAttribute("data-editor-save-social"));
+      try {
+        setBusy(true, "Speichern…");
+        const saveResult = await adminEditorSaveEventPayload(form, eventData, { regenerateSocial });
+        if (saveResult.socialOk === false) {
+          const se = saveResult.socialError && typeof saveResult.socialError === "object" ? saveResult.socialError : {};
+          console.error("admin save error", { phase: "social", eventId: eventData?.id, message: se.message }, saveResult.socialError);
+          setGlobalFeedback(
+            `Event gespeichert. Social-Update fehlgeschlagen: ${saveResult.socialError?.message || ""}`.trim(),
+            "error"
+          );
+        } else if (regenerateSocial) {
+          setGlobalFeedback("Event gespeichert · Social Queue aktualisiert.", "success");
+        } else {
+          setGlobalFeedback("Event gespeichert", "success");
+        }
+        close();
+        await loadEvents();
+      } catch (error) {
+        const raw = error && typeof error === "object" ? error : {};
+        console.error(
+          "admin save error",
+          {
+            eventId: eventData?.id,
+            code: raw.code,
+            message: raw.message,
+            details: raw.details,
+            hint: raw.hint
+          },
+          error
+        );
+        setBusy(false, error.message || "Speichern fehlgeschlagen.");
+        setGlobalFeedback(`Speichern fehlgeschlagen: ${error.message || ""}`.trim(), "error");
       }
-      setGlobalFeedback(regenerate ? "Event gespeichert · Social Queue aktualisiert." : "Event gespeichert", "success");
-      close();
-      await loadEvents();
-    } catch (error) {
-      const raw = error && typeof error === "object" ? error : {};
-      console.error("admin save error", {
-        eventId: eventData?.id,
-        code: raw.code,
-        message: raw.message,
-        details: raw.details,
-        hint: raw.hint
-      }, error);
-      setBusy(false, error.message || "Speichern fehlgeschlagen.");
-      setGlobalFeedback(`Speichern fehlgeschlagen: ${error.message || ""}`.trim(), "error");
-    }
-  });
-  console.log("DRAWER RENDERED", {
-    overlayOk: Boolean(overlay),
-    formOk: Boolean(form),
-    drawerOk: Boolean(overlay?.querySelector?.(".admin-editor-drawer"))
-  });
+    },
+    { signal }
+  );
+
   document.addEventListener("keydown", onKeyDown);
 
   const runAutocompleteInit = () => {
@@ -3537,10 +3731,23 @@ function openEventEditorModal(eventData) {
   form?.querySelector("input[name='title']")?.focus();
 }
 
+/**
+ * Manual smoke checklist (Admin UI):
+ * - Save: open editor, change time only, Speichern → "Event gespeichert"
+ * - Save Ort: valid coords + address tweak → no geocode error; use "Adresse neu berechnen" for forced geocode
+ * - Save + Social: Speichern + Social neu → combined success; if social fails after save → warning toast, event persisted
+ * - Reuse Archiv: Erneut verwenden → pending copy, editor opens
+ * - Delete: test event, confirm → removed
+ * - Feature: ⭐ Feature on card → persists
+ * - Status: Pending / Freigeben / Ablehnen + optional Notizen
+ */
 async function handleCardAction(clickEvent) {
   const button = clickEvent.target.closest("button[data-action]");
   if (!button) return;
-  if (button.dataset.action === "replace-image") {
+  const action = button.dataset.action || "";
+
+  if (action === "replace-image") {
+    console.log("admin action clicked", { action, context: "event-grid" });
     const card = button.closest(".event-card");
     const input = card?.querySelector("input[data-admin-replace-input]");
     if (input && !button.disabled) input.click();
@@ -3550,6 +3757,8 @@ async function handleCardAction(clickEvent) {
   if (!card) return;
   const eventData = findEventByCard(card);
   if (!eventData) return;
+
+  console.log("admin action clicked", { action, context: "event-grid", eventId: eventData?.id });
 
   if (button.dataset.action === "regeocode") {
     await handleRegeocodeEvent(eventData, card, button);
@@ -3569,12 +3778,14 @@ async function handleCardAction(clickEvent) {
   if (button.dataset.action === "regenerate-drafts") {
     button.disabled = true;
     setGlobalFeedback("");
+    console.log("admin action regenerate-drafts start", { eventId: eventData?.id });
     try {
       const n = await regenerateSocialDraftsForEvent(eventData);
+      console.log("admin action regenerate-drafts success", { eventId: eventData?.id, n });
       setGlobalFeedback(`Social Drafts neu erstellt (${n}).`, "success");
       await loadEvents();
     } catch (error) {
-      console.error("Regenerate drafts failed:", error);
+      console.error("admin action regenerate-drafts error", error);
       setGlobalFeedback(error.message || "Social Fehler", "error");
     } finally {
       button.disabled = false;
@@ -3589,6 +3800,8 @@ async function handleCardAction(clickEvent) {
       setGlobalFeedback("Featured aktualisiert.", "success");
       await loadEvents();
     } catch (error) {
+      const raw = error && typeof error === "object" ? error : {};
+      console.error("admin action toggle-featured error", { eventId: eventData?.id, ...raw }, error);
       setGlobalFeedback(error.message || "Update fehlgeschlagen", "error");
     } finally {
       button.disabled = false;
@@ -3610,7 +3823,7 @@ async function handleCardAction(clickEvent) {
       setGlobalFeedback("Event gelöscht", "success");
       await loadEvents();
     } catch (error) {
-      console.error("Delete event failed:", error);
+      console.error("admin action delete-event error", error);
       setGlobalFeedback(`Löschen fehlgeschlagen: ${error.message || ""}`.trim(), "error");
     } finally {
       button.disabled = false;
@@ -3628,8 +3841,10 @@ async function handleCardAction(clickEvent) {
     }
     button.disabled = true;
     setGlobalFeedback("");
+    console.log("admin reuse start", { sourceId });
     try {
       const newId = await duplicateEventForReuse(eventData);
+      console.log("admin reuse success", { sourceId, newId });
       setGlobalFeedback("Event als Entwurf kopiert", "success");
       await loadEvents();
       const fresh = state.allEvents.find((e) => String(e.id) === String(newId));
@@ -3690,7 +3905,8 @@ async function handleCardAction(clickEvent) {
 
     await loadEvents();
   } catch (error) {
-    console.error("Admin action failed:", error);
+    const raw = error && typeof error === "object" ? error : {};
+    console.error("admin action card-batch error", { action, eventId: eventData?.id, ...raw }, error);
     setGlobalFeedback(`Action failed: ${error.message}`, "error");
   } finally {
     button.disabled = false;
