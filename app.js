@@ -6409,6 +6409,78 @@ function parseIsoDate(value) {
   return parsed;
 }
 
+function isPublicRecurringEvent(event) {
+  const type = normalizeRecurrenceType(event?.recurrence_type || RECURRENCE_TYPE_NONE);
+  return type === RECURRENCE_TYPE_WEEKLY || type === RECURRENCE_TYPE_MONTHLY;
+}
+
+function applyPublicEventWallTime(dayDate, event) {
+  const wall = parsePublicListingTimeParts(event?.event_time || "0:00");
+  const d = new Date(dayDate);
+  if (wall) d.setHours(wall.hour, wall.minute, 0, 0);
+  else d.setHours(23, 59, 59, 999);
+  return d;
+}
+
+/**
+ * Next future occurrence for a recurring series (weekly/monthly).
+ * Ignores a stale event_date when recurrence is still active.
+ */
+function getNextRecurringOccurrence(event, now = new Date()) {
+  const type = normalizeRecurrenceType(event?.recurrence_type || RECURRENCE_TYPE_NONE);
+  if (type === RECURRENCE_TYPE_NONE) return null;
+
+  const startDate = parseIsoDate(event.recurrence_start_date || event.event_date);
+  if (!startDate) return null;
+
+  const endDate = parseIsoDate(event.recurrence_end_date);
+  if (endDate) endDate.setHours(23, 59, 59, 999);
+
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+
+  if (endDate && endDate < today) return null;
+
+  if (type === RECURRENCE_TYPE_WEEKLY) {
+    const targetWeekday = normalizeWeekdayValue(event.recurrence_weekday);
+    if (targetWeekday === null) return null;
+    let candidate = resolveWeeklyOccurrenceDate(startDate > today ? startDate : today, targetWeekday);
+    for (let i = 0; i < 520; i += 1) {
+      if (endDate && candidate > endDate) return null;
+      if (candidate >= startDate) {
+        const withTime = applyPublicEventWallTime(candidate, event);
+        if (withTime > now) return withTime;
+      }
+      candidate = new Date(candidate);
+      candidate.setDate(candidate.getDate() + 7);
+      candidate.setHours(0, 0, 0, 0);
+    }
+    return null;
+  }
+
+  if (type === RECURRENCE_TYPE_MONTHLY) {
+    const dayOfMonth = normalizeDayOfMonthValue(event.recurrence_day_of_month);
+    if (dayOfMonth === null) return null;
+    let cursor = new Date(today.getFullYear(), today.getMonth(), 1);
+    if (startDate > today) cursor = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+    for (let i = 0; i < 36; i += 1) {
+      const occ = resolveMonthlyOccurrenceDate(cursor, dayOfMonth);
+      if (occ && occ >= startDate && (!endDate || occ <= endDate)) {
+        const withTime = applyPublicEventWallTime(occ, event);
+        if (withTime > now) return withTime;
+      }
+      cursor.setMonth(cursor.getMonth() + 1);
+    }
+    return null;
+  }
+
+  return null;
+}
+
+function isRecurringSeriesPast(event, now = new Date()) {
+  return getNextRecurringOccurrence(event, now) === null;
+}
+
 function formatIsoDate(dateValue) {
   const year = dateValue.getFullYear();
   const month = String(dateValue.getMonth() + 1).padStart(2, "0");
@@ -6417,6 +6489,17 @@ function formatIsoDate(dateValue) {
 }
 
 function appendOneTimeOccurrence(list, event) {
+  if (isPublicRecurringEvent(event)) {
+    const next = getNextRecurringOccurrence(event);
+    console.log("recurring visibility check", {
+      eventId: event?.id,
+      recurrence_type: event?.recurrence_type,
+      nextOccurrence: next ? next.toISOString() : null,
+      treatedAs: next ? "active" : "archive",
+      context: "public-expand"
+    });
+    return;
+  }
   if (isHiddenFromPublicListing(event)) return;
   list.push({
     ...event,
@@ -6451,6 +6534,17 @@ function buildRecurringOccurrences(event) {
     const list = [];
     appendOneTimeOccurrence(list, event);
     return list;
+  }
+
+  if (isRecurringSeriesPast(event)) {
+    console.log("recurring visibility check", {
+      eventId: event?.id,
+      recurrence_type: event?.recurrence_type,
+      nextOccurrence: null,
+      treatedAs: "archive",
+      context: "public-buildRecurringOccurrences"
+    });
+    return [];
   }
 
   const startDate = parseIsoDate(event.recurrence_start_date || event.event_date);

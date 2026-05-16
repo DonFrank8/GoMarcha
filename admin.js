@@ -34,6 +34,73 @@ const EVENT_START_SAFETY_MS = 15 * 1000;
 const EVENT_ANALYTICS_TABLE = "event_analytics";
 
 const VALID_STATUS = new Set(["pending", "approved", "rejected"]);
+const ADMIN_CARD_STATUS_ACTIONS = new Set(["pending", "approved", "rejected", "save-notes"]);
+const adminEventActionLocks = new Set();
+
+/**
+ * Admin save/update: only these public.events columns are sent to Supabase.
+ * UI mapping: form "title" → name; "category" → genre; "address" → address (never street).
+ */
+const ADMIN_EVENT_SAVE_COLUMN_WHITELIST = new Set([
+  "name",
+  "description",
+  "description_es",
+  "description_de",
+  "description_en",
+  "title_de",
+  "title_en",
+  "title_es",
+  "location_name",
+  "address",
+  "postal_code",
+  "city",
+  "country",
+  "province",
+  "region",
+  "event_date",
+  "event_time",
+  "end_time",
+  "genre",
+  "artist_name",
+  "price_text",
+  "image_url",
+  "image_urls",
+  "lat",
+  "lng",
+  "status",
+  "verification_notes",
+  "featured",
+  "promoted",
+  "geocoding_query",
+  "formatted_address",
+  "place_id",
+  "recurrence_type",
+  "recurrence_start_date",
+  "recurrence_end_date",
+  "recurrence_weekday",
+  "recurrence_day_of_month",
+  "original_event_id",
+  "archived_at"
+]);
+
+/** Known missing on live DB — never send (avoids repeated 400 schema errors). */
+const ADMIN_EVENT_SAVE_COLUMNS_DISALLOWED = new Set([
+  "street",
+  "tags",
+  "title",
+  "category",
+  "is_featured"
+]);
+
+function pickAdminEventSavePayload(payload) {
+  const out = {};
+  for (const key of Object.keys(payload || {})) {
+    if (ADMIN_EVENT_SAVE_COLUMNS_DISALLOWED.has(key)) continue;
+    if (!ADMIN_EVENT_SAVE_COLUMN_WHITELIST.has(key)) continue;
+    out[key] = payload[key];
+  }
+  return out;
+}
 
 const state = {
   allEvents: [],
@@ -140,6 +207,67 @@ function setFeedback(element, message, tone = "info") {
 
 function setGlobalFeedback(message, tone = "info") {
   setFeedback(dom.globalFeedback, message, tone);
+}
+
+function patchAdminEventInState(eventId, patch) {
+  const key = String(eventId ?? "").trim();
+  if (!key) return null;
+  const idx = state.allEvents.findIndex((e) => String(e.id) === key);
+  if (idx < 0) return null;
+  const prev = { ...state.allEvents[idx] };
+  state.allEvents[idx] = normalizeEvent({ ...prev, ...patch, id: prev.id });
+  return prev;
+}
+
+function removeAdminEventFromState(eventId) {
+  const key = String(eventId ?? "").trim();
+  if (!key) return;
+  state.allEvents = state.allEvents.filter((e) => String(e.id) !== key);
+  state.socialQueueByEvent.delete(key);
+  state.eventListReset = true;
+}
+
+async function refreshAdminData({ reloadEvents = false, reloadSocial = false } = {}) {
+  if (reloadEvents) {
+    await loadEvents();
+    return;
+  }
+  if (reloadSocial) {
+    await loadSocialQueueRows();
+  }
+  syncFilterOptions();
+  render();
+}
+
+function acquireAdminEventLock(eventId) {
+  const key = String(eventId ?? "").trim();
+  if (!key || adminEventActionLocks.has(key)) return false;
+  adminEventActionLocks.add(key);
+  return true;
+}
+
+function releaseAdminEventLock(eventId) {
+  adminEventActionLocks.delete(String(eventId ?? "").trim());
+}
+
+async function withAdminButtonBusy(button, busyText, fn) {
+  if (!button || button.disabled) return;
+  const prevText = button.textContent;
+  button.disabled = true;
+  if (busyText) button.textContent = busyText;
+  try {
+    await fn();
+  } finally {
+    button.disabled = false;
+    if (busyText) button.textContent = prevText;
+  }
+}
+
+function adminStatusSuccessMessage(status) {
+  if (status === "approved") return "Event freigegeben.";
+  if (status === "rejected") return "Event abgelehnt.";
+  if (status === "pending") return "Status: Ausstehend.";
+  return "Status aktualisiert.";
 }
 
 function setAuthFeedback(message, tone = "info") {
@@ -355,6 +483,122 @@ function dateFromAdminEventWallTime(event, fallbackHour = 23, fallbackMinute = 5
   return new Date(parts.year, parts.month - 1, parts.day, parsedTime.hour, parsedTime.minute, 0, 0);
 }
 
+function normalizeAdminRecurrenceType(value) {
+  const normalized = String(value || "none").trim().toLowerCase();
+  if (normalized === "weekly" || normalized === "monthly") return normalized;
+  return "none";
+}
+
+function isAdminRecurringEvent(event) {
+  return normalizeAdminRecurrenceType(event?.recurrence_type) !== "none";
+}
+
+function normalizeAdminRecurrenceWeekday(raw, fallbackDateYmd) {
+  const n = Number(raw);
+  if (Number.isInteger(n) && n >= 0 && n <= 6) return n;
+  const parts = parseAdminYmd(fallbackDateYmd);
+  if (!parts) return null;
+  return new Date(parts.year, parts.month - 1, parts.day).getDay();
+}
+
+function normalizeAdminRecurrenceDayOfMonth(raw, fallbackDateYmd) {
+  const n = Number(raw);
+  if (Number.isInteger(n) && n >= 1 && n <= 31) return n;
+  const parts = parseAdminYmd(fallbackDateYmd);
+  if (!parts) return null;
+  return parts.day;
+}
+
+function adminDateFromYmdParts(parts) {
+  if (!parts) return null;
+  return new Date(parts.year, parts.month - 1, parts.day, 0, 0, 0, 0);
+}
+
+function adminResolveWeeklyOccurrence(cursorDate, targetWeekday) {
+  const occurrence = new Date(cursorDate);
+  const delta = (targetWeekday - occurrence.getDay() + 7) % 7;
+  occurrence.setDate(occurrence.getDate() + delta);
+  occurrence.setHours(0, 0, 0, 0);
+  return occurrence;
+}
+
+function adminResolveMonthlyOccurrence(cursorDate, dayOfMonth) {
+  const year = cursorDate.getFullYear();
+  const month = cursorDate.getMonth();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  if (dayOfMonth > daysInMonth) return null;
+  return new Date(year, month, dayOfMonth, 0, 0, 0, 0);
+}
+
+function applyAdminEventWallTime(dayDate, event) {
+  const timeParts = parseAdminTime(event?.event_time || "0:00");
+  const d = new Date(dayDate);
+  d.setHours(timeParts.hour, timeParts.minute, 0, 0);
+  return d;
+}
+
+/**
+ * Next future occurrence for weekly/monthly series (ignores stale event_date alone).
+ * Returns null when recurrence ended or no future occurrence remains.
+ */
+function getNextRecurringOccurrence(event, now = new Date()) {
+  const type = normalizeAdminRecurrenceType(event?.recurrence_type);
+  if (type === "none") return null;
+
+  const startDate = adminDateFromYmdParts(parseAdminYmd(event?.recurrence_start_date || event?.event_date));
+  if (!startDate) return null;
+
+  const endParts = parseAdminYmd(event?.recurrence_end_date);
+  const endDate = endParts ? adminDateFromYmdParts(endParts) : null;
+  if (endDate) endDate.setHours(23, 59, 59, 999);
+
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+
+  if (endDate && endDate < today) return null;
+
+  if (type === "weekly") {
+    const fallbackYmd = event.recurrence_start_date || event.event_date;
+    const targetWeekday = normalizeAdminRecurrenceWeekday(event.recurrence_weekday, fallbackYmd);
+    if (targetWeekday === null) return null;
+    let candidate = adminResolveWeeklyOccurrence(startDate > today ? startDate : today, targetWeekday);
+    for (let i = 0; i < 520; i += 1) {
+      if (endDate && candidate > endDate) return null;
+      if (candidate >= startDate) {
+        const withTime = applyAdminEventWallTime(candidate, event);
+        if (withTime > now) return withTime;
+      }
+      candidate = new Date(candidate);
+      candidate.setDate(candidate.getDate() + 7);
+      candidate.setHours(0, 0, 0, 0);
+    }
+    return null;
+  }
+
+  if (type === "monthly") {
+    const fallbackYmd = event.recurrence_start_date || event.event_date;
+    const dayOfMonth = normalizeAdminRecurrenceDayOfMonth(event.recurrence_day_of_month, fallbackYmd);
+    if (dayOfMonth === null) return null;
+    let cursor = new Date(today.getFullYear(), today.getMonth(), 1);
+    if (startDate > today) cursor = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+    for (let i = 0; i < 36; i += 1) {
+      const occ = adminResolveMonthlyOccurrence(cursor, dayOfMonth);
+      if (occ && occ >= startDate && (!endDate || occ <= endDate)) {
+        const withTime = applyAdminEventWallTime(occ, event);
+        if (withTime > now) return withTime;
+      }
+      cursor.setMonth(cursor.getMonth() + 1);
+    }
+    return null;
+  }
+
+  return null;
+}
+
+function isRecurringEventPast(event, now = new Date()) {
+  return getNextRecurringOccurrence(event, now) === null;
+}
+
 function shortNoticeInfoForEvent(event, now = new Date()) {
   const eventStart = dateFromAdminEventWallTime(event);
   if (!eventStart || Number.isNaN(eventStart.getTime()) || eventStart <= now) {
@@ -451,8 +695,12 @@ function socialQueueSummary(eventId) {
 }
 
 function isEventPast(event) {
+  const now = new Date();
+  if (isAdminRecurringEvent(event)) {
+    return getNextRecurringOccurrence(event, now) === null;
+  }
   const start = dateFromAdminEventWallTime(event);
-  return Boolean(start && !Number.isNaN(start.getTime()) && start < new Date());
+  return Boolean(start && !Number.isNaN(start.getTime()) && start < now);
 }
 
 function buildEventValidationBadges(event) {
@@ -1200,12 +1448,18 @@ function normalizeEvent(event) {
     recurrence_start_date: String(event.recurrence_start_date || "").trim(),
     recurrence_end_date: String(event.recurrence_end_date || "").trim(),
     recurrence_weekday:
-      recurrenceType === "weekly" && Number.isInteger(Number(event.recurrence_weekday))
-        ? Number(event.recurrence_weekday)
+      recurrenceType === "weekly"
+        ? normalizeAdminRecurrenceWeekday(
+            event.recurrence_weekday,
+            event.recurrence_start_date || event.event_date
+          )
         : null,
     recurrence_day_of_month:
-      recurrenceType === "monthly" && Number.isInteger(Number(event.recurrence_day_of_month))
-        ? Number(event.recurrence_day_of_month)
+      recurrenceType === "monthly"
+        ? normalizeAdminRecurrenceDayOfMonth(
+            event.recurrence_day_of_month,
+            event.recurrence_start_date || event.event_date
+          )
         : null,
     featured: Boolean(event.featured),
     promoted: Boolean(event.promoted),
@@ -1319,7 +1573,54 @@ function applyFilters() {
     state.eventListReset = true;
     state.eventsVisibleCount = EVENT_LIST_PAGE_SIZE;
   }
-  state.filteredEvents = state.allEvents.filter((event) => {
+
+  const beforeCount = state.allEvents.length;
+  console.log("APPLY FILTERS START", {
+    totalEvents: state.allEvents?.length,
+    totalEventsAlias: state.events?.length,
+    archiveTimeline: state.archiveTimeline,
+    activeTab: state.activeTab,
+    cityFilter: state.city,
+    genreFilter: state.genre,
+    statusFilter: state.statusFilter,
+    search: state.search,
+    searchTerm: state.searchTerm
+  });
+
+  let totalActive = 0;
+  let totalArchive = 0;
+  for (const event of state.allEvents) {
+    const past = isEventPast(event);
+    if (past) totalArchive += 1;
+    else totalActive += 1;
+    console.log("EVENT FILTER DEBUG", {
+      id: event.id,
+      name: event.name,
+      status: event.status,
+      event_date: event.event_date,
+      event_time: event.event_time,
+      recurrence_type: event.recurrence_type,
+      recurrence_start_date: event.recurrence_start_date,
+      recurrence_end_date: event.recurrence_end_date,
+      recurrence_weekday: event.recurrence_weekday,
+      recurrence_day_of_month: event.recurrence_day_of_month,
+      isRecurring: isAdminRecurringEvent(event),
+      isPast: isEventPast(event),
+      nextOccurrence: isAdminRecurringEvent(event)
+        ? getNextRecurringOccurrence(event)?.toISOString?.() ?? null
+        : null,
+      archiveTimeline: state.archiveTimeline
+    });
+  }
+  console.log("RECURRING DEBUG totals", {
+    totalLoaded: beforeCount,
+    totalActive,
+    totalArchive,
+    archiveTimeline: state.archiveTimeline || "all",
+    activeTab: state.activeTab
+  });
+
+  const filtered = state.allEvents.filter((event) => {
     if (state.activeTab !== "all" && event.status !== state.activeTab) return false;
     const timeline = state.archiveTimeline || "all";
     const past = isEventPast(event);
@@ -1344,6 +1645,15 @@ function applyFilters() {
       .join(" ")
       .toLowerCase();
     return haystack.includes(search);
+  });
+
+  state.filteredEvents = filtered;
+
+  console.log("APPLY FILTERS RESULT", {
+    beforeCount,
+    afterCount: filtered.length,
+    visibleIds: filtered.map((e) => e.id),
+    visibleNames: filtered.map((e) => e.name)
   });
 }
 
@@ -1963,19 +2273,16 @@ async function updateEventWithFallback(eventId, updates) {
   const idKey = String(eventId ?? "").trim();
   if (!idKey) throw new Error("Event-ID fehlt.");
 
-  let payload = sanitizeEventPayloadForDb({ ...updates });
-  const maxAttempts = Math.max(48, Object.keys(payload).length + 8);
+  let payload = pickAdminEventSavePayload(sanitizeEventPayloadForDb({ ...updates }));
   let lastError = null;
-  let lastData = null;
 
-  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
     const { data, error } = await client
       .from("events")
       .update(payload)
       .eq("id", idKey)
       .select("id,status")
       .limit(1);
-    lastData = data;
     if (!error) {
       if (!Array.isArray(data) || !data.length) {
         throw new Error("No row updated. Check admin role and RLS policies.");
@@ -1983,15 +2290,20 @@ async function updateEventWithFallback(eventId, updates) {
       return data[0];
     }
     lastError = error;
+    const missing = parseMissingColumn(error);
     console.error("admin save error", {
       attempt,
       eventId: idKey,
+      missingColumn: missing || null,
       code: error.code,
       message: error.message,
       details: error.details,
-      hint: error.hint
+      hint: error.hint,
+      payloadKeys: Object.keys(payload)
     }, error);
+    if (missing && ADMIN_EVENT_SAVE_COLUMNS_DISALLOWED.has(missing)) break;
     if (!removeMissingColumnFromPayload(payload, error)) break;
+    payload = pickAdminEventSavePayload(payload);
   }
 
   throw new Error(lastError?.message || "Update failed");
@@ -2092,6 +2404,7 @@ function isMissingRelationError(error) {
 
 async function deleteEventById(eventId, eventSnapshot) {
   const idKey = String(eventId ?? "").trim();
+  console.log("admin delete start", { eventId: idKey, typeofId: typeof eventId });
   console.log("admin delete eventId", idKey, typeof eventId);
   if (!idKey) return;
   if (!isSessionAdmin(state.adminSession)) {
@@ -2168,13 +2481,13 @@ async function deleteEventById(eventId, eventSnapshot) {
   if (!Array.isArray(deletedRows) || !deletedRows.length) {
     throw new Error("Kein Event gelöscht – ID nicht gefunden oder RLS blockiert");
   }
+  console.log("admin delete success", { eventId: idKey, count: evCount });
 }
 
 function duplicateInsertPayloadFromEvent(source) {
   const sid = source?.id ?? null;
   const payload = {
     name: source.name || source.title || "Event",
-    title: source.title || source.name || null,
     title_es: source.title_es || null,
     title_de: source.title_de || null,
     title_en: source.title_en || null,
@@ -2183,8 +2496,7 @@ function duplicateInsertPayloadFromEvent(source) {
     description_de: source.description_de || null,
     description_en: source.description_en || null,
     location_name: source.location_name || null,
-    address: source.address || null,
-    street: source.street || source.address || null,
+    address: source.address || source.street || null,
     postal_code: source.postal_code || null,
     city: source.city || null,
     country: source.country || null,
@@ -2195,15 +2507,11 @@ function duplicateInsertPayloadFromEvent(source) {
     geocoding_query: source.geocoding_query || null,
     lat: source.lat ?? null,
     lng: source.lng ?? null,
-    genre: source.genre || null,
-    category: source.category || source.genre || null,
+    genre: source.genre || source.category || null,
     artist_name: source.artist_name || null,
-    tags: source.tags ?? null,
     price_text: source.price_text || null,
     image_url: source.image_url || null,
     image_urls: source.image_urls ?? null,
-    submitted_by: source.submitted_by || null,
-    contact_email: source.contact_email || null,
     status: "pending",
     featured: false,
     promoted: false,
@@ -2215,8 +2523,7 @@ function duplicateInsertPayloadFromEvent(source) {
     recurrence_day_of_month: null,
     event_date: null,
     event_time: null,
-    end_time: null,
-    is_featured: false
+    end_time: null
   };
   if (isLikelyUuidForOriginalEventRef(sid)) {
     payload.original_event_id = sid;
@@ -2259,11 +2566,12 @@ async function insertDuplicateEventRow(payload) {
     return client.from("events").insert(cleaned).select("id").limit(1);
   };
 
-  let body = { ...sanitizeEventPayloadForDb(payload) };
+  let body = pickAdminEventSavePayload(sanitizeEventPayloadForDb(payload));
   console.log("admin reuse payload", { keys: Object.keys(body), body });
   let lastError = null;
 
-  for (let attempt = 0; attempt < 28; attempt += 1) {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    body = pickAdminEventSavePayload(body);
     const { data, error } = await run(body);
     if (!error) {
       const row = Array.isArray(data) ? data[0] : data;
@@ -2362,7 +2670,7 @@ function sanitizeEventPayloadForDb(payload) {
       delete out[key];
       continue;
     }
-    if (key === "name" || key === "title") {
+    if (key === "name") {
       if (typeof v === "string") out[key] = v.trim();
       continue;
     }
@@ -2371,7 +2679,7 @@ function sanitizeEventPayloadForDb(payload) {
       out[key] = t === "" ? null : t;
     }
   }
-  return out;
+  return pickAdminEventSavePayload(out);
 }
 
 function hasLocationChanged(event, payload) {
@@ -2384,25 +2692,22 @@ function eventEditPayloadFromForm(form) {
   const formData = new FormData(form);
   const latRaw = String(formData.get("lat") || "").trim();
   const lngRaw = String(formData.get("lng") || "").trim();
-  const tagsRaw = String(formData.get("tags") || "").trim();
+  const titleVal = String(formData.get("title") || "").trim();
   const payload = {
-    name: String(formData.get("title") || "").trim(),
-    title: String(formData.get("title") || "").trim(),
-    title_es: String(formData.get("title_es") || "").trim() || null,
+    name: titleVal || null,
     title_de: String(formData.get("title_de") || "").trim() || null,
     title_en: String(formData.get("title_en") || "").trim() || null,
+    title_es: String(formData.get("title_es") || "").trim() || null,
     description: String(formData.get("description") || "").trim() || null,
     description_es: String(formData.get("description_es") || "").trim() || null,
     description_de: String(formData.get("description_de") || "").trim() || null,
     description_en: String(formData.get("description_en") || "").trim() || null,
     genre: String(formData.get("category") || "").trim() || null,
-    category: String(formData.get("category") || "").trim() || null,
     event_date: String(formData.get("event_date") || "").trim() || null,
     event_time: String(formData.get("event_time") || "").trim() || null,
     end_time: String(formData.get("end_time") || "").trim() || null,
     location_name: String(formData.get("location_name") || "").trim() || null,
     address: String(formData.get("address") || "").trim() || null,
-    street: String(formData.get("address") || "").trim() || null,
     postal_code: String(formData.get("postal_code") || "").trim() || null,
     city: String(formData.get("city") || "").trim() || null,
     country: String(formData.get("country") || "").trim() || null,
@@ -2410,7 +2715,6 @@ function eventEditPayloadFromForm(form) {
     price_text: String(formData.get("price_text") || "").trim() || null,
     image_url: String(formData.get("image_url") || "").trim() || null,
     image_urls: readJsonFieldFromFormLoose(formData.get("image_urls"), null),
-    tags: tagsRaw ? tagsRaw.split(",").map((tag) => tag.trim()).filter(Boolean) : null,
     verification_notes: String(formData.get("verification_notes") || "").trim() || null
   };
   if (latRaw || lngRaw) {
@@ -2509,7 +2813,7 @@ async function handleRegeocodeEvent(eventData, card, button) {
     markGeoPulse(eventData.id);
     console.log("admin geocode success", { eventId: eventData?.id, context: "event-card" });
     setGlobalFeedback("Koordinaten aktualisiert.", "success");
-    await loadEvents();
+    await refreshAdminData({ reloadEvents: true });
   } catch (error) {
     console.error("admin geocode error", error);
     setGlobalFeedback("Standort konnte nicht gefunden werden.", "error");
@@ -2597,14 +2901,13 @@ function openAdminLocationModal(eventData) {
   form?.addEventListener("submit", async (submitEvent) => {
     submitEvent.preventDefault();
     const formData = new FormData(form);
-    const locationUpdates = {
+    const locationUpdates = pickAdminEventSavePayload({
       location_name: String(formData.get("location_name") || "").trim(),
       address: String(formData.get("address") || "").trim(),
-      street: String(formData.get("address") || "").trim(),
       postal_code: String(formData.get("postal_code") || "").trim(),
       city: String(formData.get("city") || "").trim(),
       country: String(formData.get("country") || "").trim()
-    };
+    });
     locationUpdates.geocoding_query =
       composeAdminGeocodingQuery(locationUpdates)
       || [locationUpdates.location_name, locationUpdates.city, locationUpdates.country].filter(Boolean).join(", ");
@@ -3627,7 +3930,7 @@ function openEventEditorModal(eventData) {
             console.log("admin action editor-regenerate-social success", { n, eventId: eventData?.id });
             setGlobalFeedback(`Social Drafts neu (${n}).`, "success");
             close();
-            await loadEvents();
+            await refreshAdminData({ reloadEvents: true });
           } catch (error) {
             console.error("admin action editor-regenerate-social error", error);
             setBusy(false, error.message || "Fehler");
@@ -3644,9 +3947,10 @@ function openEventEditorModal(eventData) {
           setGlobalFeedback("");
           try {
             await deleteEventById(eventId, eventData);
+            removeAdminEventFromState(eventId);
             setGlobalFeedback("Event gelöscht", "success");
             close();
-            await loadEvents();
+            await refreshAdminData({ reloadSocial: true });
           } catch (error) {
             console.error("admin action editor-delete error", error);
             setBusy(false, error.message || "Löschen fehlgeschlagen.");
@@ -3682,7 +3986,7 @@ function openEventEditorModal(eventData) {
           setGlobalFeedback("Event gespeichert", "success");
         }
         close();
-        await loadEvents();
+        await refreshAdminData({ reloadEvents: true });
       } catch (error) {
         const raw = error && typeof error === "object" ? error : {};
         console.error(
@@ -3743,7 +4047,7 @@ function openEventEditorModal(eventData) {
  */
 async function handleCardAction(clickEvent) {
   const button = clickEvent.target.closest("button[data-action]");
-  if (!button) return;
+  if (!button || button.disabled) return;
   const action = button.dataset.action || "";
 
   if (action === "replace-image") {
@@ -3757,159 +4061,174 @@ async function handleCardAction(clickEvent) {
   if (!card) return;
   const eventData = findEventByCard(card);
   if (!eventData) return;
+  if (!acquireAdminEventLock(eventData.id)) return;
 
   console.log("admin action clicked", { action, context: "event-grid", eventId: eventData?.id });
 
-  if (button.dataset.action === "regeocode") {
-    await handleRegeocodeEvent(eventData, card, button);
-    return;
-  }
-
-  if (button.dataset.action === "edit-location") {
-    openAdminLocationModal(eventData);
-    return;
-  }
-
-  if (button.dataset.action === "edit-event") {
-    openEventEditorModal(eventData);
-    return;
-  }
-
-  if (button.dataset.action === "regenerate-drafts") {
-    button.disabled = true;
-    setGlobalFeedback("");
-    console.log("admin action regenerate-drafts start", { eventId: eventData?.id });
-    try {
-      const n = await regenerateSocialDraftsForEvent(eventData);
-      console.log("admin action regenerate-drafts success", { eventId: eventData?.id, n });
-      setGlobalFeedback(`Social Drafts neu erstellt (${n}).`, "success");
-      await loadEvents();
-    } catch (error) {
-      console.error("admin action regenerate-drafts error", error);
-      setGlobalFeedback(error.message || "Social Fehler", "error");
-    } finally {
-      button.disabled = false;
-    }
-    return;
-  }
-
-  if (button.dataset.action === "toggle-featured") {
-    button.disabled = true;
-    try {
-      await updateEventWithFallback(eventData.id, { featured: !eventData.featured });
-      setGlobalFeedback("Featured aktualisiert.", "success");
-      await loadEvents();
-    } catch (error) {
-      const raw = error && typeof error === "object" ? error : {};
-      console.error("admin action toggle-featured error", { eventId: eventData?.id, ...raw }, error);
-      setGlobalFeedback(error.message || "Update fehlgeschlagen", "error");
-    } finally {
-      button.disabled = false;
-    }
-    return;
-  }
-
-  if (button.dataset.action === "delete-event") {
-    const eventId = eventData?.id;
-    if (!eventId) return;
-    if (!isSessionAdmin(state.adminSession)) return;
-    if (!window.confirm("Dieses Event wirklich dauerhaft löschen?")) return;
-    const label = button.textContent;
-    button.disabled = true;
-    button.textContent = "Lösche Event...";
-    setGlobalFeedback("");
-    try {
-      await deleteEventById(eventId, eventData);
-      setGlobalFeedback("Event gelöscht", "success");
-      await loadEvents();
-    } catch (error) {
-      console.error("admin action delete-event error", error);
-      setGlobalFeedback(`Löschen fehlgeschlagen: ${error.message || ""}`.trim(), "error");
-    } finally {
-      button.disabled = false;
-      button.textContent = label;
-    }
-    return;
-  }
-
-  if (button.dataset.action === "reuse-event") {
-    if (!isSessionAdmin(state.adminSession)) return;
-    const sourceId = eventData?.id;
-    if (!sourceId) {
-      setGlobalFeedback("Duplikat: Event-ID fehlt.", "error");
+  try {
+    if (action === "regeocode") {
+      await handleRegeocodeEvent(eventData, card, button);
       return;
     }
-    button.disabled = true;
-    setGlobalFeedback("");
-    console.log("admin reuse start", { sourceId });
-    try {
-      const newId = await duplicateEventForReuse(eventData);
-      console.log("admin reuse success", { sourceId, newId });
-      setGlobalFeedback("Event als Entwurf kopiert", "success");
-      await loadEvents();
-      const fresh = state.allEvents.find((e) => String(e.id) === String(newId));
-      if (fresh) openEventEditorModal(fresh);
-    } catch (error) {
-      const raw = error && typeof error === "object" ? error : {};
-      console.error("admin reuse error", {
-        code: raw.code,
-        message: raw.message,
-        details: raw.details,
-        hint: raw.hint
-      }, error);
-      const msg = String(raw.message || error || "Duplikat fehlgeschlagen.").trim();
-      setGlobalFeedback(`Duplikat fehlgeschlagen: ${msg}`, "error");
-    } finally {
-      button.disabled = false;
+
+    if (action === "edit-location") {
+      openAdminLocationModal(eventData);
+      return;
     }
-    return;
-  }
 
-  const notes = card.querySelector("textarea[data-notes]")?.value.trim() || "";
-  const featuredInput = card.querySelector("input[data-featured]");
-  const promotedInput = card.querySelector("input[data-promoted]");
+    if (action === "edit-event") {
+      openEventEditorModal(eventData);
+      return;
+    }
 
-  button.disabled = true;
-  setGlobalFeedback("");
-  try {
-    if (button.dataset.action === "save-notes") {
-      await updateEventWithFallback(eventData.id, { verification_notes: notes });
-      setGlobalFeedback("Notes saved.", "success");
-    } else {
-      const updatedRow = await updateEventWithFallback(eventData.id, {
-        status: button.dataset.action,
-        verification_notes: notes
+    if (action === "regenerate-drafts") {
+      setGlobalFeedback("");
+      await withAdminButtonBusy(button, "Social…", async () => {
+        console.log("admin action regenerate-drafts start", { eventId: eventData?.id });
+        const n = await regenerateSocialDraftsForEvent(eventData);
+        console.log("admin action regenerate-drafts success", { eventId: eventData?.id, n });
+        setGlobalFeedback(`Social Drafts neu erstellt (${n}).`, "success");
+        await refreshAdminData({ reloadSocial: true });
       });
-      const persistedStatus = String(updatedRow?.status || button.dataset.action);
-      let socialCreated = 0;
-      if (persistedStatus === "approved") {
-        socialCreated = await ensureSocialReviewQueueForEvent({ ...eventData, status: persistedStatus });
+      return;
+    }
+
+    if (action === "toggle-featured") {
+      const nextFeatured = !eventData.featured;
+      const prev = patchAdminEventInState(eventData.id, { featured: nextFeatured });
+      render();
+      setGlobalFeedback("");
+      await withAdminButtonBusy(button, "…", async () => {
+        try {
+          await updateEventWithFallback(eventData.id, { featured: nextFeatured });
+          setGlobalFeedback("Featured aktualisiert.", "success");
+          render();
+        } catch (error) {
+          if (prev) patchAdminEventInState(eventData.id, prev);
+          render();
+          const raw = error && typeof error === "object" ? error : {};
+          console.error("admin action toggle-featured error", { eventId: eventData?.id, ...raw }, error);
+          setGlobalFeedback(error.message || "Update fehlgeschlagen", "error");
+        }
+      });
+      return;
+    }
+
+    if (action === "delete-event") {
+      const eventId = eventData?.id;
+      if (!eventId || !isSessionAdmin(state.adminSession)) return;
+      if (!window.confirm("Dieses Event wirklich dauerhaft löschen?")) return;
+      setGlobalFeedback("");
+      await withAdminButtonBusy(button, "Lösche…", async () => {
+        try {
+          await deleteEventById(eventId, eventData);
+          removeAdminEventFromState(eventId);
+          setGlobalFeedback("Event gelöscht", "success");
+          await refreshAdminData({ reloadSocial: true });
+        } catch (error) {
+          console.error("admin action delete-event error", error);
+          setGlobalFeedback(`Löschen fehlgeschlagen: ${error.message || ""}`.trim(), "error");
+        }
+      });
+      return;
+    }
+
+    if (action === "reuse-event") {
+      if (!isSessionAdmin(state.adminSession)) return;
+      const sourceId = eventData?.id;
+      if (!sourceId) {
+        setGlobalFeedback("Duplikat: Event-ID fehlt.", "error");
+        return;
       }
-      const socialSuffix = socialCreated ? ` Social Review: ${socialCreated} Draft-Jobs geplant.` : "";
-      setGlobalFeedback(`Status updated to ${persistedStatus}.${socialSuffix}`, "success");
+      setGlobalFeedback("");
+      await withAdminButtonBusy(button, "Kopiere…", async () => {
+        console.log("admin reuse start", { sourceId });
+        try {
+          const newId = await duplicateEventForReuse(eventData);
+          console.log("admin reuse success", { sourceId, newId });
+          setGlobalFeedback("Event als Entwurf kopiert", "success");
+          await refreshAdminData({ reloadEvents: true });
+          const fresh = state.allEvents.find((e) => String(e.id) === String(newId));
+          if (fresh) openEventEditorModal(fresh);
+        } catch (error) {
+          const raw = error && typeof error === "object" ? error : {};
+          console.error("admin reuse error", {
+            code: raw.code,
+            message: raw.message,
+            details: raw.details,
+            hint: raw.hint
+          }, error);
+          setGlobalFeedback(`Duplikat fehlgeschlagen: ${raw.message || error?.message || ""}`.trim(), "error");
+        }
+      });
+      return;
     }
 
-    const featuredChanged = state.featureColumns.featured && featuredInput
-      ? Boolean(featuredInput.checked) !== Boolean(eventData.featured)
-      : false;
-    const promotedChanged = state.featureColumns.promoted && promotedInput
-      ? Boolean(promotedInput.checked) !== Boolean(eventData.promoted)
-      : false;
+    if (!ADMIN_CARD_STATUS_ACTIONS.has(action)) return;
 
-    if (featuredChanged || promotedChanged) {
-      const flagPayload = {};
-      if (featuredChanged) flagPayload.featured = Boolean(featuredInput.checked);
-      if (promotedChanged) flagPayload.promoted = Boolean(promotedInput.checked);
-      await updateEventWithFallback(eventData.id, flagPayload);
-    }
+    const notes = card.querySelector("textarea[data-notes]")?.value.trim() || "";
+    const featuredInput = card.querySelector("input[data-featured]");
+    const promotedInput = card.querySelector("input[data-promoted]");
+    const featuredVal = state.featureColumns.featured && featuredInput ? Boolean(featuredInput.checked) : eventData.featured;
+    const promotedVal = state.featureColumns.promoted && promotedInput ? Boolean(promotedInput.checked) : eventData.promoted;
 
-    await loadEvents();
-  } catch (error) {
-    const raw = error && typeof error === "object" ? error : {};
-    console.error("admin action card-batch error", { action, eventId: eventData?.id, ...raw }, error);
-    setGlobalFeedback(`Action failed: ${error.message}`, "error");
+    const optimisticPatch =
+      action === "save-notes"
+        ? { verification_notes: notes, featured: featuredVal, promoted: promotedVal }
+        : { status: action, verification_notes: notes, featured: featuredVal, promoted: promotedVal };
+    const prevSnapshot = patchAdminEventInState(eventData.id, optimisticPatch);
+    render();
+    setGlobalFeedback("");
+
+    await withAdminButtonBusy(button, "Speichern…", async () => {
+      try {
+        if (action === "save-notes") {
+          await updateEventWithFallback(eventData.id, {
+            verification_notes: notes,
+            ...(state.featureColumns.featured ? { featured: featuredVal } : {}),
+            ...(state.featureColumns.promoted ? { promoted: promotedVal } : {})
+          });
+          patchAdminEventInState(eventData.id, { verification_notes: notes, featured: featuredVal, promoted: promotedVal });
+          setGlobalFeedback("Notizen gespeichert.", "success");
+        } else {
+          const updatedRow = await updateEventWithFallback(eventData.id, {
+            status: action,
+            verification_notes: notes,
+            ...(state.featureColumns.featured ? { featured: featuredVal } : {}),
+            ...(state.featureColumns.promoted ? { promoted: promotedVal } : {})
+          });
+          const persistedStatus = String(updatedRow?.status || action);
+          patchAdminEventInState(eventData.id, {
+            status: persistedStatus,
+            verification_notes: notes,
+            featured: featuredVal,
+            promoted: promotedVal
+          });
+          let socialCreated = 0;
+          if (persistedStatus === "approved") {
+            socialCreated = await ensureSocialReviewQueueForEvent({
+              ...eventData,
+              status: persistedStatus,
+              verification_notes: notes,
+              featured: featuredVal,
+              promoted: promotedVal
+            });
+          }
+          const socialSuffix = socialCreated ? ` · ${socialCreated} Social-Drafts geplant` : "";
+          setGlobalFeedback(`${adminStatusSuccessMessage(persistedStatus)}${socialSuffix}`, "success");
+          if (socialCreated) await loadSocialQueueRows();
+        }
+        render();
+      } catch (error) {
+        if (prevSnapshot) patchAdminEventInState(eventData.id, prevSnapshot);
+        render();
+        const raw = error && typeof error === "object" ? error : {};
+        console.error("admin action card-batch error", { action, eventId: eventData?.id, ...raw }, error);
+        setGlobalFeedback(`Aktion fehlgeschlagen: ${error.message || ""}`.trim(), "error");
+      }
+    });
   } finally {
-    button.disabled = false;
+    releaseAdminEventLock(eventData.id);
   }
 }
 
@@ -4030,15 +4349,24 @@ function bindEvents() {
 
   dom.socialQueuePanel?.addEventListener("click", async (event) => {
     const button = event.target.closest("button[data-queue-action]");
-    if (!button) return;
+    if (!button || button.disabled) return;
     const rowEl = button.closest("[data-queue-id]");
     const queueId = rowEl?.dataset.queueId;
     const eventId = rowEl?.dataset.eventId;
+    const queueAction = button.dataset.queueAction || "";
     const row = findSocialQueueRow(queueId);
     const eventData = state.allEvents.find((item) => String(item.id) === String(eventId));
+
+    console.log("admin action clicked", {
+      action: queueAction,
+      context: "social-queue",
+      queueId,
+      eventId
+    });
+
     button.disabled = true;
     try {
-      if (button.dataset.queueAction === "open-event" && eventData) {
+      if (queueAction === "open-event" && eventData) {
         state.navSection = "events";
         state.search = eventData.name || "";
         if (dom.searchInput) dom.searchInput.value = state.search;
@@ -4047,27 +4375,40 @@ function bindEvents() {
           const escapedEventId = window.CSS?.escape ? window.CSS.escape(String(eventId)) : String(eventId).replace(/"/g, '\\"');
           document.querySelector(`.event-card[data-event-id="${escapedEventId}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
         });
-      } else if (button.dataset.queueAction === "retry") {
+        setGlobalFeedback("Event in der Liste.", "success");
+      } else if (queueAction === "retry") {
         await retrySocialQueueRow(queueId);
         setGlobalFeedback("Retry geplant.", "success");
-        await loadEvents();
-      } else if (button.dataset.queueAction === "delete") {
+        await refreshAdminData({ reloadSocial: true });
+      } else if (queueAction === "delete") {
         await deleteSocialQueueRow(queueId);
         setGlobalFeedback("Eintrag gelöscht.", "success");
-        await loadEvents();
-      } else if (button.dataset.queueAction === "regenerate" && eventData) {
+        await refreshAdminData({ reloadSocial: true });
+      } else if (queueAction === "regenerate" && eventData) {
         const count = await regenerateSocialDraftsForEvent(eventData);
         setGlobalFeedback(`Drafts neu (${count}).`, "success");
-        await loadEvents();
-      } else if (button.dataset.queueAction === "copy-caption") {
-        await navigator.clipboard?.writeText(String(row?.caption || ""));
-        setGlobalFeedback("Caption kopiert.", "success");
-      } else if (button.dataset.queueAction === "open-image") {
+        await refreshAdminData({ reloadSocial: true });
+      } else if (queueAction === "copy-caption") {
+        const text = String(row?.caption || "");
+        if (!text) {
+          setGlobalFeedback("Keine Caption vorhanden.", "error");
+        } else if (!navigator.clipboard?.writeText) {
+          setGlobalFeedback("Zwischenablage nicht verfügbar.", "error");
+        } else {
+          await navigator.clipboard.writeText(text);
+          setGlobalFeedback("Caption kopiert.", "success");
+        }
+      } else if (queueAction === "open-image") {
         const imageUrl = row?.resolved_image_url || eventData?.image_url;
-        if (imageUrl) window.open(imageUrl, "_blank", "noopener,noreferrer");
+        if (imageUrl) {
+          window.open(imageUrl, "_blank", "noopener,noreferrer");
+          setGlobalFeedback("Bild geöffnet.", "success");
+        } else {
+          setGlobalFeedback("Kein Bild verfügbar.", "error");
+        }
       }
     } catch (error) {
-      console.error("Social queue action failed:", error);
+      console.error("admin action social-queue error", { queueAction, queueId, eventId }, error);
       setGlobalFeedback(`Social: ${error.message || ""}`.trim(), "error");
     } finally {
       button.disabled = false;
@@ -4133,6 +4474,50 @@ function bindEvents() {
   dom.eventGrid?.addEventListener("click", handleCardAction);
 
   dom.eventGrid?.addEventListener("change", async (changeEvent) => {
+    const featuredInput = changeEvent.target.closest("input[data-featured]");
+    const promotedInput = changeEvent.target.closest("input[data-promoted]");
+    if (featuredInput || promotedInput) {
+      const card = changeEvent.target.closest(".event-card");
+      const eventData = findEventByCard(card);
+      if (!eventData || !acquireAdminEventLock(eventData.id)) {
+        if (featuredInput) featuredInput.checked = Boolean(eventData?.featured);
+        if (promotedInput) promotedInput.checked = Boolean(eventData?.promoted);
+        return;
+      }
+      const payload = {};
+      if (featuredInput && state.featureColumns.featured) payload.featured = Boolean(featuredInput.checked);
+      if (promotedInput && state.featureColumns.promoted) payload.promoted = Boolean(promotedInput.checked);
+      if (!Object.keys(payload).length) {
+        releaseAdminEventLock(eventData.id);
+        return;
+      }
+      console.log("admin action clicked", {
+        action: featuredInput ? "featured-toggle" : "promoted-toggle",
+        context: "event-grid-checkbox",
+        eventId: eventData.id,
+        payload
+      });
+      const prev = patchAdminEventInState(eventData.id, payload);
+      render();
+      setGlobalFeedback("");
+      try {
+        await updateEventWithFallback(eventData.id, payload);
+        setGlobalFeedback(
+          payload.featured !== undefined ? "Featured gespeichert." : "Promoted gespeichert.",
+          "success"
+        );
+        render();
+      } catch (error) {
+        if (prev) patchAdminEventInState(eventData.id, prev);
+        render();
+        console.error("admin action checkbox error", { eventId: eventData.id, payload }, error);
+        setGlobalFeedback(`Speichern fehlgeschlagen: ${error.message || ""}`.trim(), "error");
+      } finally {
+        releaseAdminEventLock(eventData.id);
+      }
+      return;
+    }
+
     const input = changeEvent.target.closest("input[data-admin-replace-input]");
     if (!input || !input.files?.length) return;
     const file = input.files[0];
@@ -4171,9 +4556,9 @@ function bindEvents() {
         fig?.classList.remove("event-card__preview--empty");
       }
       setGlobalFeedback("Bild wurde ersetzt.", "success");
-      await loadEvents();
+      await refreshAdminData({ reloadEvents: true });
     } catch (error) {
-      console.error("Replace image failed:", error);
+      console.error("admin action replace-image error", error);
       setGlobalFeedback(`Bild konnte nicht ersetzt werden: ${error.message}`, "error");
     } finally {
       if (btn) {
@@ -4202,6 +4587,12 @@ function bindEvents() {
 
 async function start() {
   bindEvents();
+  if (typeof window !== "undefined") {
+    window.__ADMIN_EVENTS__ = () => state.allEvents;
+    window.__ADMIN_STATE__ = state;
+    window.adminState = state;
+    window.applyFilters = applyFilters;
+  }
   try {
     await checkSession();
     renderAuthState();
