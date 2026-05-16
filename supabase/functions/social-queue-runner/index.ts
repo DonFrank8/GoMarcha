@@ -13,6 +13,13 @@ type QueueRow = {
   retry_count: number;
   last_attempt_at: string | null;
   resolved_image_url?: string | null;
+  caption?: string | null;
+  hashtags?: string | null;
+  cta_text?: string | null;
+  postiz_response?: Record<string, unknown> | null;
+  admin_confirmed_at?: string | null;
+  postiz_post_id?: string | null;
+  postiz_synced_at?: string | null;
 };
 
 /** Postiz posts API requires `image[].path` on uploads.postiz.com (and matching `id` from upload). */
@@ -1144,13 +1151,15 @@ function extractPostIdsFromCreateResponse(body: unknown): string[] {
   return [...new Set(out)];
 }
 
+const CLAIMABLE_STATUSES = ["pending", "failed", "ready_for_postiz"] as const;
+
 async function claimRow(supabase: SupabaseClient, rowId: string): Promise<QueueRow | null> {
   const now = new Date().toISOString();
   const { data, error } = await supabase
     .from("social_queue")
     .update({ status: "processing", last_attempt_at: now, updated_at: now })
     .eq("id", rowId)
-    .in("status", ["pending", "failed"])
+    .in("status", [...CLAIMABLE_STATUSES])
     .select("*")
     .maybeSingle();
   if (error) {
@@ -1160,20 +1169,186 @@ async function claimRow(supabase: SupabaseClient, rowId: string): Promise<QueueR
   return data as QueueRow | null;
 }
 
+function readAdminExtrasFromRow(row: QueueRow): { hashtags: string; cta_text: string } {
+  const fromCols = {
+    hashtags: String(row.hashtags || "").trim(),
+    cta_text: String(row.cta_text || "").trim()
+  };
+  const pr = row.postiz_response;
+  const meta =
+    pr && typeof pr === "object" && pr._marcha_admin && typeof pr._marcha_admin === "object"
+      ? (pr._marcha_admin as Record<string, unknown>)
+      : null;
+  if (meta) {
+    if (!fromCols.hashtags && meta.hashtags) fromCols.hashtags = String(meta.hashtags).trim();
+    if (!fromCols.cta_text && meta.cta_text) fromCols.cta_text = String(meta.cta_text).trim();
+  }
+  return fromCols;
+}
+
+/** Prefer admin-edited caption from Marcha when present. */
+function buildCaptionForQueueRow(
+  row: QueueRow,
+  ev: EventRow,
+  captionTemplate: CaptionTemplate,
+  ctx: { eventStartMs: number; postAtMs: number; timeZone: string }
+): { caption: string; template_id: string; source: "admin" | "template" } {
+  const adminBody = String(row.caption || "").trim();
+  if (adminBody.length >= 8) {
+    const extras = readAdminExtrasFromRow(row);
+    const parts = [adminBody];
+    if (extras.hashtags) parts.push(extras.hashtags);
+    if (extras.cta_text) parts.push(extras.cta_text);
+    return { caption: parts.join("\n\n"), template_id: "admin", source: "admin" };
+  }
+  const built = buildCaption(captionTemplate, ev, ctx);
+  return { caption: built.caption, template_id: built.template_id, source: "template" };
+}
+
+type RunnerAuthMode = "cron_secret" | "admin_jwt";
+
+type RunnerAuthResult =
+  | { ok: true; mode: RunnerAuthMode; email?: string }
+  | { ok: false; status: number; error: string; reason: string };
+
+function parseAdminEmailAllowlist(): string[] {
+  const raw = Deno.env.get("MARCHA_ADMIN_ALLOWED_EMAILS") || "";
+  return raw
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function isAdminEmailAllowed(email: string, allowlist: string[]): boolean {
+  if (!allowlist.length) return true;
+  const normalized = String(email || "").trim().toLowerCase();
+  return Boolean(normalized) && allowlist.includes(normalized);
+}
+
+function bearerToken(req: Request): string {
+  const authHeader = req.headers.get("Authorization") || "";
+  return authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+}
+
+async function resolveRunnerAuth(
+  req: Request,
+  body: { admin_handoff?: boolean; queue_id?: string },
+  supabaseUrl: string,
+  serviceKey: string
+): Promise<RunnerAuthResult> {
+  const queueId = body.queue_id ? String(body.queue_id) : null;
+  const adminHandoff = Boolean(body.admin_handoff && queueId);
+  const secret = Deno.env.get("MARCHA_SOCIAL_RUNNER_SECRET") || "";
+  const hdr = req.headers.get("x-marcha-social-secret") || "";
+  const secretOk = Boolean(secret && hdr === secret);
+
+  if (secretOk) {
+    slog("auth_ok", { auth_mode: "cron_secret", queue_id: queueId, user_email: null });
+    return { ok: true, mode: "cron_secret" };
+  }
+
+  if (adminHandoff) {
+    const token = bearerToken(req);
+    if (!token) {
+      slog("auth_rejected", {
+        auth_mode: "admin_jwt",
+        queue_id: queueId,
+        user_email: null,
+        reason: "missing_jwt"
+      });
+      return { ok: false, status: 401, error: "Admin session missing.", reason: "missing_jwt" };
+    }
+
+    const authClient = createClient(supabaseUrl, serviceKey);
+    const { data, error } = await authClient.auth.getUser(token);
+    const email = data.user?.email ? String(data.user.email) : "";
+    if (error || !data.user) {
+      slog("auth_rejected", {
+        auth_mode: "admin_jwt",
+        queue_id: queueId,
+        user_email: email || null,
+        reason: "invalid_jwt",
+        message: error?.message ?? "no_user"
+      });
+      return { ok: false, status: 401, error: "Admin session missing.", reason: "invalid_jwt" };
+    }
+
+    const appRole = String(data.user.app_metadata?.role || "").toLowerCase();
+    const userRole = String(data.user.user_metadata?.role || "").toLowerCase();
+    const isAdmin = appRole === "admin" || userRole === "admin";
+    if (!isAdmin) {
+      slog("auth_rejected", {
+        auth_mode: "admin_jwt",
+        queue_id: queueId,
+        user_email: email,
+        reason: "not_admin_role"
+      });
+      return { ok: false, status: 403, error: "Admin not allowed.", reason: "not_admin_role" };
+    }
+
+    const allowlist = parseAdminEmailAllowlist();
+    if (!isAdminEmailAllowed(email, allowlist)) {
+      slog("auth_rejected", {
+        auth_mode: "admin_jwt",
+        queue_id: queueId,
+        user_email: email,
+        reason: "email_not_allowlisted"
+      });
+      return { ok: false, status: 403, error: "Admin not allowed.", reason: "email_not_allowlisted" };
+    }
+
+    slog("auth_ok", { auth_mode: "admin_jwt", queue_id: queueId, user_email: email });
+    return { ok: true, mode: "admin_jwt", email };
+  }
+
+  if (!secret) {
+    slog("auth_rejected", {
+      auth_mode: "cron_secret",
+      queue_id: queueId,
+      user_email: null,
+      reason: "secret_not_configured"
+    });
+    return {
+      ok: false,
+      status: 401,
+      error: "Unauthorized or MARCHA_SOCIAL_RUNNER_SECRET not set",
+      reason: "secret_not_configured"
+    };
+  }
+
+  slog("auth_rejected", {
+    auth_mode: "cron_secret",
+    queue_id: queueId,
+    user_email: null,
+    reason: "invalid_or_missing_secret"
+  });
+  return { ok: false, status: 401, error: "Unauthorized", reason: "invalid_or_missing_secret" };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
 
-  const secret = Deno.env.get("MARCHA_SOCIAL_RUNNER_SECRET") || "";
-  const hdr = req.headers.get("x-marcha-social-secret") || "";
-  if (!secret || hdr !== secret) {
-    return new Response(JSON.stringify({ error: "Unauthorized or MARCHA_SOCIAL_RUNNER_SECRET not set" }), {
-      status: 401,
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+  let body: { queue_id?: string; limit?: number; admin_handoff?: boolean } = {};
+  try {
+    if (req.method === "POST" && req.headers.get("content-type")?.includes("application/json")) {
+      body = await req.json();
+    }
+  } catch {
+    body = {};
+  }
+
+  const auth = await resolveRunnerAuth(req, body, supabaseUrl, serviceKey);
+  if (!auth.ok) {
+    return new Response(JSON.stringify({ error: auth.error, reason: auth.reason }), {
+      status: auth.status,
       headers: { ...CORS, "Content-Type": "application/json" }
     });
   }
 
-  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const adminHandoff = auth.mode === "admin_jwt";
   const postizBase = Deno.env.get("POSTIZ_API_BASE") || "https://api.postiz.com/public/v1";
   const postizKey = Deno.env.get("POSTIZ_API_KEY") || "";
   const intIg = Deno.env.get("POSTIZ_INSTAGRAM_INTEGRATION_ID") || "";
@@ -1208,37 +1383,62 @@ Deno.serve(async (req) => {
     eligibility_horizon_iso: eligibilityHorizonIso,
     postiz_mode: postizPostMode,
     postiz_mode_env: postizPostModeEnv || "draft",
-    min_review_hours: minReviewHoursEffective
+    min_review_hours: minReviewHoursEffective,
+    admin_handoff: adminHandoff,
+    auth_mode: auth.mode,
+    user_email: auth.mode === "admin_jwt" ? auth.email ?? null : null,
+    queue_id: body.queue_id ?? null
   });
 
-  let body: { queue_id?: string; limit?: number } = {};
-  try {
-    if (req.method === "POST" && req.headers.get("content-type")?.includes("application/json")) {
-      body = await req.json();
-    }
-  } catch {
-    body = {};
-  }
-
   const limit = Math.min(Math.max(Number(body.limit) || 8, 1), 25);
+  const bypassReviewWindow = adminHandoff || Boolean(body.queue_id);
 
-  let query = supabase
-    .from("social_queue")
-    .select("*")
-    .lte("scheduled_at", eligibilityHorizonIso)
-    .lt("retry_count", 5)
-    .order("scheduled_at", { ascending: true })
-    .limit(limit);
+  let rows: QueueRow[] = [];
+  let qErr: { message: string } | null = null;
 
   if (body.queue_id) {
-    query = query.eq("id", body.queue_id);
+    const { data, error } = await supabase
+      .from("social_queue")
+      .select("*")
+      .eq("id", body.queue_id)
+      .lt("retry_count", 5)
+      .maybeSingle();
+    if (error) qErr = error;
+    else if (data) rows = [data as QueueRow];
   } else {
-    query = query.or(
-      `status.eq.pending,and(status.eq.failed,or(last_attempt_at.is.null,last_attempt_at.lt.${retryBefore}))`
-    );
+    const { data: readyRows, error: readyErr } = await supabase
+      .from("social_queue")
+      .select("*")
+      .eq("status", "ready_for_postiz")
+      .lt("retry_count", 5)
+      .order("scheduled_at", { ascending: true })
+      .limit(limit);
+    if (readyErr) qErr = readyErr;
+    const ready = (readyRows ?? []) as QueueRow[];
+    const remaining = Math.max(0, limit - ready.length);
+    let windowed: QueueRow[] = [];
+    if (remaining > 0) {
+      const { data: windowRows, error: windowErr } = await supabase
+        .from("social_queue")
+        .select("*")
+        .lte("scheduled_at", eligibilityHorizonIso)
+        .lt("retry_count", 5)
+        .or(
+          `status.eq.pending,and(status.eq.failed,or(last_attempt_at.is.null,last_attempt_at.lt.${retryBefore}))`
+        )
+        .order("scheduled_at", { ascending: true })
+        .limit(remaining);
+      if (windowErr) qErr = windowErr;
+      windowed = (windowRows ?? []) as QueueRow[];
+    }
+    rows = [...ready, ...windowed];
   }
 
-  const { data: rows, error: qErr } = await query;
+  slog("queue_rows_selected", {
+    count: rows.length,
+    bypass_review_window: bypassReviewWindow,
+    queue_ids: rows.map((r) => r.id)
+  });
   if (qErr) {
     slog("queue_select_error", { message: qErr.message });
     return new Response(JSON.stringify({ error: qErr.message }), {
@@ -1403,13 +1603,21 @@ Deno.serve(async (req) => {
     }
 
     const effectivePostIso = new Date(scheduleResult.effectiveMs).toISOString();
-    const postizPlan = resolvePostizPublishPlan({
-      effectiveMs: scheduleResult.effectiveMs,
-      eventStartMs,
-      nowMs,
-      envModeRaw: postizPostMode,
-      minReviewHours: minReviewHoursEffective
-    });
+    const isAdminConfirmed = Boolean(claimed.admin_confirmed_at) || claimed.status === "ready_for_postiz" || adminHandoff;
+    const postizPlan = adminHandoff || isAdminConfirmed
+      ? {
+          postType: "draft" as PostizRootType,
+          publishMs: scheduleResult.effectiveMs,
+          usedScheduleFallbackToDraft: false,
+          scheduleFallbackReason: null
+        }
+      : resolvePostizPublishPlan({
+          effectiveMs: scheduleResult.effectiveMs,
+          eventStartMs,
+          nowMs,
+          envModeRaw: "draft",
+          minReviewHours: minReviewHoursEffective
+        });
     const postizPublishIso = new Date(postizPlan.publishMs).toISOString();
     const eligibleForReview = Date.parse(claimed.scheduled_at) <= eligibilityHorizonMs;
     if (postizPlan.usedScheduleFallbackToDraft) {
@@ -1544,11 +1752,12 @@ Deno.serve(async (req) => {
 
     const captionStage = captionStageForPost(eventStartMs, scheduleResult.effectiveMs, eventTimeZone);
     const captionTemplate = await pickCaptionTemplate(supabase, claimed.event_id, captionStage);
-    const { caption, template_id } = buildCaption(captionTemplate, ev, {
+    const captionBuilt = buildCaptionForQueueRow(claimed, ev, captionTemplate, {
       eventStartMs,
       postAtMs: scheduleResult.effectiveMs,
       timeZone: eventTimeZone
     });
+    const { caption, template_id } = captionBuilt;
 
     slog("post_prepare", {
       queue_id: claimed.id,
@@ -1571,6 +1780,8 @@ Deno.serve(async (req) => {
       caption_stage: captionStage,
       caption_preview: caption.slice(0, 120),
       caption_template_id: template_id,
+      caption_source: captionBuilt.source,
+      admin_confirmed: isAdminConfirmed,
       postiz_integration_id: integrationId
     });
 
@@ -1653,31 +1864,46 @@ Deno.serve(async (req) => {
       continue;
     }
 
+    const handoffMessage = "An Postiz übergeben – wartet auf Freigabe.";
     const mergedSuccessResponse =
       typeof postizRes.body === "object" && postizRes.body !== null
-        ? { ...(postizRes.body as object), _marcha_postiz_post_ids: createdPostIds }
-        : { raw: postizRes.body, _marcha_postiz_post_ids: createdPostIds };
+        ? {
+            ...(postizRes.body as object),
+            _marcha_postiz_post_ids: createdPostIds,
+            _marcha_handoff_message: handoffMessage,
+            _marcha_postiz_mode: "draft"
+          }
+        : {
+            raw: postizRes.body,
+            _marcha_postiz_post_ids: createdPostIds,
+            _marcha_handoff_message: handoffMessage,
+            _marcha_postiz_mode: "draft"
+          };
 
-    await supabase.from("social_caption_usage").insert({
-      event_id: claimed.event_id,
-      template_id,
-      caption,
-      platform: claimed.platform
-    });
-
-    await supabase
-      .from("social_queue")
-      .update({
-        status: "posted",
-        resolved_image_url: resolvedPostizUrl,
+    if (captionBuilt.source === "template") {
+      await supabase.from("social_caption_usage").insert({
+        event_id: claimed.event_id,
+        template_id,
         caption,
-        caption_template_id: template_id,
-        postiz_response: mergedSuccessResponse as object,
-        last_error: null,
-        posted_at: now,
-        updated_at: now
-      })
-      .eq("id", claimed.id);
+        platform: claimed.platform
+      });
+    }
+
+    const primaryPostId = createdPostIds[0] ?? null;
+    const successPatch: Record<string, unknown> = {
+      status: "sent_to_postiz",
+      resolved_image_url: resolvedPostizUrl,
+      caption,
+      caption_template_id: template_id,
+      postiz_response: mergedSuccessResponse,
+      postiz_post_id: primaryPostId,
+      postiz_synced_at: now,
+      last_error: null,
+      posted_at: now,
+      updated_at: now
+    };
+
+    await supabase.from("social_queue").update(successPatch).eq("id", claimed.id);
 
     slog("postiz_create_ok", {
       queue_id: claimed.id,
@@ -1685,21 +1911,28 @@ Deno.serve(async (req) => {
       queue_scheduled_at: claimed.scheduled_at,
       review_window_hours: reviewWindowHours,
       eligible_for_review: eligibleForReview,
-      postiz_mode: postizPostMode,
+      bypass_review_window: bypassReviewWindow,
+      postiz_mode: "draft",
       created_as_draft_or_schedule: postizPlan.postType,
-      postiz_post_ids: createdPostIds
+      postiz_post_ids: createdPostIds,
+      postiz_post_id: primaryPostId,
+      marcha_status: "sent_to_postiz",
+      handoff_message: handoffMessage
     });
 
     results.push({
       queue_id: claimed.id,
       ok: true,
+      marcha_status: "sent_to_postiz",
+      handoff_message: handoffMessage,
       postiz_post_ids: createdPostIds,
+      postiz_post_id: primaryPostId,
       source_image_url: finalImage,
       postiz_image_url: resolvedPostizUrl,
       image_source: imageLoggedSource,
       caption_template_id: template_id,
       postiz_status: postizRes.status,
-      postiz_mode: postizPostMode,
+      postiz_mode: "draft",
       created_as_draft_or_schedule: postizPlan.postType
     });
   }

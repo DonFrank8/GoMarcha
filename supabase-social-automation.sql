@@ -79,7 +79,18 @@ begin
   ) then
     alter table public.social_queue
       add constraint social_queue_status_check
-      check (status in ('pending', 'draft', 'processing', 'posted', 'failed', 'skipped'));
+      check (
+        status in (
+          'pending',
+          'draft',
+          'ready_for_postiz',
+          'processing',
+          'sent_to_postiz',
+          'posted',
+          'failed',
+          'skipped'
+        )
+      );
   end if;
 exception
   when others then null;

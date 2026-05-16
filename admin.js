@@ -2,7 +2,7 @@ const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
 const ADMIN_REQUIRED_ROLE = "admin";
 const ADMIN_ALLOWED_EMAILS = [];
-const ADMIN_DASHBOARD_BUILD = "2026.05.17-social-postiz-deploy-2";
+const ADMIN_DASHBOARD_BUILD = "2026.05.17-recurring-social-safe-v1";
 if (typeof window !== "undefined") {
   window.PARTYRADAR_ADMIN_BUILD = ADMIN_DASHBOARD_BUILD;
   console.log("[admin-build]", ADMIN_DASHBOARD_BUILD);
@@ -43,7 +43,8 @@ const SOCIAL_QUEUE_INSERT_COLUMNS = new Set([
   "retry_count",
   "hashtags",
   "cta_text",
-  "postiz_response"
+  "postiz_response",
+  "post_stage"
 ]);
 
 /** Auto-delete posted rows older than N days (0 = disabled). */
@@ -129,9 +130,18 @@ const ADMIN_EVENT_SAVE_COLUMN_WHITELIST = new Set([
   "recurrence_end_date",
   "recurrence_weekday",
   "recurrence_day_of_month",
+  "is_recurring",
+  "recurring_social_enabled",
   "original_event_id",
   "archived_at"
 ]);
+
+const RECURRING_SOCIAL_SLOT_SPECS = [
+  { stage: "early_reminder", daysBefore: 3, hour: 18, minute: 0 },
+  { stage: "tomorrow", daysBefore: 1, hour: 18, minute: 0 },
+  { stage: "last_call", minutesBefore: 90 }
+];
+const RECURRING_SOCIAL_OCCURRENCE_PREP_LIMIT = 4;
 
 /** Known missing on live DB — never send (avoids repeated 400 schema errors). */
 const ADMIN_EVENT_SAVE_COLUMNS_DISALLOWED = new Set([
@@ -579,6 +589,16 @@ function isAdminRecurringEvent(event) {
   return normalizeAdminRecurrenceType(event?.recurrence_type) !== "none";
 }
 
+/** Explicit DB flag; missing/false keeps legacy one-time behaviour unchanged. */
+function eventIsRecurringSocialFlag(event) {
+  return event?.is_recurring === true;
+}
+
+/** Master series eligible for recurring social prepare (Phase B). */
+function isRecurringSocialMaster(event) {
+  return eventIsRecurringSocialFlag(event) && isAdminRecurringEvent(adminCoerceRecurrenceFields(event));
+}
+
 function adminFormatLocalYmd(date = new Date()) {
   const d = date instanceof Date ? date : new Date(date);
   if (Number.isNaN(d.getTime())) return "";
@@ -872,6 +892,23 @@ function getNextRecurringOccurrence(event, now = new Date()) {
   }
 
   return null;
+}
+
+/** Next N future occurrence starts for a recurring master (isolated; does not affect one-time queue). */
+function getNextRecurringOccurrences(event, limit = RECURRING_SOCIAL_OCCURRENCE_PREP_LIMIT, now = new Date()) {
+  if (!isRecurringSocialMaster(event)) return [];
+  const max = Math.min(Math.max(Number(limit) || 1, 1), 12);
+  const out = [];
+  let cursor = now;
+  for (let i = 0; i < max * 3 && out.length < max; i += 1) {
+    const next = getNextRecurringOccurrence(event, cursor);
+    if (!next || Number.isNaN(next.getTime())) break;
+    const key = next.toISOString();
+    if (out.some((d) => d.toISOString() === key)) break;
+    out.push(next);
+    cursor = new Date(next.getTime() + 60_000);
+  }
+  return out;
 }
 
 function isRecurringEventPast(event, now = new Date()) {
@@ -2191,10 +2228,18 @@ async function invokeSocialQueueRunnerHandoff(queueId) {
   const client = supabaseClient();
   const { data: sessionData, error: sessionError } = await client.auth.getSession();
   if (sessionError) throw new Error(sessionError.message || "Session konnte nicht geladen werden.");
-  const token = sessionData?.session?.access_token;
-  if (!token) throw new Error("Nicht angemeldet.");
+  let token = sessionData?.session?.access_token || "";
+  if (!token) throw new Error("Admin session missing.");
+  const { data: refreshed, error: refreshError } = await client.auth.refreshSession();
+  if (!refreshError && refreshed?.session?.access_token) {
+    token = refreshed.session.access_token;
+  }
 
-  console.log("social queue postiz handoff start", { queueId: idKey });
+  console.log("social queue postiz handoff start", {
+    queueId: idKey,
+    hasToken: Boolean(token),
+    userEmail: sessionData?.session?.user?.email ?? refreshed?.session?.user?.email ?? null
+  });
   const res = await fetch(`${SUPABASE_URL}/functions/v1/social-queue-runner`, {
     method: "POST",
     headers: {
@@ -2401,6 +2446,63 @@ function buildSocialReviewQueueRows(event) {
   return rows;
 }
 
+/**
+ * Recurring-only slot planner (early_reminder / tomorrow / last_call). No "today" post.
+ * Does not run for one-time events — call only from recurring prepare flow.
+ */
+function buildRecurringSocialSlots(event, occurrenceStart) {
+  const eventStart =
+    occurrenceStart instanceof Date ? occurrenceStart : new Date(String(occurrenceStart || ""));
+  if (Number.isNaN(eventStart.getTime())) return [];
+  const now = new Date();
+  const slots = [];
+
+  for (const spec of RECURRING_SOCIAL_SLOT_SPECS) {
+    let scheduledAt;
+    if (Number.isFinite(spec.minutesBefore)) {
+      scheduledAt = new Date(eventStart.getTime() - spec.minutesBefore * 60 * 1000);
+    } else {
+      scheduledAt = new Date(eventStart);
+      scheduledAt.setDate(scheduledAt.getDate() - Number(spec.daysBefore || 0));
+      scheduledAt.setHours(spec.hour ?? 18, spec.minute ?? 0, 0, 0);
+    }
+    if (scheduledAt <= now) {
+      console.log("recurring social slot skipped", {
+        reason: "past",
+        stage: spec.stage,
+        scheduled_at: scheduledAt.toISOString(),
+        event_id: event?.id ?? null
+      });
+      continue;
+    }
+    if (scheduledAt >= eventStart) {
+      console.log("recurring social slot skipped", {
+        reason: "after_event_start",
+        stage: spec.stage,
+        scheduled_at: scheduledAt.toISOString(),
+        event_start: eventStart.toISOString(),
+        event_id: event?.id ?? null
+      });
+      continue;
+    }
+    slots.push({ stage: spec.stage, scheduledAt });
+  }
+  return slots;
+}
+
+function buildRecurringSocialQueueRowsForOccurrence(event, occurrenceStart) {
+  const slotPlan = buildRecurringSocialSlots(event, occurrenceStart);
+  const rows = [];
+  for (const slot of slotPlan) {
+    for (const platform of SOCIAL_REVIEW_PLATFORMS) {
+      const payload = buildSocialQueuePayload(event, platform, slot.scheduledAt);
+      payload.post_stage = slot.stage;
+      rows.push(payload);
+    }
+  }
+  return rows;
+}
+
 async function insertSocialQueueRows(rows) {
   const client = supabaseClient();
   const toInsert = [];
@@ -2444,6 +2546,159 @@ async function insertSocialQueueRows(rows) {
     if (!batch.every((row) => Object.keys(row).length)) break;
   }
   throw new Error("Social Queue Insert fehlgeschlagen (Schema-Spalten prüfen).");
+}
+
+async function insertRecurringSocialQueueRows(occurrenceEvent, occurrenceStart) {
+  const candidates = buildRecurringSocialQueueRowsForOccurrence(occurrenceEvent, occurrenceStart);
+  if (!candidates.length) return 0;
+  const client = supabaseClient();
+  const eventId = String(occurrenceEvent?.id || "").trim();
+  const { data: existing, error: existingError } = await client
+    .from("social_queue")
+    .select("platform,post_stage,status")
+    .eq("event_id", eventId);
+  if (existingError) throw new Error(existingError.message || "Social Queue konnte nicht geprüft werden.");
+
+  const existingKeys = new Set(
+    (existing || [])
+      .filter((row) => String(row.status || "").toLowerCase() !== "skipped")
+      .map((row) => `${String(row.platform).toLowerCase()}:${String(row.post_stage || "").trim()}`)
+      .filter((k) => k.endsWith(":") === false)
+  );
+
+  const missing = candidates.filter((row) => {
+    const stage = String(row.post_stage || "").trim();
+    const key = `${String(row.platform).toLowerCase()}:${stage}`;
+    if (stage && existingKeys.has(key)) {
+      console.log("recurring social row skipped", {
+        reason: "duplicate",
+        event_id: eventId,
+        platform: row.platform,
+        post_stage: stage
+      });
+      return false;
+    }
+    return true;
+  });
+  if (!missing.length) return 0;
+  return insertSocialQueueRows(missing);
+}
+
+function buildRecurringChildEventInsertPayload(master, occurrenceStart) {
+  const ymd = adminFormatLocalYmd(occurrenceStart);
+  return pickAdminEventSavePayload({
+    name: master.name || master.title || "Event",
+    title_es: master.title_es || null,
+    title_de: master.title_de || null,
+    title_en: master.title_en || null,
+    description: master.description || null,
+    description_es: master.description_es || null,
+    description_de: master.description_de || null,
+    description_en: master.description_en || null,
+    location_name: master.location_name || null,
+    address: master.address || master.street || null,
+    postal_code: master.postal_code || null,
+    city: master.city || null,
+    country: master.country || null,
+    province: master.province || null,
+    region: master.region || null,
+    formatted_address: master.formatted_address || null,
+    place_id: master.place_id || null,
+    geocoding_query: master.geocoding_query || null,
+    lat: master.lat ?? null,
+    lng: master.lng ?? null,
+    genre: master.genre || master.category || null,
+    artist_name: master.artist_name || null,
+    price_text: master.price_text || null,
+    image_url: master.image_url || null,
+    image_urls: master.image_urls ?? null,
+    status: master.status || "approved",
+    featured: Boolean(master.featured),
+    promoted: Boolean(master.promoted),
+    verification_notes: master.verification_notes || null,
+    event_date: ymd,
+    event_time: master.event_time || null,
+    end_time: master.end_time || null,
+    recurrence_type: "none",
+    recurrence_start_date: null,
+    recurrence_end_date: null,
+    recurrence_weekday: null,
+    recurrence_day_of_month: null,
+    is_recurring: false,
+    recurring_social_enabled: false,
+    original_event_id: master.id
+  });
+}
+
+async function findRecurringChildEventByDate(masterId, ymd) {
+  const client = supabaseClient();
+  const { data, error } = await client
+    .from("events")
+    .select("*")
+    .eq("original_event_id", masterId)
+    .eq("event_date", ymd)
+    .maybeSingle();
+  if (error) throw new Error(error.message || "Kind-Event konnte nicht geladen werden.");
+  return data;
+}
+
+async function createRecurringChildEventForOccurrence(master, occurrenceStart) {
+  const ymd = adminFormatLocalYmd(occurrenceStart);
+  const existing = await findRecurringChildEventByDate(master.id, ymd);
+  if (existing) {
+    console.log("recurring child event skipped", { reason: "exists", master_id: master.id, event_date: ymd });
+    return { event: existing, created: false };
+  }
+  const client = supabaseClient();
+  let body = buildRecurringChildEventInsertPayload(master, occurrenceStart);
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const { data, error } = await client.from("events").insert(body).select("*").maybeSingle();
+    if (!error && data) {
+      console.log("recurring child event created", {
+        master_id: master.id,
+        child_id: data.id,
+        event_date: ymd
+      });
+      return { event: data, created: true };
+    }
+    const missing = parseMissingColumn(error);
+    if (!missing || !(missing in body)) throw new Error(error?.message || "Kind-Event konnte nicht erstellt werden.");
+    delete body[missing];
+  }
+  throw new Error("Kind-Event Insert fehlgeschlagen (Schema-Spalten prüfen).");
+}
+
+/**
+ * Phase B: explicit admin action — next 4 occurrences + recurring social drafts only.
+ * Does not call Postiz; does not alter save-draft / handoff paths.
+ */
+async function prepareNextRecurringOccurrences(masterEvent) {
+  const master = adminCoerceRecurrenceFields(masterEvent);
+  if (!isRecurringSocialMaster(master)) {
+    throw new Error("Nur für wiederkehrende Events mit aktivierter Option „Wiederkehrendes Event“.");
+  }
+  if (master.recurring_social_enabled !== true) {
+    throw new Error("Bitte „Social Automation (Serie)“ im Editor aktivieren und speichern.");
+  }
+  const occurrences = getNextRecurringOccurrences(master, RECURRING_SOCIAL_OCCURRENCE_PREP_LIMIT);
+  if (!occurrences.length) {
+    throw new Error("Keine zukünftigen Termine in der Serie gefunden.");
+  }
+  let childrenCreated = 0;
+  let draftsInserted = 0;
+  for (const occurrenceStart of occurrences) {
+    const { event: child, created } = await createRecurringChildEventForOccurrence(master, occurrenceStart);
+    if (created) childrenCreated += 1;
+    const n = await insertRecurringSocialQueueRows(child, occurrenceStart);
+    draftsInserted += n;
+  }
+  console.log("recurring social prepare done", {
+    master_id: master.id,
+    occurrences: occurrences.length,
+    children_created: childrenCreated,
+    drafts_inserted: draftsInserted
+  });
+  return { occurrences: occurrences.length, childrenCreated, draftsInserted };
 }
 
 function socialQueueRowsForEvent(eventId) {
@@ -3243,7 +3498,9 @@ function normalizeEvent(event) {
     featured: Boolean(event.featured),
     promoted: Boolean(event.promoted),
     archived_at: event.archived_at ?? null,
-    original_event_id: event.original_event_id ?? null
+    original_event_id: event.original_event_id ?? null,
+    is_recurring: event.is_recurring === true,
+    recurring_social_enabled: event.recurring_social_enabled === true
   };
 }
 
@@ -4891,7 +5148,104 @@ function eventEditPayloadFromForm(form) {
     payload.lat = null;
     payload.lng = null;
   }
+  applyRecurringEditorFieldsToPayload(payload, form);
   return payload;
+}
+
+function applyRecurringEditorFieldsToPayload(payload, form) {
+  const isRecurring = Boolean(form?.querySelector?.('[name="is_recurring"]')?.checked);
+  payload.is_recurring = isRecurring;
+  if (!isRecurring) {
+    payload.recurrence_type = "none";
+    payload.recurrence_start_date = null;
+    payload.recurrence_end_date = null;
+    payload.recurrence_weekday = null;
+    payload.recurrence_day_of_month = null;
+    payload.recurring_social_enabled = false;
+    return payload;
+  }
+  const type = normalizeAdminRecurrenceType(form.querySelector('[name="recurrence_type"]')?.value);
+  payload.recurrence_type = type;
+  payload.recurrence_start_date = String(form.querySelector('[name="recurrence_start_date"]')?.value || "").trim() || null;
+  payload.recurrence_end_date = String(form.querySelector('[name="recurrence_end_date"]')?.value || "").trim() || null;
+  payload.recurring_social_enabled = Boolean(form.querySelector('[name="recurring_social_enabled"]')?.checked);
+  if (type === "weekly") {
+    const wd = form.querySelector('[name="recurrence_weekday"]')?.value;
+    payload.recurrence_weekday = wd === "" || wd === null || wd === undefined ? null : Number(wd);
+    payload.recurrence_day_of_month = null;
+  } else if (type === "monthly") {
+    const dom = form.querySelector('[name="recurrence_day_of_month"]')?.value;
+    payload.recurrence_day_of_month = dom === "" || dom === null || dom === undefined ? null : Number(dom);
+    payload.recurrence_weekday = null;
+  } else {
+    payload.recurrence_weekday = null;
+    payload.recurrence_day_of_month = null;
+  }
+}
+
+function renderAdminEditorRecurringFields(eventData) {
+  const isRecurring = eventData?.is_recurring === true;
+  const type = normalizeAdminRecurrenceType(eventData?.recurrence_type);
+  const weekday = eventData?.recurrence_weekday;
+  const dom = eventData?.recurrence_day_of_month;
+  const weekdays = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
+  const weekdayOptions = weekdays
+    .map(
+      (label, i) =>
+        `<option value="${i}"${Number(weekday) === i ? " selected" : ""}>${label}</option>`
+    )
+    .join("");
+  return `
+    <fieldset class="admin-editor-recurring admin-editor-span-2">
+      <legend class="admin-editor-recurring__legend">Wiederkehrendes Event</legend>
+      <label class="field admin-editor-recurring__toggle">
+        <input type="checkbox" name="is_recurring" value="1" data-editor-is-recurring${isRecurring ? " checked" : ""} />
+        <span>Serie aktivieren</span>
+      </label>
+      <div class="admin-editor-recurring__detail" data-editor-recurring-detail${isRecurring ? "" : " hidden"}>
+        <label class="field"><span>Rhythmus</span>
+          <select name="recurrence_type" data-editor-recurrence-type>
+            <option value="weekly"${type === "weekly" ? " selected" : ""}>Wöchentlich</option>
+            <option value="monthly"${type === "monthly" ? " selected" : ""}>Monatlich</option>
+          </select>
+        </label>
+        <label class="field"><span>Serien-Start</span>
+          <input type="date" name="recurrence_start_date" value="${escapeHtml(String(eventData?.recurrence_start_date || eventData?.event_date || ""))}" />
+        </label>
+        <label class="field"><span>Serien-Ende (optional)</span>
+          <input type="date" name="recurrence_end_date" value="${escapeHtml(String(eventData?.recurrence_end_date || ""))}" />
+        </label>
+        <label class="field" data-editor-recurrence-weekly${type === "weekly" ? "" : " hidden"}><span>Wochentag</span>
+          <select name="recurrence_weekday">${weekdayOptions}</select>
+        </label>
+        <label class="field" data-editor-recurrence-monthly${type === "monthly" ? "" : " hidden"}><span>Tag im Monat</span>
+          <input type="number" name="recurrence_day_of_month" min="1" max="31" value="${escapeHtml(String(dom ?? ""))}" />
+        </label>
+        <label class="field admin-editor-span-2 admin-editor-recurring__social-flag">
+          <input type="checkbox" name="recurring_social_enabled" value="1"${eventData?.recurring_social_enabled === true ? " checked" : ""} />
+          <span>Social Automation (Serie) — Slots: −3 Tage 18:00, −1 Tag 18:00, −90 min (kein Today-Post)</span>
+        </label>
+      </div>
+    </fieldset>`;
+}
+
+function wireAdminEditorRecurringPanel(form) {
+  if (!form) return;
+  const toggle = form.querySelector("[data-editor-is-recurring]");
+  const detail = form.querySelector("[data-editor-recurring-detail]");
+  const typeSelect = form.querySelector("[data-editor-recurrence-type]");
+  const weekly = form.querySelector("[data-editor-recurrence-weekly]");
+  const monthly = form.querySelector("[data-editor-recurrence-monthly]");
+  const syncVisibility = () => {
+    const on = Boolean(toggle?.checked);
+    detail?.toggleAttribute("hidden", !on);
+    const t = normalizeAdminRecurrenceType(typeSelect?.value);
+    weekly?.toggleAttribute("hidden", t !== "weekly");
+    monthly?.toggleAttribute("hidden", t !== "monthly");
+  };
+  toggle?.addEventListener("change", syncVisibility);
+  typeSelect?.addEventListener("change", syncVisibility);
+  syncVisibility();
 }
 
 async function loadEvents() {
@@ -6016,6 +6370,7 @@ function openEventEditorModal(eventData) {
           <label class="field admin-editor-span-2"><span>Beschreibung ES</span><textarea name="description_es" rows="2">${escapeHtml(eventData.description_es)}</textarea></label>
           <label class="field admin-editor-span-2"><span>Beschreibung DE</span><textarea name="description_de" rows="2">${escapeHtml(eventData.description_de)}</textarea></label>
           <label class="field admin-editor-span-2"><span>Beschreibung EN</span><textarea name="description_en" rows="2">${escapeHtml(eventData.description_en)}</textarea></label>
+          ${renderAdminEditorRecurringFields(adminCoerceRecurrenceFields(eventData))}
           </div>
         </div>
         <div class="admin-editor-panel-page" data-editor-panel="location" hidden>
@@ -6049,6 +6404,7 @@ function openEventEditorModal(eventData) {
           <div class="admin-editor-share-row">
             <a class="btn-pill btn-pill--soft" href="./index.html?event_id=${encodeURIComponent(String(eventData.id))}" target="_blank" rel="noopener">Share-Vorschau</a>
             <button type="button" class="btn-pill btn-pill--soft" data-editor-regenerate-social data-admin-action="editor-regenerate-social">♻️ Drafts regenerieren</button>
+            <button type="button" class="btn-pill btn-pill--hero" data-editor-prepare-recurring data-admin-action="editor-prepare-recurring"${isRecurringSocialMaster(adminCoerceRecurrenceFields(eventData)) ? "" : " hidden"}>Nächste Termine vorbereiten</button>
           </div>
           ${socialList}
         </div>
@@ -6073,6 +6429,21 @@ function openEventEditorModal(eventData) {
   const status = overlay.querySelector("[data-editor-status]");
   const tabs = overlay.querySelectorAll("[data-editor-tab]");
   const panels = overlay.querySelectorAll("[data-editor-panel]");
+  const prepareRecurringBtn = overlay.querySelector("[data-editor-prepare-recurring]");
+  wireAdminEditorRecurringPanel(form);
+  const syncPrepareRecurringBtn = () => {
+    if (!prepareRecurringBtn || !form) return;
+    let draft = eventData;
+    try {
+      draft = { ...eventData, ...eventEditPayloadFromForm(form), id: eventData.id };
+    } catch {
+      draft = eventData;
+    }
+    const show = isRecurringSocialMaster(adminCoerceRecurrenceFields(draft));
+    prepareRecurringBtn.toggleAttribute("hidden", !show);
+  };
+  form?.querySelector("[data-editor-is-recurring]")?.addEventListener("change", syncPrepareRecurringBtn);
+  form?.querySelector("[name='recurrence_type']")?.addEventListener("change", syncPrepareRecurringBtn);
 
   const editorAbort = new AbortController();
   const { signal } = editorAbort;
@@ -6164,6 +6535,37 @@ function openEventEditorModal(eventData) {
             console.error("admin action editor-regenerate-social error", error);
             setBusy(false, error.message || "Fehler");
             setGlobalFeedback(`Social: ${error.message}`, "error");
+          }
+          return;
+        }
+        if (action === "editor-prepare-recurring") {
+          e.preventDefault();
+          let merged = eventData;
+          try {
+            const rawPayload = eventEditPayloadFromForm(form);
+            merged = { ...eventData, ...rawPayload, id: eventData.id };
+          } catch (formErr) {
+            setBusy(false, formErr.message || "Formular ungültig");
+            setGlobalFeedback(formErr.message || "Formular ungültig", "error");
+            return;
+          }
+          if (!isRecurringSocialMaster(adminCoerceRecurrenceFields(merged))) {
+            setGlobalFeedback("Bitte „Wiederkehrendes Event“ und Rhythmus aktivieren.", "error");
+            return;
+          }
+          setBusy(true, "Termine vorbereiten…");
+          try {
+            const res = await prepareNextRecurringOccurrences(merged);
+            setGlobalFeedback(
+              `Vorbereitet: ${res.occurrences} Termine · ${res.draftsInserted} neue Posts · ${res.childrenCreated} neue Events.`,
+              "success"
+            );
+            close();
+            await refreshAdminData({ reloadEvents: true, reloadSocial: true });
+          } catch (error) {
+            console.error("admin action editor-prepare-recurring error", error);
+            setBusy(false, error.message || "Fehler");
+            setGlobalFeedback(error.message || "Vorbereitung fehlgeschlagen", "error");
           }
           return;
         }
