@@ -2,7 +2,7 @@ const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
 const ADMIN_REQUIRED_ROLE = "admin";
 const ADMIN_ALLOWED_EMAILS = [];
-const ADMIN_DASHBOARD_BUILD = "2026.05.17-hard-overwrite-fix";
+const ADMIN_DASHBOARD_BUILD = "2026.05.17-final-textarea-render-fix";
 if (typeof window !== "undefined") {
   window.PARTYRADAR_ADMIN_BUILD = ADMIN_DASHBOARD_BUILD;
   console.log("[admin-build]", ADMIN_DASHBOARD_BUILD);
@@ -5989,63 +5989,78 @@ function adminEditorTranslationRoot(form, overlay = null) {
   );
 }
 
-/**
- * Force-set a description textarea in the open editor (call only after setBusy(false)).
- */
-function forceSetTextareaValue(form, fieldName, value) {
-  console.log("FORCE SET START", {
-    fieldName,
-    valuePreview: typeof value === "string" ? value.slice(0, 80) : value,
-    hasForm: Boolean(form)
-  });
-  const root = adminEditorTranslationRoot(form);
+function adminFindEditorDescriptionTextarea(form, overlay, fieldName) {
+  const root = adminEditorTranslationRoot(form, overlay);
   const name = String(fieldName || "").trim();
-  if (!root || !name) {
-    console.log("DESCRIPTION UI FORCE SET", {
-      fieldName: name,
-      success: false,
-      before: null,
-      after: null
-    });
-    return false;
-  }
+  if (!root || !name) return null;
   const safeName = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(name) : name.replace(/"/g, '\\"');
   const el = root.querySelector(`textarea[name="${safeName}"]`);
-  console.log("FORCE SET QUERY", {
-    selector: `textarea[name="${safeName}"]`,
-    found: Boolean(el)
-  });
-  if (!(el instanceof HTMLTextAreaElement)) {
-    console.log("DESCRIPTION UI FORCE SET", {
-      fieldName: name,
-      success: false,
-      before: null,
-      after: null
+  return el instanceof HTMLTextAreaElement ? el : null;
+}
+
+function adminWriteTextareaDomValue(textarea, finalValue) {
+  const expected = adminHardOverwriteTranslationFieldValue(finalValue);
+  textarea.disabled = false;
+  textarea.readOnly = false;
+  textarea.removeAttribute("readonly");
+  const valueSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+  valueSetter?.call(textarea, "");
+  textarea.value = "";
+  textarea.textContent = "";
+  while (textarea.firstChild) textarea.removeChild(textarea.firstChild);
+  textarea.defaultValue = "";
+  void textarea.offsetHeight;
+  if (valueSetter) valueSetter.call(textarea, expected);
+  else textarea.value = expected;
+  textarea.defaultValue = expected;
+  textarea.textContent = "";
+  void textarea.offsetHeight;
+  textarea.dispatchEvent(new Event("input", { bubbles: true }));
+  textarea.dispatchEvent(new Event("change", { bubbles: true }));
+  return expected;
+}
+
+/**
+ * Hard DOM refresh for translated description textareas (call after setBusy(false)).
+ */
+function forceRenderTranslationTextarea(form, overlay, fieldName, finalValue, stateValue = null) {
+  const name = String(fieldName || "").trim();
+  const expected = adminHardOverwriteTranslationFieldValue(finalValue);
+  const stateExpected =
+    stateValue == null ? expected : adminHardOverwriteTranslationFieldValue(stateValue);
+  let el = adminFindEditorDescriptionTextarea(form, overlay, name);
+  if (!el) {
+    console.log("TEXTAREA UI FINAL RENDER", {
+      field: name,
+      domValuePreview: null,
+      stateValuePreview: stateExpected.slice(0, 160),
+      matches: false
     });
     return false;
   }
-  const before = String(el.value || "");
-  const after = value == null ? "" : String(value);
-  el.disabled = false;
-  el.readOnly = false;
-  while (el.firstChild) el.removeChild(el.firstChild);
-  const descriptor = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value");
-  if (descriptor?.set) {
-    descriptor.set.call(el, after);
-  } else {
-    el.value = after;
+
+  adminWriteTextareaDomValue(el, expected);
+  let domValue = adminHardOverwriteTranslationFieldValue(el.value);
+  if (domValue !== expected) {
+    const replacement = el.cloneNode(false);
+    replacement.name = el.name;
+    replacement.rows = el.rows;
+    replacement.className = el.className;
+    if (el.id) replacement.id = el.id;
+    el.replaceWith(replacement);
+    el = replacement;
+    adminWriteTextareaDomValue(el, expected);
+    domValue = adminHardOverwriteTranslationFieldValue(el.value);
   }
-  el.defaultValue = after;
-  el.dispatchEvent(new Event("input", { bubbles: true }));
-  el.dispatchEvent(new Event("change", { bubbles: true }));
-  const success = String(el.value) === after;
-  console.log("DESCRIPTION UI FORCE SET", {
-    fieldName: name,
-    success,
-    before: before.slice(0, 120),
-    after: after.slice(0, 120)
+
+  const matches = domValue === stateExpected;
+  console.log("TEXTAREA UI FINAL RENDER", {
+    field: name,
+    domValuePreview: domValue.slice(0, 160),
+    stateValuePreview: stateExpected.slice(0, 160),
+    matches
   });
-  return success;
+  return matches;
 }
 
 function adminMergeDescriptionTranslationsToEventState(eventData, updates) {
@@ -6095,26 +6110,18 @@ function syncAdminTranslationUpdatesToEditor(form, overlay, updates, eventData) 
   adminMergeDescriptionTranslationsToEventState(eventData, fieldUpdates);
   const synced = [];
   const missing = [];
-  for (const field of ADMIN_LOCALIZED_EDITOR_SYNC_FIELDS) {
-    if (!Object.prototype.hasOwnProperty.call(fieldUpdates, field)) continue;
+  const renderField = (field) => {
+    if (!Object.prototype.hasOwnProperty.call(fieldUpdates, field)) return;
     const expected = adminHardOverwriteTranslationFieldValue(fieldUpdates[field]);
+    const stateValue = eventData?.[field];
     console.log("SYNC FIELD", { field, valuePreview: expected.slice(0, 80) });
-    if (forceSetTextareaValue(form, field, expected)) synced.push(field);
+    if (forceRenderTranslationTextarea(form, overlay, field, expected, stateValue)) synced.push(field);
     else missing.push(field);
-  }
-  if (missing.length) {
-    console.warn("translation ui sync missing fields", missing);
-  }
+  };
+  for (const field of ADMIN_LOCALIZED_EDITOR_SYNC_FIELDS) renderField(field);
+  for (const field of ADMIN_LOCALIZED_EDITOR_SYNC_FIELDS) renderField(field);
   window.requestAnimationFrame(() => {
-    for (const field of ADMIN_LOCALIZED_EDITOR_SYNC_FIELDS) {
-      if (!Object.prototype.hasOwnProperty.call(fieldUpdates, field)) continue;
-      const expected = adminHardOverwriteTranslationFieldValue(fieldUpdates[field]);
-      const root = adminEditorTranslationRoot(form, overlay);
-      const safeName = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(field) : field;
-      const el = root?.querySelector(`textarea[name="${safeName}"]`);
-      if (!(el instanceof HTMLTextAreaElement)) continue;
-      if (String(el.value) !== expected) forceSetTextareaValue(form, field, expected);
-    }
+    for (const field of ADMIN_LOCALIZED_EDITOR_SYNC_FIELDS) renderField(field);
   });
   return { synced, missing };
 }
