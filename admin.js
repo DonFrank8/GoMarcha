@@ -2,7 +2,7 @@ const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
 const ADMIN_REQUIRED_ROLE = "admin";
 const ADMIN_ALLOWED_EMAILS = [];
-const ADMIN_DASHBOARD_BUILD = "2026.05.17-localized-textarea-render-fix";
+const ADMIN_DASHBOARD_BUILD = "2026.05.17-global-editor-state-fix";
 if (typeof window !== "undefined") {
   window.PARTYRADAR_ADMIN_BUILD = ADMIN_DASHBOARD_BUILD;
   console.log("[admin-build]", ADMIN_DASHBOARD_BUILD);
@@ -281,7 +281,10 @@ const state = {
   analyticsLastFetchAt: 0,
   prevNavSection: "dashboard",
   /** @type {null | (() => void)} */
-  adminEditorClose: null
+  adminEditorClose: null,
+  /** Canonical event record for the open editor drawer (always from state.allEvents). */
+  adminEditorEvent: null,
+  adminEditorEventId: null
 };
 
 const dom = {
@@ -522,6 +525,56 @@ function closeActiveAdminEditorIfAny() {
     }
   }
   state.adminEditorClose = null;
+  state.adminEditorEvent = null;
+  state.adminEditorEventId = null;
+}
+
+function adminResolveEventFromState(eventDataOrId) {
+  const key =
+    eventDataOrId && typeof eventDataOrId === "object"
+      ? String(eventDataOrId.id ?? "").trim()
+      : String(eventDataOrId ?? "").trim();
+  if (!key) return null;
+  return state.allEvents.find((e) => String(e.id) === key) || null;
+}
+
+/** Bind open editor to the live state.allEvents row (never a detached copy). */
+function adminBindEditorEventState(eventDataInput) {
+  const fromState = adminResolveEventFromState(eventDataInput);
+  const eventData = adminNormalizeRecurrenceState(fromState || eventDataInput || {});
+  state.adminEditorEventId = eventData?.id ?? null;
+  state.adminEditorEvent = fromState || eventData;
+  return state.adminEditorEvent;
+}
+
+/**
+ * Hard-overwrite localized descriptions in state.allEvents + active editor reference.
+ */
+function adminPatchGlobalEventState(eventId, updates) {
+  const key = String(eventId ?? "").trim();
+  if (!key || !updates) return null;
+  const statePatch = {};
+  for (const field of ADMIN_LOCALIZED_EDITOR_SYNC_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(updates, field)) continue;
+    statePatch[field] = adminHardOverwriteTranslationFieldValue(updates[field]);
+  }
+  if (!Object.keys(statePatch).length) return adminResolveEventFromState(key);
+
+  patchAdminEventInState(key, statePatch);
+  const fresh = adminResolveEventFromState(key);
+  if (!fresh) return null;
+
+  if (state.adminEditorEventId && String(state.adminEditorEventId) === key) {
+    state.adminEditorEvent = fresh;
+  }
+
+  console.log("GLOBAL EVENT STATE PATCHED", {
+    eventId: key,
+    description_es: String(fresh.description_es || "").slice(0, 120),
+    description_de: String(fresh.description_de || "").slice(0, 120),
+    description_en: String(fresh.description_en || "").slice(0, 120)
+  });
+  return fresh;
 }
 
 /**
@@ -6120,27 +6173,21 @@ function forceRenderTranslationTextarea(form, overlay, fieldName, finalValue, st
 }
 
 function adminMergeDescriptionTranslationsToEventState(eventData, updates) {
-  if (!eventData || !updates) return;
-  const statePatch = {};
+  if (!eventData?.id || !updates) return eventData || null;
+  const flat = adminBuildDescriptionTranslationUpdatesMap(adminPickDescriptionTranslationUpdates(updates));
+  if (!Object.keys(flat).length) return adminResolveEventFromState(eventData.id) || eventData;
+
   for (const field of ADMIN_LOCALIZED_EDITOR_SYNC_FIELDS) {
-    if (!Object.prototype.hasOwnProperty.call(updates, field)) continue;
-    const next = adminHardOverwriteTranslationFieldValue(updates[field]);
-    eventData[field] = next;
-    statePatch[field] = next;
-  }
-  if (!eventData.id || !Object.keys(statePatch).length) return;
-  patchAdminEventInState(eventData.id, statePatch);
-  for (const field of ADMIN_LOCALIZED_EDITOR_SYNC_FIELDS) {
-    if (!Object.prototype.hasOwnProperty.call(statePatch, field)) continue;
-    const expected = statePatch[field];
-    eventData[field] = expected;
+    if (!Object.prototype.hasOwnProperty.call(flat, field)) continue;
     console.log("FINAL APPLIED EXACT VALUE", {
       field,
-      finalValuePreview: expected.slice(0, 160),
-      storedValuePreview: adminHardOverwriteTranslationFieldValue(eventData[field]).slice(0, 160),
-      phase: "eventData-after-patch"
+      finalValuePreview: flat[field].slice(0, 160),
+      storedValuePreview: flat[field].slice(0, 160),
+      phase: "before-global-patch"
     });
   }
+
+  return adminPatchGlobalEventState(eventData.id, flat) || eventData;
 }
 
 /**
@@ -6161,15 +6208,19 @@ function syncAdminTranslationUpdatesToEditor(form, overlay, updates, eventData) 
       hasForm: !!form,
       fieldUpdateKeys: Object.keys(fieldUpdates)
     });
-    return { synced: [], missing: [] };
+    return { synced: [], missing: [], eventData: eventData || null };
   }
-  adminMergeDescriptionTranslationsToEventState(eventData, fieldUpdates);
+  let activeEvent = adminMergeDescriptionTranslationsToEventState(eventData, fieldUpdates) || eventData;
+  if (activeEvent?.id) {
+    state.adminEditorEvent = activeEvent;
+    state.adminEditorEventId = activeEvent.id;
+  }
   const synced = [];
   const missing = [];
   const renderField = (field) => {
     if (!Object.prototype.hasOwnProperty.call(fieldUpdates, field)) return;
     const expected = adminHardOverwriteTranslationFieldValue(fieldUpdates[field]);
-    const stateValue = eventData?.[field];
+    const stateValue = activeEvent?.[field];
     console.log("SYNC FIELD", { field, valuePreview: expected.slice(0, 80) });
     if (forceRenderTranslationTextarea(form, overlay, field, expected, stateValue)) synced.push(field);
     else missing.push(field);
@@ -6179,7 +6230,7 @@ function syncAdminTranslationUpdatesToEditor(form, overlay, updates, eventData) 
   window.requestAnimationFrame(() => {
     for (const field of ADMIN_LOCALIZED_EDITOR_SYNC_FIELDS) renderField(field);
   });
-  return { synced, missing };
+  return { synced, missing, eventData: activeEvent };
 }
 
 function adminWaitEditorFieldsEnabled() {
@@ -7526,10 +7577,10 @@ function initEditorLocationAutocomplete(overlay, form, eventData) {
   editorLocationAutocompleteDispose = dispose;
 }
 
-function openEventEditorModal(eventData) {
+function openEventEditorModal(eventDataInput) {
   closeActiveAdminEditorIfAny();
   disposeEditorLocationAutocomplete();
-  eventData = adminNormalizeRecurrenceState(eventData || {});
+  let eventData = adminBindEditorEventState(eventDataInput);
   const overlay = document.createElement("div");
   overlay.className = "admin-editor-overlay admin-editor-overlay--drawer";
   overlay.setAttribute("role", "dialog");
@@ -7706,6 +7757,8 @@ function openEventEditorModal(eventData) {
   const close = () => {
     editorAbort.abort();
     state.adminEditorClose = null;
+    state.adminEditorEvent = null;
+    state.adminEditorEventId = null;
     disposeEditorLocationAutocomplete();
     document.removeEventListener("keydown", onKeyDown);
     overlay.remove();
@@ -7807,7 +7860,12 @@ function openEventEditorModal(eventData) {
             }
             setBusy(false, "");
             await adminWaitEditorFieldsEnabled();
-            syncAdminTranslationUpdatesToEditor(form, overlay, updates, eventData);
+            const syncResult = syncAdminTranslationUpdatesToEditor(form, overlay, updates, eventData);
+            if (syncResult?.eventData) {
+              eventData = syncResult.eventData;
+              state.adminEditorEvent = eventData;
+              state.adminEditorEventId = eventData.id ?? null;
+            }
             const updatedCount = Object.keys(updates).length;
             if (result.failedFields.length) {
               if (result.failedFields.length === 1 && result.failedFields[0] === "Beschreibung ES") {
