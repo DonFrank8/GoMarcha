@@ -2,7 +2,7 @@ const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
 const ADMIN_REQUIRED_ROLE = "admin";
 const ADMIN_ALLOWED_EMAILS = [];
-const ADMIN_DASHBOARD_BUILD = "2026.05.17-editor-translation-rootfix";
+const ADMIN_DASHBOARD_BUILD = "2026.05.17-translation-runtime-rootfix";
 if (typeof window !== "undefined") {
   window.PARTYRADAR_ADMIN_BUILD = ADMIN_DASHBOARD_BUILD;
   console.log("[admin-build]", ADMIN_DASHBOARD_BUILD);
@@ -6275,6 +6275,97 @@ function adminWaitEditorFieldsEnabled() {
  * Regenerate description_es / description_de / description_en from main Beschreibung only.
  * Source language field gets the main text; the other two are translated.
  */
+/**
+ * Sole runtime entry for „Übersetzungen neu erzeugen“ — translate API + state/DOM commit.
+ */
+async function adminEditorRunRegenerateTranslationsFlow({ form, overlay, getEventData, setEventData, setBusy }) {
+  console.log("EDITOR REGENERATE TRANSLATIONS RUNTIME START", {
+    build: ADMIN_DASHBOARD_BUILD,
+    eventId: getEventData()?.id ?? null,
+    hasForm: !!form,
+    hasOverlay: !!overlay
+  });
+  if (!form || !overlay) {
+    console.warn("EDITOR REGENERATE TRANSLATIONS ABORT", { hasForm: !!form, hasOverlay: !!overlay });
+    return;
+  }
+
+  let eventData = adminGetCanonicalEditorEvent() || getEventData();
+  setBusy(true, "Übersetzungen…");
+  let updates = {};
+  let result = null;
+  try {
+    result = await regenerateAdminEventTranslations(eventData, form, { forceOverwrite: false });
+    updates = adminBuildDescriptionTranslationUpdatesMap(adminPickDescriptionTranslationUpdates(result));
+
+    if (result.needsConfirm?.length) {
+      setBusy(false, "");
+      await adminWaitEditorFieldsEnabled();
+      const labels = result.needsConfirm.map((x) => x.label).join(", ");
+      const ok = await showAdminConfirmModal(
+        `Manuell bearbeitete Übersetzungen überschreiben? (${labels})`,
+        { confirmLabel: "Überschreiben", danger: false }
+      );
+      if (ok) {
+        setBusy(true, "Übersetzungen…");
+        const forced = await regenerateAdminEventTranslations(eventData, form, { forceOverwrite: true });
+        updates = adminBuildDescriptionTranslationUpdatesMap({
+          ...adminPickDescriptionTranslationUpdates(updates),
+          ...adminPickDescriptionTranslationUpdates(forced)
+        });
+        result = {
+          ...forced,
+          failedFields: [...new Set([...(result.failedFields || []), ...(forced.failedFields || [])])],
+          skippedManual: []
+        };
+      }
+    }
+
+    setBusy(false, "");
+    await adminWaitEditorFieldsEnabled();
+
+    console.log("EDITOR REGENERATE TRANSLATIONS COMMIT PHASE", {
+      build: ADMIN_DASHBOARD_BUILD,
+      updateKeys: Object.keys(updates)
+    });
+
+    const commit = adminCommitDescriptionTranslationsToEditor({ form, overlay, updates, eventData });
+    if (commit?.eventData) {
+      eventData = commit.eventData;
+      setEventData(eventData);
+      state.adminEditorEvent = eventData;
+      state.adminEditorEventId = eventData.id ?? null;
+    }
+
+    const updatedCount = Object.keys(updates).length;
+    if (result.failedFields?.length) {
+      if (result.failedFields.length === 1 && result.failedFields[0] === "Beschreibung ES") {
+        setGlobalFeedback("Spanische Übersetzung konnte nicht erzeugt werden.", "error");
+      } else {
+        setGlobalFeedback(
+          `Übersetzung teilweise fehlgeschlagen (${result.failedFields.join(", ")}). Betroffene Felder wurden geleert.`,
+          "error"
+        );
+      }
+    } else if (updatedCount) {
+      const skippedNote =
+        result.skippedManual?.length > 0 ? ` (${result.skippedManual.join(", ")} unverändert gelassen.)` : "";
+      setGlobalFeedback(`${updatedCount} Beschreibungsfeld(er) aktualisiert.${skippedNote}`, "success");
+    } else {
+      setGlobalFeedback(
+        result.skippedManual?.length
+          ? "Alle Beschreibungsfelder wirken manuell bearbeitet — nichts geändert."
+          : "Keine leeren oder falsch erkannten Felder zum Aktualisieren.",
+        "info"
+      );
+    }
+  } catch (error) {
+    console.error("admin action editor-regenerate-translations error", error);
+    setBusy(false, error.message || "Fehler");
+    setGlobalFeedback(error.message || "Übersetzungen fehlgeschlagen.", "error");
+  }
+}
+
 async function regenerateAdminEventTranslations(eventData, form, { forceOverwrite = false } = {}) {
   const primary = resolveAdminPrimaryDescription(eventData, form);
   if (!primary.text) {
@@ -7773,6 +7864,26 @@ function openEventEditorModal(eventDataInput) {
   document.body.appendChild(overlay);
   adminPopulateEditorLocalizedDescriptions(form, state.adminEditorEvent || eventData);
 
+  const regenTranslationsBtn = overlay.querySelector('[data-admin-action="editor-regenerate-translations"]');
+  regenTranslationsBtn?.addEventListener(
+    "click",
+    (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (overlay.classList.contains("is-busy")) return;
+      void adminEditorRunRegenerateTranslationsFlow({
+        form,
+        overlay,
+        getEventData: () => eventData,
+        setEventData: (next) => {
+          eventData = next;
+        },
+        setBusy
+      });
+    },
+    { signal }
+  );
+
   const activateTab = (name) => {
     tabs.forEach((t) => t.classList.toggle("is-active", t.dataset.editorTab === name));
     panels.forEach((p) => {
@@ -7866,68 +7977,8 @@ function openEventEditorModal(eventDataInput) {
           return;
         }
         if (action === "editor-regenerate-translations") {
+          /* Handled only by dedicated listener on [data-admin-action="editor-regenerate-translations"]. */
           e.preventDefault();
-          setBusy(true, "Übersetzungen…");
-          try {
-            eventData = adminGetCanonicalEditorEvent() || eventData;
-            let result = await regenerateAdminEventTranslations(eventData, form, { forceOverwrite: false });
-            let updates = adminBuildDescriptionTranslationUpdatesMap(adminPickDescriptionTranslationUpdates(result));
-            if (result.needsConfirm.length) {
-              const labels = result.needsConfirm.map((x) => x.label).join(", ");
-              const ok = await showAdminConfirmModal(
-                `Manuell bearbeitete Übersetzungen überschreiben? (${labels})`,
-                { confirmLabel: "Überschreiben", danger: false }
-              );
-              if (ok) {
-                const forced = await regenerateAdminEventTranslations(eventData, form, { forceOverwrite: true });
-                updates = adminBuildDescriptionTranslationUpdatesMap({
-                  ...adminPickDescriptionTranslationUpdates(updates),
-                  ...adminPickDescriptionTranslationUpdates(forced)
-                });
-                result = {
-                  ...forced,
-                  failedFields: [...new Set([...result.failedFields, ...forced.failedFields])],
-                  skippedManual: []
-                };
-              }
-            }
-            setBusy(false, "");
-            await adminWaitEditorFieldsEnabled();
-            const commit = adminCommitDescriptionTranslationsToEditor({ form, overlay, updates, eventData });
-            if (commit?.eventData) {
-              eventData = commit.eventData;
-              state.adminEditorEvent = eventData;
-              state.adminEditorEventId = eventData.id ?? null;
-            }
-            const updatedCount = Object.keys(updates).length;
-            if (result.failedFields.length) {
-              if (result.failedFields.length === 1 && result.failedFields[0] === "Beschreibung ES") {
-                setGlobalFeedback("Spanische Übersetzung konnte nicht erzeugt werden.", "error");
-              } else {
-                setGlobalFeedback(
-                  `Übersetzung teilweise fehlgeschlagen (${result.failedFields.join(", ")}). Betroffene Felder wurden geleert.`,
-                  "error"
-                );
-              }
-            } else if (updatedCount) {
-              const skippedNote =
-                result.skippedManual.length > 0
-                  ? ` (${result.skippedManual.join(", ")} unverändert gelassen.)`
-                  : "";
-              setGlobalFeedback(`${updatedCount} Beschreibungsfeld(er) aktualisiert.${skippedNote}`, "success");
-            } else {
-              setGlobalFeedback(
-                result.skippedManual.length
-                  ? "Alle Beschreibungsfelder wirken manuell bearbeitet — nichts geändert."
-                  : "Keine leeren oder falsch erkannten Felder zum Aktualisieren.",
-                "info"
-              );
-            }
-          } catch (error) {
-            console.error("admin action editor-regenerate-translations error", error);
-            setBusy(false, error.message || "Fehler");
-            setGlobalFeedback(error.message || "Übersetzungen fehlgeschlagen.", "error");
-          }
           return;
         }
         if (action === "editor-prepare-recurring") {
