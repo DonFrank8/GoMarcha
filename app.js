@@ -3795,9 +3795,16 @@ async function insertEventWithSchemaFallback(client, payload) {
   return lastResult || { data: null, error: { message: "Insert failed" } };
 }
 
+function resolveTranslationTargetLanguage(targetLang) {
+  const raw = String(targetLang || "").trim();
+  if (!raw) return "";
+  const code = raw.toLowerCase();
+  return TRANSLATION_TARGET_LANGUAGE_BY_CODE[code] || raw;
+}
+
 async function translateText(text, targetLang) {
   const sourceText = String(text || "").trim();
-  const targetLanguage = String(targetLang || "").trim();
+  const targetLanguage = resolveTranslationTargetLanguage(targetLang);
   if (!sourceText || !targetLanguage) return "";
   // TODO: Re-enable JWT verification for smart-action before production release.
   const response = await fetch(SMART_ACTION_ENDPOINT, {
@@ -3923,7 +3930,8 @@ function buildStrictTranslationPrompt(sourceText, languageCode) {
 
 async function translateTextByLanguageCode(text, languageCode) {
   const normalizedLanguageCode = String(languageCode || "").trim().toLowerCase();
-  const targets = normalizedLanguageCode ? [normalizedLanguageCode] : [];
+  const targetLanguage = TRANSLATION_TARGET_LANGUAGE_BY_CODE[normalizedLanguageCode];
+  const targets = targetLanguage ? [targetLanguage] : [];
   let lastError = null;
   for (const target of targets) {
     try {
@@ -3962,29 +3970,49 @@ function readFirstNonEmptyValue(payload, fieldNames = []) {
   return "";
 }
 
-const GERMAN_PHRASE_MARKERS_IN_LOCALIZED_FIELD = [
-  "erleben sie",
-  "freuen sie sich",
-  "freut sich",
-  "können sie",
-  "wir freuen",
-  "bei uns",
-  "veranstaltung",
-  "abend in",
-  "besonderen abend",
-  "schönen abend",
-  "klassiker",
-  "begleitet von",
-  "abend"
+const GERMAN_LANGUAGE_INDICATORS = [
+  "erlebe",
+  "erleben",
+  "genieße",
+  "geniesse",
+  "entspannter",
+  "atmosphäre",
+  "atmosphare",
+  "abend",
+  "musik",
+  "meer",
+  "direkt am",
+  "die besten",
+  "und den",
+  "unvergesslich",
+  "unvergesslichen"
 ];
-const SPANISH_PHRASE_MARKERS_IN_DE_FIELD = [
+const SPANISH_LANGUAGE_INDICATORS = [
+  "vive",
   "disfruta",
-  "disfrute",
+  "ambiente",
+  "música",
+  "musica",
+  "mar",
+  "atardecer",
+  "buen rollo",
+  "junto al",
   "una noche",
-  "en directo",
-  "noche especial",
-  "ven a",
-  "no te pierdas"
+  "los mejores",
+  "velada"
+];
+const ENGLISH_LANGUAGE_INDICATORS = [
+  "experience",
+  "enjoy",
+  "atmosphere",
+  "music",
+  "sunset",
+  "good vibes",
+  "by the sea",
+  "by the beach",
+  "by the",
+  "beach",
+  "evening"
 ];
 
 function normalizeTextForPhraseMatch(text) {
@@ -3994,29 +4022,69 @@ function normalizeTextForPhraseMatch(text) {
     .replace(/\p{Diacritic}/gu, "");
 }
 
-function textMatchesPhraseList(text, phrases) {
+function countLanguageIndicators(text, indicators) {
   const lower = normalizeTextForPhraseMatch(text);
-  if (!lower) return false;
-  return phrases.some((phrase) => lower.includes(phrase));
+  if (!lower) return 0;
+  let hits = 0;
+  for (const indicator of indicators) {
+    const needle = normalizeTextForPhraseMatch(indicator);
+    if (needle && lower.includes(needle)) hits += 1;
+  }
+  return hits;
+}
+
+function languageScores(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return { german: 0, spanish: 0, english: 0 };
+  return {
+    german: countLanguageIndicators(raw, GERMAN_LANGUAGE_INDICATORS) + languageMarkerScore(raw, "de") * 0.25,
+    spanish: countLanguageIndicators(raw, SPANISH_LANGUAGE_INDICATORS) + languageMarkerScore(raw, "es") * 0.25,
+    english: countLanguageIndicators(raw, ENGLISH_LANGUAGE_INDICATORS) + languageMarkerScore(raw, "en") * 0.25
+  };
+}
+
+function isProbablyGerman(text) {
+  const { german, spanish, english } = languageScores(text);
+  return german > 0 && german >= spanish && german >= english;
+}
+
+function isProbablySpanish(text) {
+  const { german, spanish, english } = languageScores(text);
+  return spanish > 0 && spanish >= german && spanish >= english;
+}
+
+function isProbablyEnglish(text) {
+  const { german, spanish, english } = languageScores(text);
+  return english > 0 && english >= german && english >= spanish;
+}
+
+function localizedFieldLanguageValid(field, text) {
+  const raw = String(text || "").trim();
+  const fieldName = String(field || "").toLowerCase();
+  const { german, spanish, english } = languageScores(raw);
+  if (!raw) return false;
+  if (fieldName.endsWith("_es")) {
+    if (german > spanish || english > spanish) return false;
+    if (spanish === 0 && (german > 0 || english > 0)) return false;
+    if (isProbablyGerman(raw) && !isProbablySpanish(raw)) return false;
+    return true;
+  }
+  if (fieldName.endsWith("_de")) {
+    if (spanish > german) return false;
+    if (isProbablySpanish(raw) && !isProbablyGerman(raw)) return false;
+    return true;
+  }
+  if (fieldName.endsWith("_en")) {
+    if (german > english || spanish > english) return false;
+    if ((isProbablyGerman(raw) || isProbablySpanish(raw)) && !isProbablyEnglish(raw)) return false;
+    return true;
+  }
+  return true;
 }
 
 function localizedDescriptionSanityFailed(text, languageCode) {
-  const code = String(languageCode || "").toLowerCase();
-  const raw = String(text || "").trim();
-  if (!raw) return false;
-  if (code === "es" || code === "en") {
-    if (textMatchesPhraseList(raw, GERMAN_PHRASE_MARKERS_IN_LOCALIZED_FIELD)) return true;
-    const deScore = languageMarkerScore(raw, "de");
-    const targetScore = languageMarkerScore(raw, code);
-    if (deScore >= 2 && deScore > targetScore) return true;
-  }
-  if (code === "de") {
-    if (textMatchesPhraseList(raw, SPANISH_PHRASE_MARKERS_IN_DE_FIELD)) return true;
-    const esScore = languageMarkerScore(raw, "es");
-    const deScore = languageMarkerScore(raw, "de");
-    if (esScore >= 2 && esScore > deScore) return true;
-  }
-  return false;
+  const field = `description_${String(languageCode || "").toLowerCase()}`;
+  return !localizedFieldLanguageValid(field, text);
 }
 
 function resolveTranslationGroupSource(payload, group) {
@@ -4128,7 +4196,8 @@ async function generateMissingEventTranslations(eventPayload) {
           console.log("ES result:", result);
         }
         if (result) {
-          if (group.key === "description" && localizedDescriptionSanityFailed(result, languageCode)) {
+          if (group.key === "description" && !localizedFieldLanguageValid(fieldName, result)) {
+            console.warn("TRANSLATION LANGUAGE REJECTED", { field: fieldName, sample: result.slice(0, 120) });
             failedTargets.push(fieldName);
             payload[fieldName] = null;
           } else {
