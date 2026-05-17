@@ -2,7 +2,7 @@ const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
 const ADMIN_REQUIRED_ROLE = "admin";
 const ADMIN_ALLOWED_EMAILS = [];
-const ADMIN_DASHBOARD_BUILD = "2026.05.17-description-ui-force-set";
+const ADMIN_DASHBOARD_BUILD = "2026.05.17-translation-strip-header-fix";
 if (typeof window !== "undefined") {
   window.PARTYRADAR_ADMIN_BUILD = ADMIN_DASHBOARD_BUILD;
   console.log("[admin-build]", ADMIN_DASHBOARD_BUILD);
@@ -5641,7 +5641,14 @@ function adminShouldRegenerateDescriptionField(field, currentValue, targetLang, 
   return !adminLocalizedFieldLanguageValid(field, text);
 }
 
-function adminApplyDescriptionTranslationUpdate(updates, field, value) {
+/** Apply translated description only — value must be cleaned API text, never source/existing. */
+function applyTranslationUpdate(updates, field, value, context = {}) {
+  console.log("CALL APPLY TRANSLATION UPDATE", {
+    field,
+    valuePreview: value?.slice?.(0, 120),
+    translatedTextPreview: context.translatedText?.slice?.(0, 120),
+    sourcePreview: context.sourceText?.slice?.(0, 120)
+  });
   const applied = value == null ? "" : String(value);
   updates[field] = applied;
   console.log("DESCRIPTION TRANSLATION APPLY", {
@@ -5652,9 +5659,132 @@ function adminApplyDescriptionTranslationUpdate(updates, field, value) {
   return applied;
 }
 
+/** Copy main Beschreibung into the matching source-language field (not a translation). */
+function adminApplyDescriptionSourceFieldCopy(updates, field, sourceText) {
+  const applied = sourceText == null ? "" : String(sourceText);
+  updates[field] = applied;
+  console.log("DESCRIPTION SOURCE FIELD COPY", {
+    field,
+    appliedValue: applied.slice(0, 160)
+  });
+  return applied;
+}
+
+function adminDescriptionBlocksEquivalent(a, b) {
+  const na = adminNormalizeDescriptionCandidate(a).toLowerCase();
+  const nb = adminNormalizeDescriptionCandidate(b).toLowerCase();
+  if (!na || !nb) return false;
+  return na === nb || na.startsWith(nb) || nb.startsWith(na);
+}
+
+function adminLineLooksLikeDescriptionHeader(line) {
+  const t = String(line || "").trim();
+  if (!t) return false;
+  const emojiCount = (t.match(/\p{Extended_Pictographic}/gu) || []).length;
+  if (emojiCount >= 1 && t.length <= 160) return true;
+  return false;
+}
+
+/** Emoji/title headline from source Beschreibung — never copy into translated fields. */
+function adminExtractDescriptionHeaderFromSource(sourceRaw) {
+  const raw = String(sourceRaw || "").trim();
+  if (!raw) return "";
+  const lines = raw.split(/\n/).map((l) => l.trim()).filter(Boolean);
+  const headerLines = [];
+  for (const line of lines) {
+    if (adminLineLooksLikeDescriptionHeader(line)) headerLines.push(line);
+    else break;
+  }
+  if (headerLines.length) return headerLines.join("\n");
+  const collapsed = raw.replace(/\s+/g, " ").trim();
+  const beforeBody = collapsed.match(
+    /^(.+?)(?=\s+(?:Musik|Music|Experience|Erlebe|Genieße|Geniesse|Enjoy|Vive|Disfruta|Live|Feel|Un)\b)/iu
+  );
+  if (beforeBody && beforeBody[1].length <= 160) return beforeBody[1].trim();
+  const emojiTitle = collapsed.match(/^(\s*\p{Extended_Pictographic}[\s\S]{0,140}?\p{Extended_Pictographic}\s*)/u);
+  if (emojiTitle) return emojiTitle[1].trim();
+  return "";
+}
+
+/** Strip source headline / intro blocks before whitespace normalization. */
+function adminStripSourceLeadFromTranslation(translatedRaw, sourceRaw) {
+  let text = String(translatedRaw ?? "").trim();
+  const source = String(sourceRaw ?? "").trim();
+  if (!text || !source) return text;
+
+  let blocks = text.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+  const sourceBlocks = source.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+  while (blocks.length > 1 && sourceBlocks.length) {
+    if (adminDescriptionBlocksEquivalent(blocks[0], sourceBlocks[0])) blocks = blocks.slice(1);
+    else break;
+  }
+  text = blocks.length ? blocks.join("\n\n") : text;
+
+  const sourceHeader = adminExtractDescriptionHeaderFromSource(source);
+  if (sourceHeader) {
+    const headerCollapsed = sourceHeader.replace(/\s+/g, " ").trim();
+    const collapsed = text.replace(/\s+/g, " ").trim();
+    if (collapsed.startsWith(headerCollapsed)) {
+      text = collapsed.slice(headerCollapsed.length).trim().replace(/^[.:\-–—•\s]+/, "").trim();
+    }
+  }
+
+  let textLines = text.split(/\n/).map((l) => l.trim()).filter(Boolean);
+  const sourceLines = source.split(/\n/).map((l) => l.trim()).filter(Boolean);
+  while (textLines.length && sourceLines.length) {
+    if (adminDescriptionBlocksEquivalent(textLines[0], sourceLines[0])) textLines.shift();
+    else if (
+      adminLineLooksLikeDescriptionHeader(textLines[0]) &&
+      adminLineLooksLikeDescriptionHeader(sourceLines[0]) &&
+      adminDescriptionBlocksEquivalent(textLines[0], sourceLines[0])
+    ) {
+      textLines.shift();
+    } else break;
+  }
+  text = textLines.join("\n");
+
+  const normText = text.replace(/\s+/g, " ").trim();
+  const normSource = source.replace(/\s+/g, " ").trim();
+  if (normSource && normText.startsWith(normSource)) {
+    text = normText.slice(normSource.length).trim().replace(/^[.:\-–—•\s]+/, "").trim();
+  } else if (sourceHeader) {
+    const headerCollapsed = sourceHeader.replace(/\s+/g, " ").trim();
+    if (headerCollapsed && normText.startsWith(headerCollapsed)) {
+      text = normText.slice(headerCollapsed.length).trim().replace(/^[.:\-–—•\s]+/, "").trim();
+    } else {
+      text = normText;
+    }
+  } else {
+    text = normText;
+  }
+
+  return text.trim();
+}
+
+/** Use only API translation body for apply — never prepend source headline/intro. */
+function adminCleanTranslatedDescriptionForApply(translatedText, primarySourceText = "", field = "") {
+  let text = adminStripSourceLeadFromTranslation(translatedText, primarySourceText);
+  text = adminNormalizeDescriptionCandidate(text);
+  if (!text) return "";
+  text = text.replace(/^["“”'`]+|["“”'`]+$/g, "").trim();
+  const source = adminNormalizeDescriptionCandidate(primarySourceText);
+  if (source && text.toLowerCase() === source.toLowerCase()) return "";
+  const header = adminExtractDescriptionHeaderFromSource(primarySourceText).replace(/\s+/g, " ").trim();
+  const norm = text.replace(/\s+/g, " ").trim();
+  if (header && norm.startsWith(header)) {
+    text = norm.slice(header.length).trim().replace(/^[.:\-–—•\s]+/, "").trim();
+  }
+  console.log("FINAL CLEAN TRANSLATION", {
+    field: field || null,
+    finalPreview: text?.slice?.(0, 160)
+  });
+  return text;
+}
+
 async function translateAdminDescriptionText(sourceText, targetLangCode, meta = {}) {
   const code = String(targetLangCode || "").toLowerCase();
   const fieldName = meta.field || adminLocalizedFieldFromCode(code);
+  const primarySourceText = adminNormalizeDescriptionCandidate(meta.primarySourceText ?? sourceText);
   const targetLanguage =
     code === "es" ? ADMIN_SMART_ACTION_TARGET_SPANISH : ADMIN_TRANSLATION_TARGET_LANGUAGE_BY_CODE[code];
   if (!targetLanguage) throw new Error(`Unknown language code: ${targetLangCode}`);
@@ -5666,39 +5796,44 @@ async function translateAdminDescriptionText(sourceText, targetLangCode, meta = 
     preview: String(sourceText || "").slice(0, 160)
   });
 
-  const tryTranslate = async (text) => {
-    const translated = await translateAdminText(text, targetLanguage, {
+  const tryTranslate = async (requestText) => {
+    const apiRaw = await translateAdminText(requestText, targetLanguage, {
       source: meta.source || null,
       sourceLang: meta.sourceLang || null,
       eventId: meta.eventId ?? null,
-      field: fieldName
+      field: fieldName,
+      primarySourceText
     });
-    return normalizeAdminTranslationOutput(translated, text);
+    const cleaned = adminCleanTranslatedDescriptionForApply(apiRaw, primarySourceText, fieldName);
+    return { apiRaw, cleaned };
   };
 
   let lastError = null;
-  let result = null;
+  let translatedText = null;
+  let lastApiRaw = "";
   try {
-    const normalized = await tryTranslate(sourceText);
-    if (adminAcceptTranslatedText(normalized, code, fieldName)) {
-      result = normalized;
+    const attempt = await tryTranslate(sourceText);
+    lastApiRaw = attempt.apiRaw;
+    if (adminAcceptTranslatedText(attempt.cleaned, code, fieldName)) {
+      translatedText = attempt.cleaned;
     } else {
-      adminRejectLocalizedLanguage(fieldName, normalized, "post_translate_validation");
+      adminRejectLocalizedLanguage(fieldName, attempt.cleaned, "post_translate_validation");
       lastError = new Error(`${code} translation rejected after normalization`);
     }
   } catch (error) {
     lastError = error;
   }
 
-  if (!result) {
+  if (!translatedText) {
     const strictPrompt = buildAdminStrictTranslationPrompt(sourceText, code);
     if (strictPrompt) {
       try {
-        const normalized = await tryTranslate(strictPrompt);
-        if (adminAcceptTranslatedText(normalized, code, fieldName)) {
-          result = normalized;
+        const attempt = await tryTranslate(strictPrompt);
+        lastApiRaw = attempt.apiRaw;
+        if (adminAcceptTranslatedText(attempt.cleaned, code, fieldName)) {
+          translatedText = attempt.cleaned;
         } else {
-          adminRejectLocalizedLanguage(fieldName, normalized, "strict_post_translate_validation");
+          adminRejectLocalizedLanguage(fieldName, attempt.cleaned, "strict_post_translate_validation");
           lastError = new Error(`${code} strict translation rejected after normalization`);
         }
       } catch (error) {
@@ -5710,13 +5845,14 @@ async function translateAdminDescriptionText(sourceText, targetLangCode, meta = 
   console.log("DESCRIPTION TRANSLATION RESPONSE", {
     targetLang: targetLanguage,
     field: fieldName,
-    ok: Boolean(result),
-    resultPreview: result ? result.slice(0, 160) : null,
-    error: result ? null : lastError?.message || String(lastError)
+    ok: Boolean(translatedText),
+    apiRawPreview: lastApiRaw ? lastApiRaw.slice(0, 160) : null,
+    resultPreview: translatedText ? translatedText.slice(0, 160) : null,
+    error: translatedText ? null : lastError?.message || String(lastError)
   });
 
-  if (!result) throw lastError || new Error(`Translation failed for ${code}`);
-  return result;
+  if (!translatedText) throw lastError || new Error(`Translation failed for ${code}`);
+  return translatedText;
 }
 
 function adminResolveTranslationTargetLanguage(targetLang) {
@@ -5733,14 +5869,29 @@ function adminAcceptTranslatedText(normalized, languageCode, fieldName = null) {
   return adminLocalizedFieldLanguageValid(field, normalized);
 }
 
-function adminExtractTranslationFromApiResponse(data) {
+function adminExtractTranslationFromApiResponse(data, primarySourceText = "") {
   if (!data || typeof data !== "object") return "";
-  return String(
-    data.translated || data.translation || data.text || data.result || data.output || ""
-  ).trim();
+  const candidates = ["translated", "translation", "text", "result", "output"]
+    .map((key) => String(data[key] || "").trim())
+    .filter(Boolean);
+  if (!candidates.length) return "";
+  const header = adminExtractDescriptionHeaderFromSource(primarySourceText).replace(/\s+/g, " ").trim();
+  const sourceNorm = adminNormalizeDescriptionCandidate(primarySourceText);
+  for (const candidate of candidates) {
+    const collapsed = candidate.replace(/\s+/g, " ").trim();
+    if (sourceNorm && collapsed === sourceNorm) continue;
+    if (header && collapsed.startsWith(header)) {
+      const stripped = adminStripSourceLeadFromTranslation(candidate, primarySourceText);
+      const cleaned = adminNormalizeDescriptionCandidate(stripped);
+      if (cleaned && cleaned !== sourceNorm) return stripped.trim() || candidate;
+      continue;
+    }
+    return candidate;
+  }
+  return candidates[0];
 }
 
-async function translateAdminText(text, targetLang, { source = null, sourceLang = null, eventId = null, field = null } = {}) {
+async function translateAdminText(text, targetLang, { source = null, sourceLang = null, eventId = null, field = null, primarySourceText = null } = {}) {
   const sourceText = String(text || "").trim();
   const targetLanguage = adminResolveTranslationTargetLanguage(targetLang);
   if (!sourceText || !targetLanguage) return "";
@@ -5763,19 +5914,15 @@ async function translateAdminText(text, targetLang, { source = null, sourceLang 
   if (!response.ok) {
     throw new Error(`Translation HTTP ${response.status}: ${rawBody.slice(0, 200)}`);
   }
-  const translated = adminExtractTranslationFromApiResponse(data);
+  const translated = adminExtractTranslationFromApiResponse(data, primarySourceText ?? sourceText);
   if (!translated) {
     throw new Error("Translation response missing translated text.");
   }
   return translated;
 }
 
-function normalizeAdminTranslationOutput(translatedText, sourceText = "") {
-  const raw = String(translatedText || "").trim();
-  if (!raw) return "";
-  const source = String(sourceText || "").trim();
-  if (source && raw.toLowerCase() === source.toLowerCase()) return "";
-  return raw.replace(/^["“”'`]+|["“”'`]+$/g, "").trim();
+function normalizeAdminTranslationOutput(translatedText, primarySourceText = "", field = "") {
+  return adminCleanTranslatedDescriptionForApply(translatedText, primarySourceText, field);
 }
 
 function buildAdminStrictTranslationPrompt(sourceText, languageCode) {
@@ -5793,6 +5940,20 @@ function buildAdminStrictTranslationPrompt(sourceText, languageCode) {
 
 const ADMIN_LOCALIZED_EDITOR_SYNC_FIELDS = ["description_es", "description_de", "description_en"];
 
+/** Extract description_es/de/en map from regenerate result (flat or nested .updates). */
+function adminPickDescriptionTranslationUpdates(raw) {
+  const source =
+    raw && typeof raw === "object" && raw.updates && typeof raw.updates === "object" ? raw.updates : raw;
+  const out = {};
+  if (!source || typeof source !== "object") return out;
+  for (const field of ADMIN_LOCALIZED_EDITOR_SYNC_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(source, field)) {
+      out[field] = source[field] == null ? "" : String(source[field]);
+    }
+  }
+  return out;
+}
+
 function adminEditorTranslationRoot(form, overlay = null) {
   return (
     form?.closest(".admin-editor-overlay") ||
@@ -5807,6 +5968,11 @@ function adminEditorTranslationRoot(form, overlay = null) {
  * Force-set a description textarea in the open editor (call only after setBusy(false)).
  */
 function forceSetTextareaValue(form, fieldName, value) {
+  console.log("FORCE SET START", {
+    fieldName,
+    valuePreview: typeof value === "string" ? value.slice(0, 80) : value,
+    hasForm: Boolean(form)
+  });
   const root = adminEditorTranslationRoot(form);
   const name = String(fieldName || "").trim();
   if (!root || !name) {
@@ -5820,6 +5986,10 @@ function forceSetTextareaValue(form, fieldName, value) {
   }
   const safeName = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(name) : name.replace(/"/g, '\\"');
   const el = root.querySelector(`textarea[name="${safeName}"]`);
+  console.log("FORCE SET QUERY", {
+    selector: `textarea[name="${safeName}"]`,
+    found: Boolean(el)
+  });
   if (!(el instanceof HTMLTextAreaElement)) {
     console.log("DESCRIPTION UI FORCE SET", {
       fieldName: name,
@@ -5877,13 +6047,27 @@ function adminMergeDescriptionTranslationsToEventState(eventData, updates) {
  * Push translation updates into editor DOM + in-memory event/state (call after setBusy(false)).
  */
 function syncAdminTranslationUpdatesToEditor(form, overlay, updates, eventData) {
-  if (!form || !updates) return { synced: [], missing: [] };
-  adminMergeDescriptionTranslationsToEventState(eventData, updates);
+  console.log("SYNC TRANSLATION EDITOR START", {
+    hasForm: !!form,
+    hasOverlay: !!overlay,
+    updateKeys: Object.keys(updates || {}),
+    eventId: eventData?.id
+  });
+  const fieldUpdates = adminPickDescriptionTranslationUpdates(updates);
+  if (!form || !Object.keys(fieldUpdates).length) {
+    console.warn("SYNC TRANSLATION EDITOR SKIP", {
+      hasForm: !!form,
+      fieldUpdateKeys: Object.keys(fieldUpdates)
+    });
+    return { synced: [], missing: [] };
+  }
+  adminMergeDescriptionTranslationsToEventState(eventData, fieldUpdates);
   const synced = [];
   const missing = [];
   for (const field of ADMIN_LOCALIZED_EDITOR_SYNC_FIELDS) {
-    if (!Object.prototype.hasOwnProperty.call(updates, field)) continue;
-    const expected = updates[field] == null ? "" : String(updates[field]);
+    if (!Object.prototype.hasOwnProperty.call(fieldUpdates, field)) continue;
+    const expected = fieldUpdates[field] == null ? "" : String(fieldUpdates[field]);
+    console.log("SYNC FIELD", { field, valuePreview: expected.slice(0, 80) });
     if (forceSetTextareaValue(form, field, expected)) synced.push(field);
     else missing.push(field);
   }
@@ -5892,8 +6076,8 @@ function syncAdminTranslationUpdatesToEditor(form, overlay, updates, eventData) 
   }
   window.requestAnimationFrame(() => {
     for (const field of ADMIN_LOCALIZED_EDITOR_SYNC_FIELDS) {
-      if (!Object.prototype.hasOwnProperty.call(updates, field)) continue;
-      const expected = updates[field] == null ? "" : String(updates[field]);
+      if (!Object.prototype.hasOwnProperty.call(fieldUpdates, field)) continue;
+      const expected = fieldUpdates[field] == null ? "" : String(fieldUpdates[field]);
       const root = adminEditorTranslationRoot(form, overlay);
       const safeName = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(field) : field;
       const el = root?.querySelector(`textarea[name="${safeName}"]`);
@@ -5953,24 +6137,28 @@ async function regenerateAdminEventTranslations(eventData, form, { forceOverwrit
       continue;
     }
 
-    if (targetLang === sourceLang) {
-      adminApplyDescriptionTranslationUpdate(updates, field, sourceText);
+    const sourceField = adminLocalizedFieldFromCode(sourceLang);
+    if (sourceField && field === sourceField) {
+      adminApplyDescriptionSourceFieldCopy(updates, field, sourceText);
       continue;
     }
 
     try {
-      const translated = await translateAdminDescriptionText(sourceText, targetLang, {
+      const translatedText = await translateAdminDescriptionText(sourceText, targetLang, {
         source: primary.source,
         sourceLang: sourceLang,
         eventId,
-        field
+        field,
+        primarySourceText: sourceText
       });
-      if (!translated || !adminLocalizedFieldLanguageValid(field, translated)) {
-        if (translated) adminRejectLocalizedLanguage(field, translated, "target_language_mismatch");
+      const finalValue = adminCleanTranslatedDescriptionForApply(translatedText, sourceText, field);
+      const applyContext = { translatedText: finalValue, sourceText, field };
+      if (!finalValue || !adminLocalizedFieldLanguageValid(field, finalValue)) {
+        if (finalValue) adminRejectLocalizedLanguage(field, finalValue, "target_language_mismatch");
         failedFields.push(label);
-        adminApplyDescriptionTranslationUpdate(updates, field, "");
+        applyTranslationUpdate(updates, field, "", applyContext);
       } else {
-        adminApplyDescriptionTranslationUpdate(updates, field, translated);
+        applyTranslationUpdate(updates, field, finalValue, applyContext);
       }
     } catch (error) {
       console.warn("admin description translation failed", {
@@ -5979,7 +6167,7 @@ async function regenerateAdminEventTranslations(eventData, form, { forceOverwrit
         message: error?.message || error
       });
       failedFields.push(label);
-      adminApplyDescriptionTranslationUpdate(updates, field, "");
+      applyTranslationUpdate(updates, field, "", { translatedText: "", sourceText, field });
     }
   }
 
@@ -5990,11 +6178,12 @@ async function regenerateAdminEventTranslations(eventData, form, { forceOverwrit
   });
 
   return {
-    updates,
     failedFields,
     skippedManual,
     needsConfirm,
-    sourceLanguageCode: sourceLang
+    sourceLanguageCode: sourceLang,
+    updates,
+    ...updates
   };
 }
 
@@ -7501,7 +7690,7 @@ function openEventEditorModal(eventData) {
           setBusy(true, "Übersetzungen…");
           try {
             let result = await regenerateAdminEventTranslations(eventData, form, { forceOverwrite: false });
-            let mergedUpdates = { ...result.updates };
+            let updates = adminPickDescriptionTranslationUpdates(result);
             if (result.needsConfirm.length) {
               const labels = result.needsConfirm.map((x) => x.label).join(", ");
               const ok = await showAdminConfirmModal(
@@ -7510,7 +7699,7 @@ function openEventEditorModal(eventData) {
               );
               if (ok) {
                 const forced = await regenerateAdminEventTranslations(eventData, form, { forceOverwrite: true });
-                mergedUpdates = { ...mergedUpdates, ...forced.updates };
+                updates = { ...updates, ...adminPickDescriptionTranslationUpdates(forced) };
                 result = {
                   ...forced,
                   failedFields: [...new Set([...result.failedFields, ...forced.failedFields])],
@@ -7520,8 +7709,8 @@ function openEventEditorModal(eventData) {
             }
             setBusy(false, "");
             await adminWaitEditorFieldsEnabled();
-            syncAdminTranslationUpdatesToEditor(form, overlay, mergedUpdates, eventData);
-            const updatedCount = Object.keys(mergedUpdates).length;
+            syncAdminTranslationUpdatesToEditor(form, overlay, updates, eventData);
+            const updatedCount = Object.keys(updates).length;
             if (result.failedFields.length) {
               if (result.failedFields.length === 1 && result.failedFields[0] === "Beschreibung ES") {
                 setGlobalFeedback("Spanische Übersetzung konnte nicht erzeugt werden.", "error");
