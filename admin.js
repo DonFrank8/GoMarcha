@@ -2,7 +2,7 @@ const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
 const ADMIN_REQUIRED_ROLE = "admin";
 const ADMIN_ALLOWED_EMAILS = [];
-const ADMIN_DASHBOARD_BUILD = "2026.05.17-primary-description-fix";
+const ADMIN_DASHBOARD_BUILD = "2026.05.17-description-only-cleanup";
 if (typeof window !== "undefined") {
   window.PARTYRADAR_ADMIN_BUILD = ADMIN_DASHBOARD_BUILD;
   console.log("[admin-build]", ADMIN_DASHBOARD_BUILD);
@@ -163,11 +163,6 @@ const ADMIN_DESCRIPTION_LOCALIZED_FIELDS = Object.freeze([
   { code: "es", field: "description_es", label: "Beschreibung ES" },
   { code: "de", field: "description_de", label: "Beschreibung DE" },
   { code: "en", field: "description_en", label: "Beschreibung EN" }
-]);
-const ADMIN_TITLE_LOCALIZED_FIELDS = Object.freeze([
-  { code: "es", field: "title_es", label: "Titel ES" },
-  { code: "de", field: "title_de", label: "Titel DE" },
-  { code: "en", field: "title_en", label: "Titel EN" }
 ]);
 const ADMIN_GERMAN_LANGUAGE_INDICATORS = [
   "erlebe",
@@ -5527,56 +5522,14 @@ function adminDetectDominantLanguage(text) {
   return "unknown";
 }
 
-function adminLocalizedTitleLanguageValid(field, text) {
-  const raw = String(text || "").trim();
-  const fieldName = String(field || "").toLowerCase();
-  const { german, spanish, english } = adminLanguageScores(raw);
-  if (!raw) return false;
-  if (fieldName.endsWith("_es")) {
-    if (german > spanish || english > spanish) return false;
-    if (isProbablyGerman(raw) && !isProbablySpanish(raw)) return false;
-    return true;
-  }
-  if (fieldName.endsWith("_de")) {
-    return spanish <= german && !(isProbablySpanish(raw) && !isProbablyGerman(raw));
-  }
-  if (fieldName.endsWith("_en")) {
-    return german <= english && spanish <= english;
-  }
-  return true;
-}
-
 function adminLocalizedFieldLanguageValid(field, text) {
   const raw = String(text || "").trim();
   const fieldName = String(field || "").toLowerCase();
-  if (fieldName.startsWith("title_")) {
-    const accepted = adminLocalizedTitleLanguageValid(field, text);
-    const { german, spanish, english } = adminLanguageScores(raw);
-    console.log("LANGUAGE CHECK", {
-      field: fieldName,
-      detected: adminDetectDominantLanguage(raw),
-      germanScore: german,
-      spanishScore: spanish,
-      englishScore: english,
-      accepted
-    });
-    return accepted;
-  }
+  if (!fieldName.startsWith("description_")) return true;
   const { german, spanish, english } = adminLanguageScores(raw);
-  const detected = adminDetectDominantLanguage(raw);
   let accepted = false;
 
-  if (!raw) {
-    console.log("LANGUAGE CHECK", {
-      field: fieldName,
-      detected: "empty",
-      germanScore: german,
-      spanishScore: spanish,
-      englishScore: english,
-      accepted: false
-    });
-    return false;
-  }
+  if (!raw) return false;
 
   if (fieldName.endsWith("_es")) {
     accepted = german <= spanish && english <= spanish && spanish > 0;
@@ -5596,14 +5549,6 @@ function adminLocalizedFieldLanguageValid(field, text) {
     accepted = true;
   }
 
-  console.log("LANGUAGE CHECK", {
-    field: fieldName,
-    detected,
-    germanScore: german,
-    spanishScore: spanish,
-    englishScore: english,
-    accepted
-  });
   return accepted;
 }
 
@@ -5633,28 +5578,6 @@ function isClearlyWrongLocalizedDescription(text, languageCode) {
   return isClearlyWrongLocalizedField(field, text);
 }
 
-function adminCanCopySourceToLocalizedField(field, sourceText, sourceLanguageCode) {
-  const code = String(sourceLanguageCode || "").toLowerCase();
-  const fieldName = String(field || "").toLowerCase();
-  if (!code || !fieldName.endsWith(`_${code}`)) return false;
-  return adminLocalizedFieldLanguageValid(fieldName, sourceText);
-}
-
-function adminAssignLocalizedTranslation(updates, field, translated, failedFields, label) {
-  if (!translated) {
-    failedFields.push(label);
-    updates[field] = "";
-    return false;
-  }
-  if (!adminLocalizedFieldLanguageValid(field, translated)) {
-    updates[field] = adminRejectLocalizedLanguage(field, translated);
-    failedFields.push(label);
-    return false;
-  }
-  updates[field] = translated;
-  return true;
-}
-
 function adminTextLooksGerman(text) {
   return isProbablyGerman(text);
 }
@@ -5679,127 +5602,121 @@ function adminNormalizeDescriptionCandidate(raw) {
   return text;
 }
 
-function adminReadEditorFieldText(form, eventData, fieldName) {
-  const editorVal = adminNormalizeDescriptionCandidate(form?.querySelector?.(`[name="${fieldName}"]`)?.value);
-  if (editorVal) return { text: editorVal, source: `editor.${fieldName}` };
-  const eventVal = adminNormalizeDescriptionCandidate(eventData?.[fieldName]);
-  if (eventVal) return { text: eventVal, source: `eventData.${fieldName}` };
-  return null;
-}
-
 /**
- * Primary description for translation — reads live editor textarea first (works when inputs are disabled).
+ * Main Beschreibung only — user-entered description defines source language.
  */
 function resolveAdminPrimaryDescription(eventData, form) {
-  const priority = ["description", "description_de", "description_en", "description_es"];
-  for (const fieldName of priority) {
-    const hit = adminReadEditorFieldText(form, eventData, fieldName);
-    if (hit) {
-      const sourceLanguageCode = adminDetectDescriptionSourceLanguage(hit.text);
-      console.log("PRIMARY DESCRIPTION RESOLVED", {
-        source: hit.source,
-        length: hit.text.length,
-        preview: hit.text.slice(0, 120)
-      });
-      return {
-        text: hit.text,
-        source: hit.source,
-        sourceLanguageCode
-      };
+  const editorMain = adminNormalizeDescriptionCandidate(form?.querySelector?.('[name="description"]')?.value);
+  const eventMain = adminNormalizeDescriptionCandidate(eventData?.description);
+  const text = editorMain || eventMain || "";
+  const source = editorMain ? "editor.description" : eventMain ? "eventData.description" : null;
+  if (!text) {
+    console.log("DESCRIPTION SOURCE LANGUAGE", {
+      source: null,
+      sourceLanguageCode: "",
+      length: 0,
+      preview: ""
+    });
+    return { text: "", source: null, sourceLanguageCode: "" };
+  }
+  const sourceLanguageCode = adminDetectDescriptionSourceLanguage(text);
+  console.log("DESCRIPTION SOURCE LANGUAGE", {
+    source,
+    sourceLanguageCode,
+    length: text.length,
+    preview: text.slice(0, 120)
+  });
+  return { text, source, sourceLanguageCode };
+}
+
+function adminShouldRegenerateDescriptionField(field, currentValue, targetLang, sourceLang, forceOverwrite) {
+  const text = String(currentValue || "").trim();
+  const target = String(targetLang || "").toLowerCase();
+  const source = String(sourceLang || "").toLowerCase();
+  if (forceOverwrite) return true;
+  if (!text) return true;
+  if (target === source) {
+    return !adminLocalizedFieldLanguageValid(field, text);
+  }
+  return !adminLocalizedFieldLanguageValid(field, text);
+}
+
+function adminApplyDescriptionTranslationUpdate(updates, field, value) {
+  const applied = value == null ? "" : String(value);
+  updates[field] = applied;
+  console.log("DESCRIPTION TRANSLATION APPLY", {
+    field,
+    appliedValue: applied.slice(0, 160),
+    length: applied.length
+  });
+  return applied;
+}
+
+async function translateAdminDescriptionText(sourceText, targetLangCode, meta = {}) {
+  const code = String(targetLangCode || "").toLowerCase();
+  const fieldName = meta.field || adminLocalizedFieldFromCode(code);
+  const targetLanguage =
+    code === "es" ? ADMIN_SMART_ACTION_TARGET_SPANISH : ADMIN_TRANSLATION_TARGET_LANGUAGE_BY_CODE[code];
+  if (!targetLanguage) throw new Error(`Unknown language code: ${targetLangCode}`);
+
+  console.log("DESCRIPTION TRANSLATION REQUEST", {
+    targetLang: targetLanguage,
+    sourceLang: meta.sourceLang || null,
+    field: fieldName,
+    preview: String(sourceText || "").slice(0, 160)
+  });
+
+  const tryTranslate = async (text) => {
+    const translated = await translateAdminText(text, targetLanguage, {
+      source: meta.source || null,
+      sourceLang: meta.sourceLang || null,
+      eventId: meta.eventId ?? null,
+      field: fieldName
+    });
+    return normalizeAdminTranslationOutput(translated, text);
+  };
+
+  let lastError = null;
+  let result = null;
+  try {
+    const normalized = await tryTranslate(sourceText);
+    if (adminAcceptTranslatedText(normalized, code, fieldName)) {
+      result = normalized;
+    } else {
+      adminRejectLocalizedLanguage(fieldName, normalized, "post_translate_validation");
+      lastError = new Error(`${code} translation rejected after normalization`);
+    }
+  } catch (error) {
+    lastError = error;
+  }
+
+  if (!result) {
+    const strictPrompt = buildAdminStrictTranslationPrompt(sourceText, code);
+    if (strictPrompt) {
+      try {
+        const normalized = await tryTranslate(strictPrompt);
+        if (adminAcceptTranslatedText(normalized, code, fieldName)) {
+          result = normalized;
+        } else {
+          adminRejectLocalizedLanguage(fieldName, normalized, "strict_post_translate_validation");
+          lastError = new Error(`${code} strict translation rejected after normalization`);
+        }
+      } catch (error) {
+        lastError = error;
+      }
     }
   }
-  console.log("PRIMARY DESCRIPTION RESOLVED", { source: null, length: 0, preview: "" });
-  return { text: "", source: null, sourceLanguageCode: "" };
-}
 
-function resolveAdminPrimaryTitle(eventData, form) {
-  const titleFromEditor = adminNormalizeDescriptionCandidate(form?.querySelector?.('[name="title"]')?.value);
-  if (titleFromEditor) {
-    return { text: titleFromEditor, source: "editor.title" };
-  }
-  const name = adminNormalizeDescriptionCandidate(eventData?.name);
-  if (name) return { text: name, source: "eventData.name" };
-  const title = adminNormalizeDescriptionCandidate(eventData?.title);
-  if (title) return { text: title, source: "eventData.title" };
-  return { text: "", source: null };
-}
-
-function adminExtractPreserveTitleTokens(title, eventData) {
-  const tokens = new Set();
-  const addToken = (raw) => {
-    const t = String(raw || "").trim();
-    if (t.length >= 2) tokens.add(t);
-  };
-  const addFromPhrase = (phrase) => {
-    String(phrase || "")
-      .split(/[\s,–—\-]+/)
-      .forEach((part) => addToken(part));
-  };
-  addFromPhrase(title);
-  addFromPhrase(eventData?.artist_name);
-  addFromPhrase(eventData?.location_name);
-  const properRuns = String(title || "").match(
-    /\b(?:[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*|Mr\.?\s+[A-Z][a-z]+|Mrs\.?\s+[A-Z][a-z]+|Ms\.?\s+[A-Z][a-z]+|Dr\.?\s+[A-Z][a-z]+)/g
-  );
-  if (properRuns) {
-    for (const run of properRuns) addToken(run);
-  }
-  return [...tokens].sort((a, b) => b.length - a.length);
-}
-
-async function translateEventTitlePreservingBrands(title, languageCode, eventData, meta = {}) {
-  const cleanTitle = String(title || "").trim();
-  const code = String(languageCode || "").trim().toLowerCase();
-  if (!cleanTitle || !code) return "";
-  const preserveTokens = adminExtractPreserveTitleTokens(cleanTitle, eventData);
-  const targetLanguage = ADMIN_TRANSLATION_TARGET_LANGUAGE_BY_CODE[code] || code;
-  const prompt = [
-    `Translate this event title into ${targetLanguage}.`,
-    "Translate only descriptive/common words.",
-    "Do NOT translate artist names, venue names, brand names, or proper nouns.",
-    preserveTokens.length
-      ? `Keep these tokens exactly as written: ${preserveTokens.join(", ")}`
-      : "Keep proper nouns and brand names exactly as written.",
-    'Example: "The Soul Experience With Mr Maph" → "La Experiencia Soul con Mr Maph"',
-    'Example: "Live Music Night" → "Noche de Música en Vivo"',
-    'Example: "Shiaoko by the Beach" → Spanish title with "Shiaoko" unchanged',
-    "Return only the translated title without quotes.",
-    "",
-    cleanTitle
-  ].join("\n");
-  console.log("TITLE TRANSLATION", {
-    phase: "request",
-    source: cleanTitle,
+  console.log("DESCRIPTION TRANSLATION RESPONSE", {
     targetLang: targetLanguage,
-    preserveTokens,
-    eventId: meta.eventId ?? null
+    field: fieldName,
+    ok: Boolean(result),
+    resultPreview: result ? result.slice(0, 160) : null,
+    error: result ? null : lastError?.message || String(lastError)
   });
-  try {
-    const translated = await translateAdminTextByLanguageCode(prompt, code, {
-      field: meta.field || `title_${code}`,
-      eventId: meta.eventId ?? null,
-      source: meta.source || "title",
-      sourceLang: meta.sourceLang || null
-    });
-    const accepted = translated ? adminLocalizedFieldLanguageValid(meta.field || `title_${code}`, translated) : false;
-    console.log("TITLE TRANSLATION", {
-      phase: "result",
-      source: cleanTitle,
-      targetLang: targetLanguage,
-      result: translated ? translated.slice(0, 160) : null,
-      accepted
-    });
-    return translated;
-  } catch (error) {
-    console.log("TITLE TRANSLATION", {
-      phase: "error",
-      source: cleanTitle,
-      targetLang: targetLanguage,
-      result: null,
-      error: error?.message || String(error)
-    });
-    throw error;
-  }
+
+  if (!result) throw lastError || new Error(`Translation failed for ${code}`);
+  return result;
 }
 
 function adminResolveTranslationTargetLanguage(targetLang) {
@@ -5823,54 +5740,34 @@ function adminExtractTranslationFromApiResponse(data) {
   ).trim();
 }
 
-async function translateAdminText(text, targetLang, { source = null, sourceLang = null, eventId = null } = {}) {
+async function translateAdminText(text, targetLang, { source = null, sourceLang = null, eventId = null, field = null } = {}) {
   const sourceText = String(text || "").trim();
   const targetLanguage = adminResolveTranslationTargetLanguage(targetLang);
   if (!sourceText || !targetLanguage) return "";
-  console.log("TRANSLATION REQUEST", {
-    source: source || sourceText.slice(0, 160),
-    sourceLang: sourceLang || null,
-    targetLang: targetLanguage,
-    eventId: eventId ?? null
+  const response = await fetch(ADMIN_SMART_ACTION_ENDPOINT, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`
+    },
+    body: JSON.stringify({ text: sourceText, targetLang: targetLanguage })
   });
+  const rawBody = await response.text();
+  let data = null;
   try {
-    const response = await fetch(ADMIN_SMART_ACTION_ENDPOINT, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        apikey: SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${SUPABASE_ANON_KEY}`
-      },
-      body: JSON.stringify({ text: sourceText, targetLang: targetLanguage })
-    });
-    const rawBody = await response.text();
-    let data = null;
-    try {
-      data = rawBody ? JSON.parse(rawBody) : null;
-    } catch {
-      data = null;
-    }
-    if (!response.ok) {
-      throw new Error(`Translation HTTP ${response.status}: ${rawBody.slice(0, 200)}`);
-    }
-    const translated = adminExtractTranslationFromApiResponse(data);
-    if (!translated) {
-      throw new Error("Translation response missing translated text.");
-    }
-    console.log("TRANSLATION RESPONSE", {
-      targetLang: targetLanguage,
-      result: translated.slice(0, 200),
-      error: null
-    });
-    return translated;
-  } catch (error) {
-    console.log("TRANSLATION RESPONSE", {
-      targetLang: targetLanguage,
-      result: null,
-      error: error?.message || String(error)
-    });
-    throw error;
+    data = rawBody ? JSON.parse(rawBody) : null;
+  } catch {
+    data = null;
   }
+  if (!response.ok) {
+    throw new Error(`Translation HTTP ${response.status}: ${rawBody.slice(0, 200)}`);
+  }
+  const translated = adminExtractTranslationFromApiResponse(data);
+  if (!translated) {
+    throw new Error("Translation response missing translated text.");
+  }
+  return translated;
 }
 
 function normalizeAdminTranslationOutput(translatedText, sourceText = "") {
@@ -5894,65 +5791,110 @@ function buildAdminStrictTranslationPrompt(sourceText, languageCode) {
   ].join("\n");
 }
 
-async function translateAdminTextByLanguageCode(text, languageCode, meta = {}) {
-  const code = String(languageCode || "").trim().toLowerCase();
-  const fieldName = meta.field || adminLocalizedFieldFromCode(code);
-  const targetLanguage =
-    code === "es" ? ADMIN_SMART_ACTION_TARGET_SPANISH : ADMIN_TRANSLATION_TARGET_LANGUAGE_BY_CODE[code];
-  if (!targetLanguage) throw new Error(`Unknown language code: ${languageCode}`);
-  const requestMeta = {
-    source: meta.source || null,
-    sourceLang: meta.sourceLang || null,
-    eventId: meta.eventId ?? null
-  };
-  let lastError = null;
-  try {
-    const translated = await translateAdminText(text, targetLanguage, requestMeta);
-    const normalized = normalizeAdminTranslationOutput(translated, text);
-    if (adminAcceptTranslatedText(normalized, code, fieldName)) return normalized;
-    adminRejectLocalizedLanguage(fieldName, normalized, "post_translate_validation");
-    lastError = new Error(`${code} translation rejected after normalization`);
-  } catch (error) {
-    lastError = error;
-  }
-  const strictPrompt = buildAdminStrictTranslationPrompt(text, code);
-  if (strictPrompt) {
-    try {
-      const translated = await translateAdminText(strictPrompt, targetLanguage, requestMeta);
-      const normalized = normalizeAdminTranslationOutput(translated, text);
-      if (adminAcceptTranslatedText(normalized, code, fieldName)) return normalized;
-      adminRejectLocalizedLanguage(fieldName, normalized, "strict_post_translate_validation");
-      lastError = new Error(`${code} strict translation rejected after normalization`);
-    } catch (error) {
-      lastError = error;
-    }
-  }
-  throw lastError || new Error(`Translation failed for ${code}`);
+const ADMIN_LOCALIZED_EDITOR_SYNC_FIELDS = ["description_es", "description_de", "description_en"];
+
+function adminFindEditorFieldControl(form, root, fieldName) {
+  const selector = `[name="${fieldName}"]`;
+  return form?.querySelector(selector) || root?.querySelector(selector) || null;
 }
 
-function applyAdminTranslationUpdatesToForm(form, updates, eventData = null) {
-  if (!form || !updates) return;
-  for (const [fieldName, value] of Object.entries(updates)) {
-    const el = form.querySelector(`[name="${fieldName}"]`);
-    if (!el) continue;
-    const before = el.value;
-    const after = value == null ? "" : String(value);
+function adminSetFormControlValue(el, value) {
+  if (!el) return false;
+  const after = value == null ? "" : String(value);
+  const wasDisabled = el.disabled;
+  if (wasDisabled) el.disabled = false;
+  const proto =
+    el instanceof HTMLTextAreaElement
+      ? HTMLTextAreaElement.prototype
+      : el instanceof HTMLInputElement
+        ? HTMLInputElement.prototype
+        : null;
+  if (proto) {
+    const descriptor = Object.getOwnPropertyDescriptor(proto, "value");
+    if (descriptor?.set) {
+      descriptor.set.call(el, after);
+    } else {
+      el.value = after;
+    }
+  } else {
     el.value = after;
-    el.dispatchEvent(new Event("input", { bubbles: true }));
-    console.log("TRANSLATION APPLY", {
+  }
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+  el.dispatchEvent(new Event("change", { bubbles: true }));
+  if (wasDisabled) el.disabled = true;
+  return true;
+}
+
+function applyAdminTranslationUpdatesToForm(form, updates, eventData = null, editorRoot = null) {
+  if (!form || !updates) return { synced: [], missing: [] };
+  const synced = [];
+  const missing = [];
+  for (const [fieldName, value] of Object.entries(updates)) {
+    const el = adminFindEditorFieldControl(form, editorRoot, fieldName);
+    if (!el) {
+      missing.push(fieldName);
+      continue;
+    }
+    const after = value == null ? "" : String(value);
+    const domUpdated = adminSetFormControlValue(el, after);
+    console.log("TRANSLATION UI SYNC", {
       field: fieldName,
-      before: String(before).slice(0, 120),
-      after: after.slice(0, 120)
+      appliedValue: after.slice(0, 120),
+      domUpdated
     });
     if (eventData && Object.prototype.hasOwnProperty.call(eventData, fieldName)) {
       eventData[fieldName] = value == null ? null : after;
     }
+    synced.push(fieldName);
   }
+  return { synced, missing };
 }
 
 /**
- * Regenerate localized descriptions from main Beschreibung (description).
- * Only fills empty or clearly wrong localized description fields.
+ * Push translation updates into editor DOM + in-memory event/state (call after setBusy(false)).
+ */
+function syncAdminTranslationUpdatesToEditor(form, overlay, updates, eventData) {
+  if (!form || !updates) return;
+  const applyResult = applyAdminTranslationUpdatesToEditor(form, overlay, updates, eventData);
+  if (eventData?.id) {
+    const statePatch = {};
+    for (const field of ADMIN_LOCALIZED_EDITOR_SYNC_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(updates, field)) {
+        statePatch[field] = updates[field] == null ? null : String(updates[field]);
+      }
+    }
+    if (Object.keys(statePatch).length) {
+      patchAdminEventInState(eventData.id, statePatch);
+    }
+  }
+  if (applyResult.missing.length) {
+    console.warn("translation ui sync missing fields", applyResult.missing);
+  }
+  window.requestAnimationFrame(() => {
+    for (const field of applyResult.synced) {
+      const el = adminFindEditorFieldControl(form, overlay, field);
+      if (!el) continue;
+      const expected = updates[field] == null ? "" : String(updates[field]);
+      if (String(el.value) !== expected) {
+        adminSetFormControlValue(el, expected);
+        console.log("TRANSLATION UI SYNC", {
+          field,
+          appliedValue: expected.slice(0, 120),
+          domUpdated: true,
+          retry: true
+        });
+      }
+    }
+  });
+}
+
+function applyAdminTranslationUpdatesToEditor(form, overlay, updates, eventData) {
+  return applyAdminTranslationUpdatesToForm(form, updates, eventData, overlay);
+}
+
+/**
+ * Regenerate description_es / description_de / description_en from main Beschreibung only.
+ * Source language field gets the main text; the other two are translated.
  */
 async function regenerateAdminEventTranslations(eventData, form, { forceOverwrite = false } = {}) {
   const primary = resolveAdminPrimaryDescription(eventData, form);
@@ -5960,134 +5902,73 @@ async function regenerateAdminEventTranslations(eventData, form, { forceOverwrit
     throw new Error("Bitte zuerst eine Beschreibung eingeben.");
   }
 
-  let payload;
-  try {
-    payload = { ...eventData, ...eventEditPayloadFromForm(form), id: eventData.id };
-  } catch (error) {
-    payload = { ...eventData, id: eventData.id };
-  }
-  payload.description = primary.text;
-
-  const eventId = eventData?.id ?? null;
   const sourceText = primary.text;
-  const sourceLanguageCode = primary.sourceLanguageCode;
-  const mainSource = primary.source;
+  const sourceLang = String(primary.sourceLanguageCode || "").toLowerCase();
+  const eventId = eventData?.id ?? null;
   const updates = {};
   const failedFields = [];
   const skippedManual = [];
   const needsConfirm = [];
 
-  const readLocalizedField = (fieldName) => {
+  const readDescriptionField = (fieldName) => {
     const editorVal = adminNormalizeDescriptionCandidate(form?.querySelector?.(`[name="${fieldName}"]`)?.value);
     if (editorVal) return editorVal;
-    return adminNormalizeDescriptionCandidate(payload[fieldName]);
+    return adminNormalizeDescriptionCandidate(eventData?.[fieldName]);
   };
 
-  const esField = ADMIN_DESCRIPTION_LOCALIZED_FIELDS.find((x) => x.code === "es");
-  const esCurrent = readLocalizedField("description_es");
-  const esWrong = isClearlyWrongLocalizedField("description_es", esCurrent);
-  const esEmpty = !esCurrent;
-  const esNeedsRegen = esEmpty || esWrong;
-
-  if (esField && esNeedsRegen) {
-    if (adminCanCopySourceToLocalizedField("description_es", sourceText, sourceLanguageCode)) {
-      updates.description_es = sourceText;
-    } else {
-      try {
-        const translated = await translateAdminTextByLanguageCode(sourceText, "es", {
-          source: mainSource,
-          sourceLang: sourceLanguageCode,
-          eventId,
-          field: "description_es"
-        });
-        adminAssignLocalizedTranslation(updates, "description_es", translated, failedFields, esField.label);
-      } catch (error) {
-        console.warn("admin ES translation failed", { message: error?.message || error, source: mainSource, sourceLanguageCode });
-        failedFields.push(esField.label);
-        updates.description_es = "";
-      }
-    }
-  } else if (esField && !forceOverwrite && esCurrent && adminLocalizedFieldLanguageValid("description_es", esCurrent)) {
-    skippedManual.push(esField.label);
-    needsConfirm.push({ field: esField.field, label: esField.label });
-  }
-
   for (const { code, field, label } of ADMIN_DESCRIPTION_LOCALIZED_FIELDS) {
-    if (code === "es") continue;
+    const targetLang = String(code || "").toLowerCase();
+    const current = readDescriptionField(field);
+    const shouldUpdate = adminShouldRegenerateDescriptionField(
+      field,
+      current,
+      targetLang,
+      sourceLang,
+      forceOverwrite
+    );
 
-    const current = readLocalizedField(field);
-    const wrong = isClearlyWrongLocalizedField(field, current);
-    const looksManualOk = Boolean(current) && !wrong && adminLocalizedFieldLanguageValid(field, current);
-
-    if (looksManualOk && !forceOverwrite) {
-      skippedManual.push(label);
-      needsConfirm.push({ field, label });
+    if (!shouldUpdate) {
+      if (current && adminLocalizedFieldLanguageValid(field, current)) {
+        skippedManual.push(label);
+        needsConfirm.push({ field, label });
+      }
       continue;
     }
 
-    if (!sourceText) continue;
-
-    if (adminCanCopySourceToLocalizedField(field, sourceText, sourceLanguageCode)) {
-      updates[field] = sourceText;
+    if (targetLang === sourceLang) {
+      adminApplyDescriptionTranslationUpdate(updates, field, sourceText);
       continue;
     }
 
     try {
-      const translated = await translateAdminTextByLanguageCode(sourceText, code, {
-        source: mainSource,
-        sourceLang: sourceLanguageCode,
+      const translated = await translateAdminDescriptionText(sourceText, targetLang, {
+        source: primary.source,
+        sourceLang: sourceLang,
         eventId,
         field
       });
-      adminAssignLocalizedTranslation(updates, field, translated, failedFields, label);
-    } catch (error) {
-      console.warn("admin translation failed", { field, code, message: error?.message || error });
-      failedFields.push(label);
-      updates[field] = "";
-    }
-  }
-
-  const primaryTitle = resolveAdminPrimaryTitle(eventData, form);
-  const titleSource = primaryTitle.text;
-  const titleSourceLang = titleSource ? adminDetectDescriptionSourceLanguage(titleSource) : "";
-  if (titleSource) {
-    for (const { code, field, label } of ADMIN_TITLE_LOCALIZED_FIELDS) {
-      const current =
-        adminNormalizeDescriptionCandidate(form?.querySelector?.(`[name="${field}"]`)?.value) ||
-        adminNormalizeDescriptionCandidate(payload[field]);
-      const wrong = isClearlyWrongLocalizedField(field, current);
-      const looksManualOk = Boolean(current) && !wrong && adminLocalizedFieldLanguageValid(field, current);
-      if (looksManualOk && !forceOverwrite) {
-        skippedManual.push(label);
-        needsConfirm.push({ field, label });
-        continue;
-      }
-      if (adminCanCopySourceToLocalizedField(field, titleSource, titleSourceLang)) {
-        updates[field] = titleSource;
-        continue;
-      }
-      try {
-        const translated = await translateEventTitlePreservingBrands(titleSource, code, eventData, {
-          field,
-          eventId,
-          source: primaryTitle.source,
-          sourceLang: titleSourceLang
-        });
-        adminAssignLocalizedTranslation(updates, field, translated, failedFields, label);
-      } catch (error) {
-        console.warn("admin title translation failed", { field, code, message: error?.message || error });
+      if (!translated || !adminLocalizedFieldLanguageValid(field, translated)) {
+        if (translated) adminRejectLocalizedLanguage(field, translated, "target_language_mismatch");
         failedFields.push(label);
-        updates[field] = "";
+        adminApplyDescriptionTranslationUpdate(updates, field, "");
+      } else {
+        adminApplyDescriptionTranslationUpdate(updates, field, translated);
       }
+    } catch (error) {
+      console.warn("admin description translation failed", {
+        field,
+        targetLang,
+        message: error?.message || error
+      });
+      failedFields.push(label);
+      adminApplyDescriptionTranslationUpdate(updates, field, "");
     }
   }
 
-  console.log("translations regenerated", {
-    eventId: eventData?.id ?? null,
-    updatedFields: Object.keys(updates),
-    failedFields,
-    skippedManual,
-    forceOverwrite
+  const updatedFields = Object.keys(updates);
+  console.log("DESCRIPTION TRANSLATION FINAL", {
+    sourceLanguage: sourceLang,
+    updatedFields
   });
 
   return {
@@ -6095,7 +5976,7 @@ async function regenerateAdminEventTranslations(eventData, form, { forceOverwrit
     failedFields,
     skippedManual,
     needsConfirm,
-    sourceLanguageCode
+    sourceLanguageCode: sourceLang
   };
 }
 
@@ -7425,7 +7306,7 @@ function openEventEditorModal(eventData) {
           <label class="field admin-editor-span-2"><span>Beschreibung EN</span><textarea name="description_en" rows="2">${escapeHtml(eventData.description_en)}</textarea></label>
           <div class="admin-editor-span-2 admin-editor-translation-row">
             <button type="button" class="btn-pill btn-pill--soft" data-editor-regenerate-translations data-admin-action="editor-regenerate-translations">Übersetzungen neu erzeugen</button>
-            <span class="card__intro">Leer oder falsch erkannte Felder (z. B. Deutsch in ES) werden aus der Haupt-Beschreibung übersetzt. Manuelle Texte bleiben erhalten.</span>
+            <span class="card__intro">Übersetzt nur Beschreibung ES/DE/EN aus der Haupt-Beschreibung (Quellsprache → zwei Zielsprachen). Titel bleiben unverändert.</span>
           </div>
           ${renderAdminEditorRecurringFields(adminCoerceRecurrenceFields(eventData))}
           </div>
@@ -7619,32 +7500,15 @@ function openEventEditorModal(eventData) {
                 };
               }
             }
-            applyAdminTranslationUpdatesToForm(form, mergedUpdates, eventData);
-            if (eventData?.id) {
-              const statePatch = {};
-              if (Object.prototype.hasOwnProperty.call(mergedUpdates, "description_es")) {
-                statePatch.description_es = mergedUpdates.description_es || null;
-              }
-              if (Object.prototype.hasOwnProperty.call(mergedUpdates, "title_es")) {
-                statePatch.title_es = mergedUpdates.title_es || null;
-              }
-              if (Object.prototype.hasOwnProperty.call(mergedUpdates, "title_de")) {
-                statePatch.title_de = mergedUpdates.title_de || null;
-              }
-              if (Object.prototype.hasOwnProperty.call(mergedUpdates, "title_en")) {
-                statePatch.title_en = mergedUpdates.title_en || null;
-              }
-              if (Object.keys(statePatch).length) patchAdminEventInState(eventData.id, statePatch);
-            }
+            setBusy(false, "");
+            syncAdminTranslationUpdatesToEditor(form, overlay, mergedUpdates, eventData);
             const updatedCount = Object.keys(mergedUpdates).length;
             if (result.failedFields.length) {
-              if (result.failedFields.includes("Beschreibung ES")) {
+              if (result.failedFields.length === 1 && result.failedFields[0] === "Beschreibung ES") {
                 setGlobalFeedback("Spanische Übersetzung konnte nicht erzeugt werden.", "error");
-              } else if (result.failedFields.includes("Titel ES")) {
-                setGlobalFeedback("Spanische Titel-Übersetzung konnte nicht erzeugt werden.", "error");
               } else {
                 setGlobalFeedback(
-                  `Übersetzung teilweise fehlgeschlagen (${result.failedFields.join(", ")}). Betroffene Felder wurden nicht überschrieben.`,
+                  `Übersetzung teilweise fehlgeschlagen (${result.failedFields.join(", ")}). Betroffene Felder wurden geleert.`,
                   "error"
                 );
               }
@@ -7662,7 +7526,6 @@ function openEventEditorModal(eventData) {
                 "info"
               );
             }
-            setBusy(false, "");
           } catch (error) {
             console.error("admin action editor-regenerate-translations error", error);
             setBusy(false, error.message || "Fehler");
