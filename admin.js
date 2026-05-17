@@ -2,7 +2,7 @@ const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
 const ADMIN_REQUIRED_ROLE = "admin";
 const ADMIN_ALLOWED_EMAILS = [];
-const ADMIN_DASHBOARD_BUILD = "2026.05.17-recurrence-translation-fix";
+const ADMIN_DASHBOARD_BUILD = "2026.05.17-primary-description-fix";
 if (typeof window !== "undefined") {
   window.PARTYRADAR_ADMIN_BUILD = ADMIN_DASHBOARD_BUILD;
   console.log("[admin-build]", ADMIN_DASHBOARD_BUILD);
@@ -86,6 +86,14 @@ const VALID_STATUS = new Set(["pending", "approved", "rejected"]);
 const ADMIN_CARD_STATUS_ACTIONS = new Set(["pending", "approved", "rejected", "save-notes"]);
 const ADMIN_EVENT_APPROVAL_INCOMPLETE_MSG =
   "Event unvollständig: Bitte Titel, Datum, Uhrzeit, Ort, Kategorie und Bild prüfen.";
+const ADMIN_EVENT_MISSING_FIELD_LABELS_DE = Object.freeze({
+  name: "Titel",
+  event_date: "Datum",
+  event_time: "Uhrzeit",
+  location: "Ort",
+  image: "Bild",
+  genre: "Kategorie"
+});
 const adminEventActionLocks = new Set();
 
 /**
@@ -156,34 +164,67 @@ const ADMIN_DESCRIPTION_LOCALIZED_FIELDS = Object.freeze([
   { code: "de", field: "description_de", label: "Beschreibung DE" },
   { code: "en", field: "description_en", label: "Beschreibung EN" }
 ]);
-const GERMAN_PHRASE_MARKERS_IN_LOCALIZED_FIELD = [
-  "erleben sie",
-  "freuen sie sich",
-  "freut sich",
+const ADMIN_TITLE_LOCALIZED_FIELDS = Object.freeze([
+  { code: "es", field: "title_es", label: "Titel ES" },
+  { code: "de", field: "title_de", label: "Titel DE" },
+  { code: "en", field: "title_en", label: "Titel EN" }
+]);
+const ADMIN_GERMAN_LANGUAGE_INDICATORS = [
+  "erlebe",
+  "erleben",
+  "genieße",
+  "geniesse",
+  "genießen",
+  "entspannter",
+  "atmosphäre",
+  "atmosphare",
+  "abend",
+  "musik",
+  "meer",
+  "direkt am",
+  "die besten",
+  "und den",
+  "unvergesslich",
+  "unvergesslichen",
+  "besonderen",
+  "freuen sie",
   "können sie",
-  "wir freuen",
-  "bei uns",
-  "veranstaltung",
-  "abend in",
-  "besonderen abend",
-  "schönen abend",
-  "klassiker",
-  "begleitet von",
-  "und die",
-  "mit uns",
-  "ihnen",
-  "lassen sie",
-  "abend"
+  "veranstaltung"
 ];
-const SPANISH_PHRASE_MARKERS_IN_DE_FIELD = [
+const ADMIN_SPANISH_LANGUAGE_INDICATORS = [
+  "vive",
   "disfruta",
   "disfrute",
+  "ambiente",
+  "música",
+  "musica",
+  "mar",
+  "atardecer",
+  "buen rollo",
+  "junto al",
   "una noche",
-  "en directo",
-  "noche especial",
-  "ven a",
-  "no te pierdas"
+  "los mejores",
+  "velada",
+  "experiencia",
+  "noche especial"
 ];
+const ADMIN_ENGLISH_LANGUAGE_INDICATORS = [
+  "experience",
+  "enjoy",
+  "atmosphere",
+  "music",
+  "sunset",
+  "good vibes",
+  "by the sea",
+  "by the beach",
+  "by the",
+  "with",
+  "the soul",
+  "beach",
+  "evening",
+  "night"
+];
+const ADMIN_SMART_ACTION_TARGET_SPANISH = "Spanish";
 
 /** Known missing on live DB — never send (avoids repeated 400 schema errors). */
 const ADMIN_EVENT_SAVE_COLUMNS_DISALLOWED = new Set([
@@ -530,6 +571,7 @@ async function adminEditorSaveEventPayload(form, eventData, { regenerateSocial }
   console.log("admin save start", { eventId, regenerateSocial });
 
   const rawPayload = eventEditPayloadFromForm(form);
+  adminStripEmptyFormOverrides(rawPayload, eventData);
   adminEditorMergeLatLngIntoPayload(rawPayload, form, eventData);
   let payload = sanitizeEventPayloadForDb(rawPayload);
 
@@ -562,15 +604,10 @@ async function adminEditorSaveEventPayload(form, eventData, { regenerateSocial }
     }
   }
 
-  const merged = { ...eventData, ...payload, id: eventId };
+  const merged = adminCoerceEventForValidation({ ...eventData, ...payload, id: eventId });
   const effectiveStatus = String(merged.status || "").toLowerCase();
   if (effectiveStatus === "approved" && isAdminEventIncompleteForApproval(merged)) {
-    console.error("event approval blocked: incomplete event", {
-      context: "editor-save",
-      eventId,
-      missing: getAdminEventApprovalMissingFields(merged)
-    });
-    throw new Error(ADMIN_EVENT_APPROVAL_INCOMPLETE_MSG);
+    throw new Error(reportAdminEventValidationFailure(merged, "editor-save", payload));
   }
 
   console.log("admin save payload", { eventId, payload });
@@ -579,12 +616,7 @@ async function adminEditorSaveEventPayload(form, eventData, { regenerateSocial }
 
   if (regenerateSocial) {
     if (isAdminEventIncompleteForApproval(merged)) {
-      console.error("event approval blocked: incomplete event", {
-        context: "editor-regenerate-social",
-        eventId,
-        missing: getAdminEventApprovalMissingFields(merged)
-      });
-      throw new Error(ADMIN_EVENT_APPROVAL_INCOMPLETE_MSG);
+      throw new Error(reportAdminEventValidationFailure(merged, "editor-regenerate-social", payload));
     }
     try {
       await regenerateSocialDraftsForEvent(merged);
@@ -784,12 +816,45 @@ function inferAdminRecurrenceType(event) {
   return detectAdminRecurrenceTextHint(event) || "none";
 }
 
+function adminNormalizeEventDateForValidation(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const de = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+  if (de) {
+    const day = String(de[1]).padStart(2, "0");
+    const month = String(de[2]).padStart(2, "0");
+    return `${de[3]}-${month}-${day}`;
+  }
+  return s;
+}
+
+function adminNormalizeEventTimeForValidation(raw) {
+  const s = String(raw || "").trim();
+  if (!s || /^tbd$/i.test(s)) return "";
+  const m = s.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (!m) return s;
+  const hh = String(Math.min(23, Math.max(0, parseInt(m[1], 10)))).padStart(2, "0");
+  const mm = String(Math.min(59, Math.max(0, parseInt(m[2], 10)))).padStart(2, "0");
+  const ss = m[3] !== undefined && m[3] !== "" ? String(Math.min(59, Math.max(0, parseInt(m[3], 10)))).padStart(2, "0") : "";
+  return ss ? `${hh}:${mm}:${ss}` : `${hh}:${mm}`;
+}
+
+function adminCoerceEventForValidation(event) {
+  const base = event && typeof event === "object" ? { ...event } : {};
+  const dateNorm = adminNormalizeEventDateForValidation(base.event_date);
+  if (dateNorm) base.event_date = dateNorm;
+  const timeNorm = adminNormalizeEventTimeForValidation(base.event_time);
+  if (timeNorm) base.event_time = timeNorm;
+  const primaryImage = resolvePrimaryImageUrl(base);
+  if (primaryImage && !String(base.image_url || "").trim()) {
+    base.image_url = primaryImage;
+  }
+  return adminNormalizeRecurrenceState(base);
+}
+
 function adminEventHasImage(event) {
-  if (String(event?.image_url || "").trim()) return true;
-  const urls = event?.image_urls;
-  if (Array.isArray(urls) && urls.some((u) => String(u || "").trim())) return true;
-  if (typeof urls === "string" && urls.trim()) return true;
-  return false;
+  return Boolean(String(resolvePrimaryImageUrl(event) || "").trim());
 }
 
 function adminEventHasName(event) {
@@ -798,16 +863,17 @@ function adminEventHasName(event) {
 }
 
 function adminEventHasDate(event) {
-  return Boolean(String(event?.event_date || "").trim());
+  return Boolean(adminNormalizeEventDateForValidation(event?.event_date));
 }
 
 function adminEventHasTime(event) {
-  return Boolean(String(event?.event_time || "").trim());
+  return Boolean(adminNormalizeEventTimeForValidation(event?.event_time));
 }
 
 function adminEventHasLocation(event) {
   return Boolean(
-    String(event?.location_name || "").trim() || String(event?.address || "").trim()
+    String(event?.location_name || event?.venue || "").trim() ||
+      String(event?.address || "").trim()
   );
 }
 
@@ -815,30 +881,63 @@ function adminEventHasGenre(event) {
   return Boolean(String(event?.genre || event?.category || "").trim());
 }
 
+function adminBuildEventValidationChecks(event) {
+  const coerced = adminCoerceEventForValidation(event);
+  return {
+    name: adminEventHasName(coerced),
+    event_date: adminEventHasDate(coerced),
+    event_time: adminEventHasTime(coerced),
+    location_name: Boolean(String(coerced.location_name || coerced.venue || "").trim()),
+    address: Boolean(String(coerced.address || "").trim()),
+    genre: Boolean(String(coerced.genre || "").trim()),
+    category: Boolean(String(coerced.category || "").trim()),
+    image_url: Boolean(String(coerced.image_url || "").trim()),
+    image_urls: adminEventHasImage(coerced)
+  };
+}
+
 function getAdminEventApprovalMissingFields(event) {
+  const coerced = adminCoerceEventForValidation(event);
   const missing = [];
-  if (!adminEventHasName(event)) missing.push("name");
-  if (!adminEventHasDate(event)) missing.push("event_date");
-  if (!adminEventHasTime(event)) missing.push("event_time");
-  if (!adminEventHasLocation(event)) missing.push("location");
-  if (!adminEventHasImage(event)) missing.push("image");
-  if (!adminEventHasGenre(event)) missing.push("genre");
+  if (!adminEventHasName(coerced)) missing.push("name");
+  if (!adminEventHasDate(coerced)) missing.push("event_date");
+  if (!adminEventHasTime(coerced)) missing.push("event_time");
+  if (!adminEventHasLocation(coerced)) missing.push("location");
+  if (!adminEventHasImage(coerced)) missing.push("image");
+  if (!adminEventHasGenre(coerced)) missing.push("genre");
   return missing;
+}
+
+function formatAdminEventIncompleteMessage(missing) {
+  if (!missing?.length) return ADMIN_EVENT_APPROVAL_INCOMPLETE_MSG;
+  const labels = missing.map((key) => ADMIN_EVENT_MISSING_FIELD_LABELS_DE[key] || key);
+  if (labels.length === 1) return `Event unvollständig: ${labels[0]} fehlt.`;
+  if (labels.length === 2) return `Event unvollständig: ${labels[0]} und ${labels[1]} fehlen.`;
+  return `Event unvollständig: ${labels.slice(0, -1).join(", ")} und ${labels[labels.length - 1]} fehlen.`;
+}
+
+function reportAdminEventValidationFailure(event, context = "approval", payload = null) {
+  const missing = getAdminEventApprovalMissingFields(event);
+  const checks = adminBuildEventValidationChecks(event);
+  console.error("EVENT VALIDATION FAILED", {
+    eventId: event?.id ?? null,
+    context,
+    payload,
+    missing,
+    checks
+  });
+  const message = formatAdminEventIncompleteMessage(missing);
+  setGlobalFeedback(message, "error");
+  return message;
 }
 
 function isAdminEventIncompleteForApproval(event) {
   return getAdminEventApprovalMissingFields(event).length > 0;
 }
 
-function blockAdminEventApprovalIfIncomplete(event, context = "approval") {
+function blockAdminEventApprovalIfIncomplete(event, context = "approval", payload = null) {
   if (!isAdminEventIncompleteForApproval(event)) return false;
-  console.error("event approval blocked: incomplete event", {
-    context,
-    eventId: event?.id,
-    status: event?.status,
-    missing: getAdminEventApprovalMissingFields(event)
-  });
-  setGlobalFeedback(ADMIN_EVENT_APPROVAL_INCOMPLETE_MSG, "error");
+  reportAdminEventValidationFailure(event, context, payload);
   return true;
 }
 
@@ -4924,12 +5023,7 @@ async function deleteInvalidSocialDrafts() {
 
 async function regenerateSocialDraftsForEvent(event) {
   if (isAdminEventIncompleteForApproval(event)) {
-    console.error("event approval blocked: incomplete event", {
-      context: "regenerate-social-drafts",
-      eventId: event?.id,
-      missing: getAdminEventApprovalMissingFields(event)
-    });
-    throw new Error(ADMIN_EVENT_APPROVAL_INCOMPLETE_MSG);
+    throw new Error(reportAdminEventValidationFailure(event, "regenerate-social-drafts"));
   }
   const client = supabaseClient();
   const removedBroken = await deleteBrokenSocialDraftsForEvent(event.id);
@@ -5311,7 +5405,7 @@ function sanitizeEventPayloadForDb(payload) {
     if (raw === null || raw === undefined || raw === "") {
       out.event_date = null;
     } else {
-      const d = String(raw).trim();
+      const d = adminNormalizeEventDateForValidation(String(raw).trim());
       out.event_date = d || null;
     }
   }
@@ -5382,103 +5476,408 @@ function adminNormalizeTextForPhraseMatch(text) {
     .replace(/\p{Diacritic}/gu, "");
 }
 
-function adminTextMatchesPhraseList(text, phrases) {
+function adminCountLanguageIndicators(text, indicators) {
   const lower = adminNormalizeTextForPhraseMatch(text);
-  if (!lower) return false;
-  return phrases.some((phrase) => lower.includes(phrase));
+  if (!lower) return 0;
+  let hits = 0;
+  for (const indicator of indicators) {
+    const needle = adminNormalizeTextForPhraseMatch(indicator);
+    if (needle && lower.includes(needle)) hits += 1;
+  }
+  return hits;
 }
 
-function adminLocalizedDescriptionSanityFailed(text, languageCode) {
-  const code = String(languageCode || "").toLowerCase();
+function adminLanguageScores(text) {
   const raw = String(text || "").trim();
-  if (!raw) return false;
-  if (code === "es" || code === "en") {
-    if (adminTextMatchesPhraseList(raw, GERMAN_PHRASE_MARKERS_IN_LOCALIZED_FIELD)) {
-      console.log("translation sanity failed", { languageCode: code, reason: "german_phrases", sample: raw.slice(0, 80) });
-      return true;
-    }
+  if (!raw) {
+    return { german: 0, spanish: 0, english: 0 };
   }
-  if (code === "de" && adminTextMatchesPhraseList(raw, SPANISH_PHRASE_MARKERS_IN_DE_FIELD)) {
-    console.log("translation sanity failed", { languageCode: code, reason: "spanish_phrases", sample: raw.slice(0, 80) });
+  return {
+    german:
+      adminCountLanguageIndicators(raw, ADMIN_GERMAN_LANGUAGE_INDICATORS) +
+      adminLanguageMarkerScore(raw, "de") * 0.25,
+    spanish:
+      adminCountLanguageIndicators(raw, ADMIN_SPANISH_LANGUAGE_INDICATORS) +
+      adminLanguageMarkerScore(raw, "es") * 0.25,
+    english:
+      adminCountLanguageIndicators(raw, ADMIN_ENGLISH_LANGUAGE_INDICATORS) +
+      adminLanguageMarkerScore(raw, "en") * 0.25
+  };
+}
+
+function isProbablyGerman(text) {
+  const { german, spanish, english } = adminLanguageScores(text);
+  return german > 0 && german >= spanish && german >= english;
+}
+
+function isProbablySpanish(text) {
+  const { german, spanish, english } = adminLanguageScores(text);
+  return spanish > 0 && spanish >= german && spanish >= english;
+}
+
+function isProbablyEnglish(text) {
+  const { german, spanish, english } = adminLanguageScores(text);
+  return english > 0 && english >= german && english >= spanish;
+}
+
+function adminDetectDominantLanguage(text) {
+  if (isProbablySpanish(text)) return "es";
+  if (isProbablyGerman(text)) return "de";
+  if (isProbablyEnglish(text)) return "en";
+  return "unknown";
+}
+
+function adminLocalizedTitleLanguageValid(field, text) {
+  const raw = String(text || "").trim();
+  const fieldName = String(field || "").toLowerCase();
+  const { german, spanish, english } = adminLanguageScores(raw);
+  if (!raw) return false;
+  if (fieldName.endsWith("_es")) {
+    if (german > spanish || english > spanish) return false;
+    if (isProbablyGerman(raw) && !isProbablySpanish(raw)) return false;
     return true;
   }
-  if (code === "es" || code === "en") {
-    const deScore = adminLanguageMarkerScore(raw, "de");
-    const targetScore = adminLanguageMarkerScore(raw, code);
-    if (deScore >= 2 && deScore > targetScore) {
-      console.log("translation sanity failed", { languageCode: code, reason: "language_score", deScore, targetScore });
-      return true;
-    }
+  if (fieldName.endsWith("_de")) {
+    return spanish <= german && !(isProbablySpanish(raw) && !isProbablyGerman(raw));
   }
-  if (code === "de") {
-    const esScore = adminLanguageMarkerScore(raw, "es");
-    const deScore = adminLanguageMarkerScore(raw, "de");
-    if (esScore >= 2 && esScore > deScore) {
-      console.log("translation sanity failed", { languageCode: code, reason: "language_score", esScore, deScore });
-      return true;
-    }
+  if (fieldName.endsWith("_en")) {
+    return german <= english && spanish <= english;
   }
-  return false;
+  return true;
+}
+
+function adminLocalizedFieldLanguageValid(field, text) {
+  const raw = String(text || "").trim();
+  const fieldName = String(field || "").toLowerCase();
+  if (fieldName.startsWith("title_")) {
+    const accepted = adminLocalizedTitleLanguageValid(field, text);
+    const { german, spanish, english } = adminLanguageScores(raw);
+    console.log("LANGUAGE CHECK", {
+      field: fieldName,
+      detected: adminDetectDominantLanguage(raw),
+      germanScore: german,
+      spanishScore: spanish,
+      englishScore: english,
+      accepted
+    });
+    return accepted;
+  }
+  const { german, spanish, english } = adminLanguageScores(raw);
+  const detected = adminDetectDominantLanguage(raw);
+  let accepted = false;
+
+  if (!raw) {
+    console.log("LANGUAGE CHECK", {
+      field: fieldName,
+      detected: "empty",
+      germanScore: german,
+      spanishScore: spanish,
+      englishScore: english,
+      accepted: false
+    });
+    return false;
+  }
+
+  if (fieldName.endsWith("_es")) {
+    accepted = german <= spanish && english <= spanish && spanish > 0;
+    if (german > spanish || english > spanish) accepted = false;
+    if (spanish === 0 && (german > 0 || english > 0)) accepted = false;
+    if (isProbablyGerman(raw) && !isProbablySpanish(raw)) accepted = false;
+  } else if (fieldName.endsWith("_de")) {
+    accepted = spanish <= german;
+    if (spanish > german) accepted = false;
+    if (isProbablySpanish(raw) && !isProbablyGerman(raw)) accepted = false;
+    if (english > german && english >= spanish) accepted = false;
+  } else if (fieldName.endsWith("_en")) {
+    accepted = german <= english && spanish <= english;
+    if (german > english || spanish > english) accepted = false;
+    if ((isProbablyGerman(raw) || isProbablySpanish(raw)) && !isProbablyEnglish(raw)) accepted = false;
+  } else {
+    accepted = true;
+  }
+
+  console.log("LANGUAGE CHECK", {
+    field: fieldName,
+    detected,
+    germanScore: german,
+    spanishScore: spanish,
+    englishScore: english,
+    accepted
+  });
+  return accepted;
+}
+
+function adminRejectLocalizedLanguage(field, text, reason = "language_mismatch") {
+  console.warn("TRANSLATION LANGUAGE REJECTED", {
+    field,
+    reason,
+    sample: String(text || "").slice(0, 160)
+  });
+  return "";
+}
+
+function adminLocalizedFieldFromCode(code) {
+  const c = String(code || "").toLowerCase();
+  if (c === "es" || c === "de" || c === "en") return `description_${c}`;
+  return "";
+}
+
+function isClearlyWrongLocalizedField(field, text) {
+  const value = String(text || "").trim();
+  if (!value) return false;
+  return !adminLocalizedFieldLanguageValid(field, value);
 }
 
 function isClearlyWrongLocalizedDescription(text, languageCode) {
-  const value = String(text || "").trim();
-  if (!value) return false;
-  const code = String(languageCode || "").toLowerCase();
-  if (adminLocalizedDescriptionSanityFailed(value, code)) return true;
-  const targetScore = adminLanguageMarkerScore(value, code);
-  const bestOther = ["de", "en", "es"]
-    .filter((c) => c !== code)
-    .map((c) => adminLanguageMarkerScore(value, c));
-  const strongestOther = Math.max(0, ...bestOther);
-  return strongestOther > targetScore + 1;
+  const field = adminLocalizedFieldFromCode(languageCode);
+  return isClearlyWrongLocalizedField(field, text);
 }
 
-function shouldRegenerateAdminLocalizedField(currentValue, languageCode) {
-  const text = String(currentValue || "").trim();
-  if (!text) return true;
-  return isClearlyWrongLocalizedDescription(text, languageCode);
+function adminCanCopySourceToLocalizedField(field, sourceText, sourceLanguageCode) {
+  const code = String(sourceLanguageCode || "").toLowerCase();
+  const fieldName = String(field || "").toLowerCase();
+  if (!code || !fieldName.endsWith(`_${code}`)) return false;
+  return adminLocalizedFieldLanguageValid(fieldName, sourceText);
 }
 
-function resolveAdminDescriptionTranslationSource(payload) {
-  const main = String(payload?.description || "").trim();
-  if (main) {
-    let sourceLanguageCode = "de";
-    if (adminHasLanguageQuality(main, "es")) sourceLanguageCode = "es";
-    else if (adminHasLanguageQuality(main, "en")) sourceLanguageCode = "en";
-    else if (adminHasLanguageQuality(main, "de")) sourceLanguageCode = "de";
-    return { sourceText: main, sourceLanguageCode };
+function adminAssignLocalizedTranslation(updates, field, translated, failedFields, label) {
+  if (!translated) {
+    failedFields.push(label);
+    updates[field] = "";
+    return false;
   }
-  return { sourceText: "", sourceLanguageCode: "" };
+  if (!adminLocalizedFieldLanguageValid(field, translated)) {
+    updates[field] = adminRejectLocalizedLanguage(field, translated);
+    failedFields.push(label);
+    return false;
+  }
+  updates[field] = translated;
+  return true;
 }
 
-async function translateAdminText(text, targetLang) {
-  const sourceText = String(text || "").trim();
-  const targetLanguage = String(targetLang || "").trim();
-  if (!sourceText || !targetLanguage) return "";
-  const response = await fetch(ADMIN_SMART_ACTION_ENDPOINT, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      apikey: SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${SUPABASE_ANON_KEY}`
-    },
-    body: JSON.stringify({ text: sourceText, targetLang: targetLanguage })
+function adminTextLooksGerman(text) {
+  return isProbablyGerman(text);
+}
+
+function adminDetectDescriptionSourceLanguage(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return "";
+  if (isProbablyGerman(raw)) return "de";
+  if (isProbablySpanish(raw)) return "es";
+  if (isProbablyEnglish(raw)) return "en";
+  return "de";
+}
+
+function adminNormalizeDescriptionCandidate(raw) {
+  let text = String(raw ?? "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!text) return "";
+  if (text === "-" || text === "–" || text === "—") return "";
+  if (/^(tbd|n\/a|null|undefined|none)$/i.test(text)) return "";
+  return text;
+}
+
+function adminReadEditorFieldText(form, eventData, fieldName) {
+  const editorVal = adminNormalizeDescriptionCandidate(form?.querySelector?.(`[name="${fieldName}"]`)?.value);
+  if (editorVal) return { text: editorVal, source: `editor.${fieldName}` };
+  const eventVal = adminNormalizeDescriptionCandidate(eventData?.[fieldName]);
+  if (eventVal) return { text: eventVal, source: `eventData.${fieldName}` };
+  return null;
+}
+
+/**
+ * Primary description for translation — reads live editor textarea first (works when inputs are disabled).
+ */
+function resolveAdminPrimaryDescription(eventData, form) {
+  const priority = ["description", "description_de", "description_en", "description_es"];
+  for (const fieldName of priority) {
+    const hit = adminReadEditorFieldText(form, eventData, fieldName);
+    if (hit) {
+      const sourceLanguageCode = adminDetectDescriptionSourceLanguage(hit.text);
+      console.log("PRIMARY DESCRIPTION RESOLVED", {
+        source: hit.source,
+        length: hit.text.length,
+        preview: hit.text.slice(0, 120)
+      });
+      return {
+        text: hit.text,
+        source: hit.source,
+        sourceLanguageCode
+      };
+    }
+  }
+  console.log("PRIMARY DESCRIPTION RESOLVED", { source: null, length: 0, preview: "" });
+  return { text: "", source: null, sourceLanguageCode: "" };
+}
+
+function resolveAdminPrimaryTitle(eventData, form) {
+  const titleFromEditor = adminNormalizeDescriptionCandidate(form?.querySelector?.('[name="title"]')?.value);
+  if (titleFromEditor) {
+    return { text: titleFromEditor, source: "editor.title" };
+  }
+  const name = adminNormalizeDescriptionCandidate(eventData?.name);
+  if (name) return { text: name, source: "eventData.name" };
+  const title = adminNormalizeDescriptionCandidate(eventData?.title);
+  if (title) return { text: title, source: "eventData.title" };
+  return { text: "", source: null };
+}
+
+function adminExtractPreserveTitleTokens(title, eventData) {
+  const tokens = new Set();
+  const addToken = (raw) => {
+    const t = String(raw || "").trim();
+    if (t.length >= 2) tokens.add(t);
+  };
+  const addFromPhrase = (phrase) => {
+    String(phrase || "")
+      .split(/[\s,–—\-]+/)
+      .forEach((part) => addToken(part));
+  };
+  addFromPhrase(title);
+  addFromPhrase(eventData?.artist_name);
+  addFromPhrase(eventData?.location_name);
+  const properRuns = String(title || "").match(
+    /\b(?:[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*|Mr\.?\s+[A-Z][a-z]+|Mrs\.?\s+[A-Z][a-z]+|Ms\.?\s+[A-Z][a-z]+|Dr\.?\s+[A-Z][a-z]+)/g
+  );
+  if (properRuns) {
+    for (const run of properRuns) addToken(run);
+  }
+  return [...tokens].sort((a, b) => b.length - a.length);
+}
+
+async function translateEventTitlePreservingBrands(title, languageCode, eventData, meta = {}) {
+  const cleanTitle = String(title || "").trim();
+  const code = String(languageCode || "").trim().toLowerCase();
+  if (!cleanTitle || !code) return "";
+  const preserveTokens = adminExtractPreserveTitleTokens(cleanTitle, eventData);
+  const targetLanguage = ADMIN_TRANSLATION_TARGET_LANGUAGE_BY_CODE[code] || code;
+  const prompt = [
+    `Translate this event title into ${targetLanguage}.`,
+    "Translate only descriptive/common words.",
+    "Do NOT translate artist names, venue names, brand names, or proper nouns.",
+    preserveTokens.length
+      ? `Keep these tokens exactly as written: ${preserveTokens.join(", ")}`
+      : "Keep proper nouns and brand names exactly as written.",
+    'Example: "The Soul Experience With Mr Maph" → "La Experiencia Soul con Mr Maph"',
+    'Example: "Live Music Night" → "Noche de Música en Vivo"',
+    'Example: "Shiaoko by the Beach" → Spanish title with "Shiaoko" unchanged',
+    "Return only the translated title without quotes.",
+    "",
+    cleanTitle
+  ].join("\n");
+  console.log("TITLE TRANSLATION", {
+    phase: "request",
+    source: cleanTitle,
+    targetLang: targetLanguage,
+    preserveTokens,
+    eventId: meta.eventId ?? null
   });
-  if (!response.ok) throw new Error(`Translation HTTP ${response.status}`);
-  const data = await response.json();
-  const translated = String(data?.translated || "").trim();
-  if (!translated) throw new Error("Translation response missing translated text.");
-  return translated;
+  try {
+    const translated = await translateAdminTextByLanguageCode(prompt, code, {
+      field: meta.field || `title_${code}`,
+      eventId: meta.eventId ?? null,
+      source: meta.source || "title",
+      sourceLang: meta.sourceLang || null
+    });
+    const accepted = translated ? adminLocalizedFieldLanguageValid(meta.field || `title_${code}`, translated) : false;
+    console.log("TITLE TRANSLATION", {
+      phase: "result",
+      source: cleanTitle,
+      targetLang: targetLanguage,
+      result: translated ? translated.slice(0, 160) : null,
+      accepted
+    });
+    return translated;
+  } catch (error) {
+    console.log("TITLE TRANSLATION", {
+      phase: "error",
+      source: cleanTitle,
+      targetLang: targetLanguage,
+      result: null,
+      error: error?.message || String(error)
+    });
+    throw error;
+  }
+}
+
+function adminResolveTranslationTargetLanguage(targetLang) {
+  const raw = String(targetLang || "").trim();
+  if (!raw) return "";
+  const code = raw.toLowerCase();
+  return ADMIN_TRANSLATION_TARGET_LANGUAGE_BY_CODE[code] || raw;
+}
+
+function adminAcceptTranslatedText(normalized, languageCode, fieldName = null) {
+  if (!normalized) return false;
+  const field = fieldName || adminLocalizedFieldFromCode(languageCode);
+  if (!field) return false;
+  return adminLocalizedFieldLanguageValid(field, normalized);
+}
+
+function adminExtractTranslationFromApiResponse(data) {
+  if (!data || typeof data !== "object") return "";
+  return String(
+    data.translated || data.translation || data.text || data.result || data.output || ""
+  ).trim();
+}
+
+async function translateAdminText(text, targetLang, { source = null, sourceLang = null, eventId = null } = {}) {
+  const sourceText = String(text || "").trim();
+  const targetLanguage = adminResolveTranslationTargetLanguage(targetLang);
+  if (!sourceText || !targetLanguage) return "";
+  console.log("TRANSLATION REQUEST", {
+    source: source || sourceText.slice(0, 160),
+    sourceLang: sourceLang || null,
+    targetLang: targetLanguage,
+    eventId: eventId ?? null
+  });
+  try {
+    const response = await fetch(ADMIN_SMART_ACTION_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`
+      },
+      body: JSON.stringify({ text: sourceText, targetLang: targetLanguage })
+    });
+    const rawBody = await response.text();
+    let data = null;
+    try {
+      data = rawBody ? JSON.parse(rawBody) : null;
+    } catch {
+      data = null;
+    }
+    if (!response.ok) {
+      throw new Error(`Translation HTTP ${response.status}: ${rawBody.slice(0, 200)}`);
+    }
+    const translated = adminExtractTranslationFromApiResponse(data);
+    if (!translated) {
+      throw new Error("Translation response missing translated text.");
+    }
+    console.log("TRANSLATION RESPONSE", {
+      targetLang: targetLanguage,
+      result: translated.slice(0, 200),
+      error: null
+    });
+    return translated;
+  } catch (error) {
+    console.log("TRANSLATION RESPONSE", {
+      targetLang: targetLanguage,
+      result: null,
+      error: error?.message || String(error)
+    });
+    throw error;
+  }
 }
 
 function normalizeAdminTranslationOutput(translatedText, sourceText = "") {
   const raw = String(translatedText || "").trim();
   if (!raw) return "";
   const source = String(sourceText || "").trim();
-  const lowerRaw = raw.toLowerCase();
-  const lowerSource = source.toLowerCase();
-  if (lowerSource && (lowerRaw === lowerSource || lowerRaw.includes(lowerSource))) return "";
+  if (source && raw.toLowerCase() === source.toLowerCase()) return "";
   return raw.replace(/^["“”'`]+|["“”'`]+$/g, "").trim();
 }
 
@@ -5495,34 +5894,35 @@ function buildAdminStrictTranslationPrompt(sourceText, languageCode) {
   ].join("\n");
 }
 
-async function translateAdminTextByLanguageCode(text, languageCode) {
+async function translateAdminTextByLanguageCode(text, languageCode, meta = {}) {
   const code = String(languageCode || "").trim().toLowerCase();
-  const targetLanguage = ADMIN_TRANSLATION_TARGET_LANGUAGE_BY_CODE[code];
+  const fieldName = meta.field || adminLocalizedFieldFromCode(code);
+  const targetLanguage =
+    code === "es" ? ADMIN_SMART_ACTION_TARGET_SPANISH : ADMIN_TRANSLATION_TARGET_LANGUAGE_BY_CODE[code];
   if (!targetLanguage) throw new Error(`Unknown language code: ${languageCode}`);
+  const requestMeta = {
+    source: meta.source || null,
+    sourceLang: meta.sourceLang || null,
+    eventId: meta.eventId ?? null
+  };
   let lastError = null;
   try {
-    const translated = await translateAdminText(text, code);
+    const translated = await translateAdminText(text, targetLanguage, requestMeta);
     const normalized = normalizeAdminTranslationOutput(translated, text);
-    if (normalized && adminHasLanguageQuality(normalized, code)) {
-      if (adminLocalizedDescriptionSanityFailed(normalized, code)) {
-        throw new Error(`${code} translation failed language sanity check.`);
-      }
-      return normalized;
-    }
+    if (adminAcceptTranslatedText(normalized, code, fieldName)) return normalized;
+    adminRejectLocalizedLanguage(fieldName, normalized, "post_translate_validation");
+    lastError = new Error(`${code} translation rejected after normalization`);
   } catch (error) {
     lastError = error;
   }
   const strictPrompt = buildAdminStrictTranslationPrompt(text, code);
   if (strictPrompt) {
     try {
-      const translated = await translateAdminText(strictPrompt, code);
+      const translated = await translateAdminText(strictPrompt, targetLanguage, requestMeta);
       const normalized = normalizeAdminTranslationOutput(translated, text);
-      if (normalized && adminHasLanguageQuality(normalized, code)) {
-        if (adminLocalizedDescriptionSanityFailed(normalized, code)) {
-          throw new Error(`${code} translation failed language sanity check.`);
-        }
-        return normalized;
-      }
+      if (adminAcceptTranslatedText(normalized, code, fieldName)) return normalized;
+      adminRejectLocalizedLanguage(fieldName, normalized, "strict_post_translate_validation");
+      lastError = new Error(`${code} strict translation rejected after normalization`);
     } catch (error) {
       lastError = error;
     }
@@ -5530,12 +5930,23 @@ async function translateAdminTextByLanguageCode(text, languageCode) {
   throw lastError || new Error(`Translation failed for ${code}`);
 }
 
-function applyAdminTranslationUpdatesToForm(form, updates) {
+function applyAdminTranslationUpdatesToForm(form, updates, eventData = null) {
   if (!form || !updates) return;
   for (const [fieldName, value] of Object.entries(updates)) {
     const el = form.querySelector(`[name="${fieldName}"]`);
     if (!el) continue;
-    el.value = value == null ? "" : String(value);
+    const before = el.value;
+    const after = value == null ? "" : String(value);
+    el.value = after;
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    console.log("TRANSLATION APPLY", {
+      field: fieldName,
+      before: String(before).slice(0, 120),
+      after: after.slice(0, 120)
+    });
+    if (eventData && Object.prototype.hasOwnProperty.call(eventData, fieldName)) {
+      eventData[fieldName] = value == null ? null : after;
+    }
   }
 }
 
@@ -5544,26 +5955,69 @@ function applyAdminTranslationUpdatesToForm(form, updates) {
  * Only fills empty or clearly wrong localized description fields.
  */
 async function regenerateAdminEventTranslations(eventData, form, { forceOverwrite = false } = {}) {
+  const primary = resolveAdminPrimaryDescription(eventData, form);
+  if (!primary.text) {
+    throw new Error("Bitte zuerst eine Beschreibung eingeben.");
+  }
+
   let payload;
   try {
     payload = { ...eventData, ...eventEditPayloadFromForm(form), id: eventData.id };
   } catch (error) {
-    throw new Error(error?.message || "Formular ungültig.");
+    payload = { ...eventData, id: eventData.id };
   }
-  const { sourceText, sourceLanguageCode } = resolveAdminDescriptionTranslationSource(payload);
-  if (!sourceText) {
-    throw new Error("Bitte zuerst die Haupt-Beschreibung ausfüllen.");
-  }
+  payload.description = primary.text;
 
+  const eventId = eventData?.id ?? null;
+  const sourceText = primary.text;
+  const sourceLanguageCode = primary.sourceLanguageCode;
+  const mainSource = primary.source;
   const updates = {};
   const failedFields = [];
   const skippedManual = [];
   const needsConfirm = [];
 
+  const readLocalizedField = (fieldName) => {
+    const editorVal = adminNormalizeDescriptionCandidate(form?.querySelector?.(`[name="${fieldName}"]`)?.value);
+    if (editorVal) return editorVal;
+    return adminNormalizeDescriptionCandidate(payload[fieldName]);
+  };
+
+  const esField = ADMIN_DESCRIPTION_LOCALIZED_FIELDS.find((x) => x.code === "es");
+  const esCurrent = readLocalizedField("description_es");
+  const esWrong = isClearlyWrongLocalizedField("description_es", esCurrent);
+  const esEmpty = !esCurrent;
+  const esNeedsRegen = esEmpty || esWrong;
+
+  if (esField && esNeedsRegen) {
+    if (adminCanCopySourceToLocalizedField("description_es", sourceText, sourceLanguageCode)) {
+      updates.description_es = sourceText;
+    } else {
+      try {
+        const translated = await translateAdminTextByLanguageCode(sourceText, "es", {
+          source: mainSource,
+          sourceLang: sourceLanguageCode,
+          eventId,
+          field: "description_es"
+        });
+        adminAssignLocalizedTranslation(updates, "description_es", translated, failedFields, esField.label);
+      } catch (error) {
+        console.warn("admin ES translation failed", { message: error?.message || error, source: mainSource, sourceLanguageCode });
+        failedFields.push(esField.label);
+        updates.description_es = "";
+      }
+    }
+  } else if (esField && !forceOverwrite && esCurrent && adminLocalizedFieldLanguageValid("description_es", esCurrent)) {
+    skippedManual.push(esField.label);
+    needsConfirm.push({ field: esField.field, label: esField.label });
+  }
+
   for (const { code, field, label } of ADMIN_DESCRIPTION_LOCALIZED_FIELDS) {
-    const current = String(payload[field] || "").trim();
-    const wrong = isClearlyWrongLocalizedDescription(current, code);
-    const looksManualOk = Boolean(current) && !wrong;
+    if (code === "es") continue;
+
+    const current = readLocalizedField(field);
+    const wrong = isClearlyWrongLocalizedField(field, current);
+    const looksManualOk = Boolean(current) && !wrong && adminLocalizedFieldLanguageValid(field, current);
 
     if (looksManualOk && !forceOverwrite) {
       skippedManual.push(label);
@@ -5571,23 +6025,60 @@ async function regenerateAdminEventTranslations(eventData, form, { forceOverwrit
       continue;
     }
 
-    if (code === sourceLanguageCode) {
+    if (!sourceText) continue;
+
+    if (adminCanCopySourceToLocalizedField(field, sourceText, sourceLanguageCode)) {
       updates[field] = sourceText;
       continue;
     }
 
     try {
-      const translated = await translateAdminTextByLanguageCode(sourceText, code);
-      if (!translated) {
-        failedFields.push(label);
-        if (wrong) updates[field] = "";
-        continue;
-      }
-      updates[field] = translated;
+      const translated = await translateAdminTextByLanguageCode(sourceText, code, {
+        source: mainSource,
+        sourceLang: sourceLanguageCode,
+        eventId,
+        field
+      });
+      adminAssignLocalizedTranslation(updates, field, translated, failedFields, label);
     } catch (error) {
       console.warn("admin translation failed", { field, code, message: error?.message || error });
       failedFields.push(label);
-      if (wrong) updates[field] = "";
+      updates[field] = "";
+    }
+  }
+
+  const primaryTitle = resolveAdminPrimaryTitle(eventData, form);
+  const titleSource = primaryTitle.text;
+  const titleSourceLang = titleSource ? adminDetectDescriptionSourceLanguage(titleSource) : "";
+  if (titleSource) {
+    for (const { code, field, label } of ADMIN_TITLE_LOCALIZED_FIELDS) {
+      const current =
+        adminNormalizeDescriptionCandidate(form?.querySelector?.(`[name="${field}"]`)?.value) ||
+        adminNormalizeDescriptionCandidate(payload[field]);
+      const wrong = isClearlyWrongLocalizedField(field, current);
+      const looksManualOk = Boolean(current) && !wrong && adminLocalizedFieldLanguageValid(field, current);
+      if (looksManualOk && !forceOverwrite) {
+        skippedManual.push(label);
+        needsConfirm.push({ field, label });
+        continue;
+      }
+      if (adminCanCopySourceToLocalizedField(field, titleSource, titleSourceLang)) {
+        updates[field] = titleSource;
+        continue;
+      }
+      try {
+        const translated = await translateEventTitlePreservingBrands(titleSource, code, eventData, {
+          field,
+          eventId,
+          source: primaryTitle.source,
+          sourceLang: titleSourceLang
+        });
+        adminAssignLocalizedTranslation(updates, field, translated, failedFields, label);
+      } catch (error) {
+        console.warn("admin title translation failed", { field, code, message: error?.message || error });
+        failedFields.push(label);
+        updates[field] = "";
+      }
     }
   }
 
@@ -5608,34 +6099,74 @@ async function regenerateAdminEventTranslations(eventData, form, { forceOverwrit
   };
 }
 
+function adminOptionalFormString(formData, name) {
+  const value = String(formData.get(name) || "").trim();
+  return value || null;
+}
+
+/** Prevent empty editor inputs from wiping persisted DB values on merge/save. */
+function adminStripEmptyFormOverrides(payload, eventData) {
+  if (!payload || !eventData) return payload;
+  const preserveKeys = [
+    "name",
+    "description",
+    "genre",
+    "event_date",
+    "event_time",
+    "end_time",
+    "location_name",
+    "address",
+    "postal_code",
+    "city",
+    "country",
+    "image_url",
+    "artist_name",
+    "price_text"
+  ];
+  for (const key of preserveKeys) {
+    const formVal = payload[key];
+    const stored = eventData[key];
+    if ((formVal === null || formVal === "") && stored != null && String(stored).trim()) {
+      delete payload[key];
+    }
+  }
+  if (payload.image_urls === null && eventData.image_urls) {
+    delete payload.image_urls;
+  }
+  return payload;
+}
+
 function eventEditPayloadFromForm(form) {
   const formData = new FormData(form);
   const latRaw = String(formData.get("lat") || "").trim();
   const lngRaw = String(formData.get("lng") || "").trim();
   const titleVal = String(formData.get("title") || "").trim();
+  const categoryVal = String(formData.get("category") || "").trim();
+  const eventDateRaw = String(formData.get("event_date") || "").trim();
+  const eventTimeRaw = String(formData.get("event_time") || "").trim();
   const payload = {
     name: titleVal || null,
-    title_de: String(formData.get("title_de") || "").trim() || null,
-    title_en: String(formData.get("title_en") || "").trim() || null,
-    title_es: String(formData.get("title_es") || "").trim() || null,
-    description: String(formData.get("description") || "").trim() || null,
-    description_es: String(formData.get("description_es") || "").trim() || null,
-    description_de: String(formData.get("description_de") || "").trim() || null,
-    description_en: String(formData.get("description_en") || "").trim() || null,
-    genre: String(formData.get("category") || "").trim() || null,
-    event_date: String(formData.get("event_date") || "").trim() || null,
-    event_time: String(formData.get("event_time") || "").trim() || null,
-    end_time: String(formData.get("end_time") || "").trim() || null,
-    location_name: String(formData.get("location_name") || "").trim() || null,
-    address: String(formData.get("address") || "").trim() || null,
-    postal_code: String(formData.get("postal_code") || "").trim() || null,
-    city: String(formData.get("city") || "").trim() || null,
-    country: String(formData.get("country") || "").trim() || null,
-    artist_name: String(formData.get("artist_name") || "").trim() || null,
-    price_text: String(formData.get("price_text") || "").trim() || null,
-    image_url: String(formData.get("image_url") || "").trim() || null,
+    title_de: adminOptionalFormString(formData, "title_de"),
+    title_en: adminOptionalFormString(formData, "title_en"),
+    title_es: adminOptionalFormString(formData, "title_es"),
+    description: adminOptionalFormString(formData, "description"),
+    description_es: adminOptionalFormString(formData, "description_es"),
+    description_de: adminOptionalFormString(formData, "description_de"),
+    description_en: adminOptionalFormString(formData, "description_en"),
+    genre: categoryVal || null,
+    event_date: adminNormalizeEventDateForValidation(eventDateRaw) || null,
+    event_time: adminNormalizeEventTimeForValidation(eventTimeRaw) || null,
+    end_time: adminNormalizeEventTimeForValidation(String(formData.get("end_time") || "").trim()) || null,
+    location_name: adminOptionalFormString(formData, "location_name"),
+    address: adminOptionalFormString(formData, "address"),
+    postal_code: adminOptionalFormString(formData, "postal_code"),
+    city: adminOptionalFormString(formData, "city"),
+    country: adminOptionalFormString(formData, "country"),
+    artist_name: adminOptionalFormString(formData, "artist_name"),
+    price_text: adminOptionalFormString(formData, "price_text"),
+    image_url: adminOptionalFormString(formData, "image_url"),
     image_urls: readJsonFieldFromFormLoose(formData.get("image_urls"), null),
-    verification_notes: String(formData.get("verification_notes") || "").trim() || null
+    verification_notes: adminOptionalFormString(formData, "verification_notes")
   };
   if (latRaw || lngRaw) {
     const lat = parseCoordinate(latRaw);
@@ -7007,6 +7538,7 @@ function openEventEditorModal(eventData) {
     form?.querySelectorAll("input, textarea, button").forEach((control) => {
       if (control.hasAttribute("data-editor-close")) return;
       if (control.getAttribute("data-admin-action") === "editor-close") return;
+      if (control.getAttribute("data-admin-action") === "editor-regenerate-translations") return;
       control.disabled = busy;
     });
     if (status) {
@@ -7045,11 +7577,12 @@ function openEventEditorModal(eventData) {
           let mergedForSocial = eventData;
           try {
             const rawPayload = eventEditPayloadFromForm(form);
-            mergedForSocial = { ...eventData, ...rawPayload, id: eventData.id };
+            adminStripEmptyFormOverrides(rawPayload, eventData);
+            mergedForSocial = adminCoerceEventForValidation({ ...eventData, ...rawPayload, id: eventData.id });
           } catch (_formErr) {
-            mergedForSocial = eventData;
+            mergedForSocial = adminCoerceEventForValidation(eventData);
           }
-          if (blockAdminEventApprovalIfIncomplete(mergedForSocial, "editor-regenerate-social")) return;
+          if (blockAdminEventApprovalIfIncomplete(mergedForSocial, "editor-regenerate-social", null)) return;
           setBusy(true, "Social Drafts…");
           try {
             const n = await regenerateSocialDraftsForEvent(mergedForSocial);
@@ -7086,13 +7619,35 @@ function openEventEditorModal(eventData) {
                 };
               }
             }
-            applyAdminTranslationUpdatesToForm(form, mergedUpdates);
+            applyAdminTranslationUpdatesToForm(form, mergedUpdates, eventData);
+            if (eventData?.id) {
+              const statePatch = {};
+              if (Object.prototype.hasOwnProperty.call(mergedUpdates, "description_es")) {
+                statePatch.description_es = mergedUpdates.description_es || null;
+              }
+              if (Object.prototype.hasOwnProperty.call(mergedUpdates, "title_es")) {
+                statePatch.title_es = mergedUpdates.title_es || null;
+              }
+              if (Object.prototype.hasOwnProperty.call(mergedUpdates, "title_de")) {
+                statePatch.title_de = mergedUpdates.title_de || null;
+              }
+              if (Object.prototype.hasOwnProperty.call(mergedUpdates, "title_en")) {
+                statePatch.title_en = mergedUpdates.title_en || null;
+              }
+              if (Object.keys(statePatch).length) patchAdminEventInState(eventData.id, statePatch);
+            }
             const updatedCount = Object.keys(mergedUpdates).length;
             if (result.failedFields.length) {
-              setGlobalFeedback(
-                `Übersetzung teilweise fehlgeschlagen (${result.failedFields.join(", ")}). Betroffene Felder wurden nicht überschrieben.`,
-                "error"
-              );
+              if (result.failedFields.includes("Beschreibung ES")) {
+                setGlobalFeedback("Spanische Übersetzung konnte nicht erzeugt werden.", "error");
+              } else if (result.failedFields.includes("Titel ES")) {
+                setGlobalFeedback("Spanische Titel-Übersetzung konnte nicht erzeugt werden.", "error");
+              } else {
+                setGlobalFeedback(
+                  `Übersetzung teilweise fehlgeschlagen (${result.failedFields.join(", ")}). Betroffene Felder wurden nicht überschrieben.`,
+                  "error"
+                );
+              }
             } else if (updatedCount) {
               const skippedNote =
                 result.skippedManual.length > 0
@@ -7286,7 +7841,7 @@ async function handleCardAction(clickEvent) {
     }
 
     if (action === "regenerate-drafts") {
-      if (blockAdminEventApprovalIfIncomplete(eventData, "regenerate-drafts")) return;
+      if (blockAdminEventApprovalIfIncomplete(adminCoerceEventForValidation(eventData), "regenerate-drafts")) return;
       setGlobalFeedback("");
       await withAdminButtonBusy(button, "Social…", async () => {
         console.log("admin action regenerate-drafts start", { eventId: eventData?.id });
@@ -7420,12 +7975,12 @@ async function handleCardAction(clickEvent) {
     const promotedVal = state.featureColumns.promoted && promotedInput ? Boolean(promotedInput.checked) : eventData.promoted;
 
     if (action === "approved") {
-      const mergedForApproval = {
+      const mergedForApproval = adminCoerceEventForValidation({
         ...eventData,
         verification_notes: notes,
         featured: featuredVal,
         promoted: promotedVal
-      };
+      });
       if (blockAdminEventApprovalIfIncomplete(mergedForApproval, "freigeben")) return;
     }
 
@@ -7449,19 +8004,14 @@ async function handleCardAction(clickEvent) {
           setGlobalFeedback("Notizen gespeichert.", "success");
         } else {
           if (action === "approved") {
-            const mergedForApproval = {
+            const mergedForApproval = adminCoerceEventForValidation({
               ...eventData,
               verification_notes: notes,
               featured: featuredVal,
               promoted: promotedVal
-            };
+            });
             if (isAdminEventIncompleteForApproval(mergedForApproval)) {
-              console.error("event approval blocked: incomplete event", {
-                context: "freigeben-persist",
-                eventId: eventData?.id,
-                missing: getAdminEventApprovalMissingFields(mergedForApproval)
-              });
-              throw new Error(ADMIN_EVENT_APPROVAL_INCOMPLETE_MSG);
+              throw new Error(reportAdminEventValidationFailure(mergedForApproval, "freigeben-persist"));
             }
           }
           const updatedRow = await updateEventWithFallback(eventData.id, {
