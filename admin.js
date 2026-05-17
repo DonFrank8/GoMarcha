@@ -2,7 +2,7 @@ const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
 const ADMIN_REQUIRED_ROLE = "admin";
 const ADMIN_ALLOWED_EMAILS = [];
-const ADMIN_DASHBOARD_BUILD = "2026.05.17-description-only-cleanup";
+const ADMIN_DASHBOARD_BUILD = "2026.05.17-description-ui-force-set";
 if (typeof window !== "undefined") {
   window.PARTYRADAR_ADMIN_BUILD = ADMIN_DASHBOARD_BUILD;
   console.log("[admin-build]", ADMIN_DASHBOARD_BUILD);
@@ -5793,103 +5793,121 @@ function buildAdminStrictTranslationPrompt(sourceText, languageCode) {
 
 const ADMIN_LOCALIZED_EDITOR_SYNC_FIELDS = ["description_es", "description_de", "description_en"];
 
-function adminFindEditorFieldControl(form, root, fieldName) {
-  const selector = `[name="${fieldName}"]`;
-  return form?.querySelector(selector) || root?.querySelector(selector) || null;
+function adminEditorTranslationRoot(form, overlay = null) {
+  return (
+    form?.closest(".admin-editor-overlay") ||
+    overlay?.closest?.(".admin-editor-overlay") ||
+    overlay ||
+    form ||
+    null
+  );
 }
 
-function adminSetFormControlValue(el, value) {
-  if (!el) return false;
+/**
+ * Force-set a description textarea in the open editor (call only after setBusy(false)).
+ */
+function forceSetTextareaValue(form, fieldName, value) {
+  const root = adminEditorTranslationRoot(form);
+  const name = String(fieldName || "").trim();
+  if (!root || !name) {
+    console.log("DESCRIPTION UI FORCE SET", {
+      fieldName: name,
+      success: false,
+      before: null,
+      after: null
+    });
+    return false;
+  }
+  const safeName = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(name) : name.replace(/"/g, '\\"');
+  const el = root.querySelector(`textarea[name="${safeName}"]`);
+  if (!(el instanceof HTMLTextAreaElement)) {
+    console.log("DESCRIPTION UI FORCE SET", {
+      fieldName: name,
+      success: false,
+      before: null,
+      after: null
+    });
+    return false;
+  }
+  const before = String(el.value || "");
   const after = value == null ? "" : String(value);
-  const wasDisabled = el.disabled;
-  if (wasDisabled) el.disabled = false;
-  const proto =
-    el instanceof HTMLTextAreaElement
-      ? HTMLTextAreaElement.prototype
-      : el instanceof HTMLInputElement
-        ? HTMLInputElement.prototype
-        : null;
-  if (proto) {
-    const descriptor = Object.getOwnPropertyDescriptor(proto, "value");
-    if (descriptor?.set) {
-      descriptor.set.call(el, after);
-    } else {
-      el.value = after;
-    }
+  el.disabled = false;
+  el.readOnly = false;
+  while (el.firstChild) el.removeChild(el.firstChild);
+  const descriptor = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value");
+  if (descriptor?.set) {
+    descriptor.set.call(el, after);
   } else {
     el.value = after;
   }
+  el.defaultValue = after;
   el.dispatchEvent(new Event("input", { bubbles: true }));
   el.dispatchEvent(new Event("change", { bubbles: true }));
-  if (wasDisabled) el.disabled = true;
-  return true;
+  const success = String(el.value) === after;
+  console.log("DESCRIPTION UI FORCE SET", {
+    fieldName: name,
+    success,
+    before: before.slice(0, 120),
+    after: after.slice(0, 120)
+  });
+  return success;
 }
 
-function applyAdminTranslationUpdatesToForm(form, updates, eventData = null, editorRoot = null) {
-  if (!form || !updates) return { synced: [], missing: [] };
-  const synced = [];
-  const missing = [];
-  for (const [fieldName, value] of Object.entries(updates)) {
-    const el = adminFindEditorFieldControl(form, editorRoot, fieldName);
-    if (!el) {
-      missing.push(fieldName);
-      continue;
-    }
-    const after = value == null ? "" : String(value);
-    const domUpdated = adminSetFormControlValue(el, after);
-    console.log("TRANSLATION UI SYNC", {
-      field: fieldName,
-      appliedValue: after.slice(0, 120),
-      domUpdated
-    });
-    if (eventData && Object.prototype.hasOwnProperty.call(eventData, fieldName)) {
-      eventData[fieldName] = value == null ? null : after;
-    }
-    synced.push(fieldName);
+function adminMergeDescriptionTranslationsToEventState(eventData, updates) {
+  if (!eventData || !updates) return;
+  const statePatch = {};
+  for (const field of ADMIN_LOCALIZED_EDITOR_SYNC_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(updates, field)) continue;
+    const next = updates[field] == null ? null : String(updates[field]);
+    eventData[field] = next;
+    statePatch[field] = next;
   }
-  return { synced, missing };
+  if (!eventData.id || !Object.keys(statePatch).length) return;
+  patchAdminEventInState(eventData.id, statePatch);
+  const fresh = state.allEvents.find((e) => String(e.id) === String(eventData.id));
+  if (!fresh) return;
+  for (const field of ADMIN_LOCALIZED_EDITOR_SYNC_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(statePatch, field)) {
+      eventData[field] = fresh[field];
+    }
+  }
 }
 
 /**
  * Push translation updates into editor DOM + in-memory event/state (call after setBusy(false)).
  */
 function syncAdminTranslationUpdatesToEditor(form, overlay, updates, eventData) {
-  if (!form || !updates) return;
-  const applyResult = applyAdminTranslationUpdatesToEditor(form, overlay, updates, eventData);
-  if (eventData?.id) {
-    const statePatch = {};
-    for (const field of ADMIN_LOCALIZED_EDITOR_SYNC_FIELDS) {
-      if (Object.prototype.hasOwnProperty.call(updates, field)) {
-        statePatch[field] = updates[field] == null ? null : String(updates[field]);
-      }
-    }
-    if (Object.keys(statePatch).length) {
-      patchAdminEventInState(eventData.id, statePatch);
-    }
+  if (!form || !updates) return { synced: [], missing: [] };
+  adminMergeDescriptionTranslationsToEventState(eventData, updates);
+  const synced = [];
+  const missing = [];
+  for (const field of ADMIN_LOCALIZED_EDITOR_SYNC_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(updates, field)) continue;
+    const expected = updates[field] == null ? "" : String(updates[field]);
+    if (forceSetTextareaValue(form, field, expected)) synced.push(field);
+    else missing.push(field);
   }
-  if (applyResult.missing.length) {
-    console.warn("translation ui sync missing fields", applyResult.missing);
+  if (missing.length) {
+    console.warn("translation ui sync missing fields", missing);
   }
   window.requestAnimationFrame(() => {
-    for (const field of applyResult.synced) {
-      const el = adminFindEditorFieldControl(form, overlay, field);
-      if (!el) continue;
+    for (const field of ADMIN_LOCALIZED_EDITOR_SYNC_FIELDS) {
+      if (!Object.prototype.hasOwnProperty.call(updates, field)) continue;
       const expected = updates[field] == null ? "" : String(updates[field]);
-      if (String(el.value) !== expected) {
-        adminSetFormControlValue(el, expected);
-        console.log("TRANSLATION UI SYNC", {
-          field,
-          appliedValue: expected.slice(0, 120),
-          domUpdated: true,
-          retry: true
-        });
-      }
+      const root = adminEditorTranslationRoot(form, overlay);
+      const safeName = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(field) : field;
+      const el = root?.querySelector(`textarea[name="${safeName}"]`);
+      if (!(el instanceof HTMLTextAreaElement)) continue;
+      if (String(el.value) !== expected) forceSetTextareaValue(form, field, expected);
     }
   });
+  return { synced, missing };
 }
 
-function applyAdminTranslationUpdatesToEditor(form, overlay, updates, eventData) {
-  return applyAdminTranslationUpdatesToForm(form, updates, eventData, overlay);
+function adminWaitEditorFieldsEnabled() {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(resolve));
+  });
 }
 
 /**
@@ -7501,6 +7519,7 @@ function openEventEditorModal(eventData) {
               }
             }
             setBusy(false, "");
+            await adminWaitEditorFieldsEnabled();
             syncAdminTranslationUpdatesToEditor(form, overlay, mergedUpdates, eventData);
             const updatedCount = Object.keys(mergedUpdates).length;
             if (result.failedFields.length) {
