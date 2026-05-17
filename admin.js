@@ -726,6 +726,34 @@ function isAdminRecurringEvent(event) {
   return getAdminEffectiveRecurrenceType(event) !== "none";
 }
 
+function adminIsRecurringChildEvent(event) {
+  return Boolean(String(event?.original_event_id ?? "").trim());
+}
+
+/** Recurring series master (not a one-off child row). */
+function adminIsRecurringMasterEvent(event) {
+  if (adminIsRecurringChildEvent(event)) return false;
+  if (event?.is_recurring === true) return true;
+  const type = normalizeAdminRecurrenceType(event?.recurrence_type);
+  return type === "weekly" || type === "monthly";
+}
+
+function adminOneTimeEventStartPast(event, now = new Date()) {
+  const start = dateFromAdminEventWallTime(event);
+  return Boolean(start && !Number.isNaN(start.getTime()) && start.getTime() < now.getTime());
+}
+
+function adminRecurrenceEndDateInPast(event, now = new Date()) {
+  const endParts = parseAdminYmd(event?.recurrence_end_date);
+  if (!endParts) return false;
+  const end = adminDateFromYmdParts(endParts);
+  if (!end) return false;
+  end.setHours(23, 59, 59, 999);
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+  return end < today;
+}
+
 /** Stored recurrence_type only — never infer weekly from orphan weekday fields. */
 function getAdminEffectiveRecurrenceType(event) {
   if (event?.is_recurring !== true) return "none";
@@ -3098,14 +3126,93 @@ function socialQueueSummary(eventId) {
   return counts;
 }
 
-function isEventPast(event) {
-  const now = new Date();
+function isEventPast(event, now = new Date()) {
   const coerced = adminCoerceRecurrenceFields(event);
-  if (isAdminRecurringEvent(coerced)) {
+
+  if (adminIsRecurringChildEvent(coerced)) {
+    return adminOneTimeEventStartPast(coerced, now);
+  }
+
+  if (adminIsRecurringMasterEvent(coerced)) {
+    if (!adminHasValidRecurrencePattern(coerced)) {
+      return false;
+    }
     return getNextRecurringOccurrence(coerced, now) === null;
   }
-  const start = dateFromAdminEventWallTime(coerced);
-  return Boolean(start && !Number.isNaN(start.getTime()) && start < now);
+
+  return adminOneTimeEventStartPast(coerced, now);
+}
+
+/**
+ * Auto-archive past one-time events and past recurring child rows only.
+ * Recurring masters are never archived because a single occurrence date passed.
+ */
+async function adminSyncPastEventArchiveState(events = state.allEvents) {
+  if (!isSessionAdmin(state.adminSession) || !Array.isArray(events) || !events.length) return;
+
+  const now = new Date();
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+
+  for (const raw of events) {
+    const event = adminCoerceRecurrenceFields(raw);
+    const eventId = String(event?.id ?? "").trim();
+    if (!eventId) continue;
+
+    if (adminIsRecurringMasterEvent(event)) {
+      console.log("SKIP ARCHIVE RECURRING MASTER", {
+        id: eventId,
+        name: event.name || event.title || "",
+        recurrence_type: event.recurrence_type || "none"
+      });
+
+      const wronglyEnded = adminRecurrenceEndDateInPast(event, now);
+      const hasArchiveStamp = Boolean(event.archived_at);
+      if (!hasArchiveStamp && !wronglyEnded) continue;
+
+      const patch = { archived_at: null };
+      if (wronglyEnded) patch.recurrence_end_date = null;
+      const status = String(event.status || "").toLowerCase();
+      if (status === "approved" || hasArchiveStamp) {
+        patch.status = "approved";
+      }
+
+      try {
+        await updateEventWithFallback(eventId, patch);
+        patchAdminEventInState(eventId, patch);
+        console.log("UNARCHIVE RECURRING MASTER", { id: eventId, name: event.name, patch });
+      } catch (error) {
+        console.warn("UNARCHIVE RECURRING MASTER failed", { id: eventId, message: error?.message }, error);
+      }
+      continue;
+    }
+
+    if (adminIsRecurringChildEvent(event)) {
+      if (!adminOneTimeEventStartPast(event, now)) continue;
+      if (event.archived_at) continue;
+      const patch = { archived_at: now.toISOString() };
+      try {
+        await updateEventWithFallback(eventId, patch);
+        patchAdminEventInState(eventId, patch);
+        console.log("AUTO ARCHIVE RECURRING CHILD", { id: eventId, event_date: event.event_date });
+      } catch (error) {
+        console.warn("AUTO ARCHIVE RECURRING CHILD failed", { id: eventId, message: error?.message }, error);
+      }
+      continue;
+    }
+
+    if (!adminOneTimeEventStartPast(event, now)) continue;
+    if (event.archived_at) continue;
+
+    const patch = { archived_at: now.toISOString() };
+    try {
+      await updateEventWithFallback(eventId, patch);
+      patchAdminEventInState(eventId, patch);
+      console.log("AUTO ARCHIVE ONE-TIME EVENT", { id: eventId, event_date: event.event_date });
+    } catch (error) {
+      console.warn("AUTO ARCHIVE ONE-TIME EVENT failed", { id: eventId, message: error?.message }, error);
+    }
+  }
 }
 
 function buildEventValidationBadges(event) {
@@ -6712,6 +6819,7 @@ async function loadEvents() {
   }
 
   state.allEvents = rows.map(normalizeEvent);
+  await adminSyncPastEventArchiveState(state.allEvents);
   await loadSocialQueueRows();
   syncFilterOptions();
   render();
