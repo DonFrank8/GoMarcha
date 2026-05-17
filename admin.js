@@ -1680,6 +1680,15 @@ function buildAdminSocialCaption(event, eventStartOrScheduled, platform = "insta
   return generateHumanSocialCaptionBundle(event, platform, eventStartOrScheduled, { styleMode }).caption;
 }
 
+function adminPrimaryPlatform(platforms, legacyPlatform) {
+  if (Array.isArray(platforms) && platforms.length) {
+    return String(platforms[0] || "instagram").toLowerCase();
+  }
+  const legacy = String(legacyPlatform || "").toLowerCase();
+  if (legacy && SOCIAL_REVIEW_PLATFORMS.includes(legacy)) return legacy;
+  return "instagram";
+}
+
 function normalizeSocialQueuePlatforms(source) {
   const raw = source?.platforms;
   if (Array.isArray(raw) && raw.length) {
@@ -1694,6 +1703,15 @@ function normalizeSocialQueuePlatforms(source) {
   const legacy = String(source?.platform || "").toLowerCase();
   if (legacy && SOCIAL_REVIEW_PLATFORMS.includes(legacy)) return [legacy];
   return [...DEFAULT_SOCIAL_QUEUE_PLATFORMS];
+}
+
+function applySocialQueuePlatformsToRecord(record) {
+  const platforms = normalizeSocialQueuePlatforms(record);
+  return {
+    ...(record || {}),
+    platforms,
+    platform: adminPrimaryPlatform(platforms, record?.platform)
+  };
 }
 
 function renderSocialQueuePlatformBadges(platforms) {
@@ -1723,7 +1741,7 @@ function buildSocialQueuePayload(event, scheduledAt, platforms = DEFAULT_SOCIAL_
   const imageUrl = String(resolvePrimaryImageUrl(event) || "").trim();
   const title = String(event?.name || event?.title || "").trim();
   const platformsList = normalizeSocialQueuePlatforms({ platforms });
-  const captionPlatform = platformsList[0] || "instagram";
+  const captionPlatform = adminPrimaryPlatform(platformsList);
   const bundle = generateHumanSocialCaptionBundle(event, captionPlatform, eventStart || scheduled, {
     styleMode: "natural"
   });
@@ -2104,6 +2122,12 @@ function renderSocialQueueSendToPostizButton(row) {
 
 function validateSocialQueueDraftForm(data) {
   const errors = [];
+  const platforms = Array.isArray(data?.platforms)
+    ? data.platforms
+        .map((p) => String(p || "").toLowerCase())
+        .filter((p) => SOCIAL_REVIEW_PLATFORMS.includes(p))
+    : normalizeSocialQueuePlatforms(data);
+  if (!platforms.length) errors.push("Mindestens eine Plattform wählen");
   if (!String(data.caption || "").trim()) errors.push("Caption fehlt");
   if (!String(data.image_url || "").trim()) errors.push("Bild fehlt");
   const rawScheduled = String(data.scheduled_at_local ?? "").trim();
@@ -2116,10 +2140,47 @@ function validateSocialQueueDraftForm(data) {
     } else if (!isSocialQueueScheduledAtInFuture(scheduled)) {
       errors.push("Bitte mindestens 2 Minuten in der Zukunft wählen.");
     } else {
-      return { ok: true, errors: [], scheduled_at: scheduled };
+      return { ok: true, errors: [], scheduled_at: scheduled, platforms };
     }
   }
-  return { ok: false, errors, scheduled_at: null };
+  return { ok: false, errors, scheduled_at: null, platforms: [] };
+}
+
+function buildSocialQueueDraftSavePayload(form, row, validation, imageUrl) {
+  const platforms = Array.isArray(form?.platforms) && form.platforms.length
+    ? form.platforms
+        .map((p) => String(p || "").toLowerCase())
+        .filter((p) => SOCIAL_REVIEW_PLATFORMS.includes(p))
+    : normalizeSocialQueuePlatforms(row);
+  const primaryPlatform = adminPrimaryPlatform(platforms, row?.platform);
+
+  console.log("SOCIAL SAVE PAYLOAD", {
+    queueId: row?.id ?? null,
+    platforms,
+    primaryPlatform,
+    formPlatforms: form?.platforms ?? null,
+    rowPlatforms: row?.platforms ?? null,
+    legacyPlatform: row?.platform ?? null
+  });
+
+  const payload = pickSocialQueueUpdateRow({
+    title: String(form.title || "").trim(),
+    caption: String(form.caption || "").trim(),
+    scheduled_at: validation.scheduled_at,
+    platforms,
+    platform: primaryPlatform,
+    image_url: imageUrl,
+    resolved_image_url: imageUrl,
+    hashtags: String(form.hashtags || "").trim() || null,
+    cta_text: String(form.cta_text || "").trim() || null,
+    postiz_response: mergeSocialQueuePostizResponse(row.postiz_response, form.hashtags, form.cta_text, {
+      style_mode: form.style_mode
+    })
+  });
+
+  const normalized = applySocialQueuePlatformsToRecord(payload);
+  console.log("SOCIAL SAVE NORMALIZED", normalized);
+  return normalized;
 }
 
 function pickSocialQueueUpdateRow(patch) {
@@ -2136,7 +2197,7 @@ function patchSocialQueueRowInState(queueId, patch) {
   for (const [groupKey, rows] of state.socialQueueByEvent.entries()) {
     const idx = rows.findIndex((r) => String(r.id) === key);
     if (idx < 0) continue;
-    rows[idx] = { ...rows[idx], ...patch };
+    rows[idx] = applySocialQueuePlatformsToRecord({ ...rows[idx], ...patch });
     state.socialQueueByEvent.set(groupKey, rows);
     return;
   }
@@ -2378,7 +2439,7 @@ function renderSocialQueueEditor(row) {
       <div class="admin-sq-editor__previews" data-sq-previews>
         ${renderSocialPostPreviewCard("instagram", draftPreview)}
         ${renderSocialPostPreviewCard("facebook", draftPreview)}
-        ${String(row.platform || "").toLowerCase() === "tiktok" ? renderSocialPostPreviewCard("tiktok", draftPreview) : ""}
+        ${normalizeSocialQueuePlatforms(row).includes("tiktok") ? renderSocialPostPreviewCard("tiktok", draftPreview) : ""}
       </div>
       <div class="admin-sq-editor__grid admin-sq-editor__grid--meta">
         <label class="admin-sq-field admin-sq-field--full">
@@ -2438,10 +2499,11 @@ function readSocialQueueEditorForm(editorEl) {
   } else {
     scheduled_at_local = coerceDatetimeLocalInputValue(rawScheduled, row?.scheduled_at);
   }
-  const platforms = normalizeSocialQueuePlatforms({
-    platforms: [...editorEl.querySelectorAll('input[name="platforms"]:checked')].map((el) => el.value)
-  });
-  const platform = platforms[0] || "instagram";
+  const checkedPlatforms = [...editorEl.querySelectorAll('input[name="platforms"]:checked')]
+    .map((el) => String(el.value || "").toLowerCase())
+    .filter((p) => SOCIAL_REVIEW_PLATFORMS.includes(p));
+  const platforms = checkedPlatforms.length ? checkedPlatforms : normalizeSocialQueuePlatforms(row);
+  const platform = adminPrimaryPlatform(platforms, row?.platform);
   const hashtags = editorEl.querySelector('[name="hashtags"]')?.value ?? "";
   const cta_text = editorEl.querySelector('[name="cta_text"]')?.value ?? "";
   const style_mode = editorEl.querySelector('[name="style_mode"]')?.value ?? "natural";
@@ -2489,7 +2551,9 @@ function updateSocialCaptionEditorUi(editorEl, { dirty = null } = {}) {
     previews.innerHTML =
       renderSocialPostPreviewCard("instagram", draftPreview) +
       renderSocialPostPreviewCard("facebook", draftPreview) +
-      (String(form.platform).toLowerCase() === "tiktok" ? renderSocialPostPreviewCard("tiktok", draftPreview) : "");
+      (normalizeSocialQueuePlatforms(form).includes("tiktok")
+        ? renderSocialPostPreviewCard("tiktok", draftPreview)
+        : "");
     console.log("preview updated", { queueId, chars: fullCaption.length });
   }
 }
@@ -2515,10 +2579,15 @@ function applyCaptionStudioTransform(editorEl, action, row) {
 
   if (action === "regenerate") {
     const scheduled = parseDatetimeLocalInput(form.scheduled_at_local);
-    const bundle = generateHumanSocialCaptionBundle(ev || row, form.platform, scheduled ? new Date(scheduled) : null, {
-      styleMode: form.style_mode,
-      seed: Date.now()
-    });
+    const bundle = generateHumanSocialCaptionBundle(
+      ev || row,
+      adminPrimaryPlatform(form.platforms, form.platform),
+      scheduled ? new Date(scheduled) : null,
+      {
+        styleMode: form.style_mode,
+        seed: Date.now()
+      }
+    );
     caption = bundle.caption;
     hashtags = bundle.hashtags;
     cta_text = bundle.cta_text;
@@ -2539,7 +2608,7 @@ function applyCaptionStudioTransform(editorEl, action, row) {
     const venue = String(ev?.location_name || row?.location_name || "").trim();
     if (city && !caption.toLowerCase().includes(city.toLowerCase())) caption = `${caption}\n${city}.`.trim();
     if (venue && !caption.toLowerCase().includes(venue.toLowerCase())) caption = `${caption}\n${venue}`.trim();
-    hashtags = buildSocialHashtags(ev || row, form.platform);
+    hashtags = buildSocialHashtags(ev || row, adminPrimaryPlatform(form.platforms, form.platform));
   } else if (action === "premium") {
     caption = caption
       .replace(/\b(noche|night)\b/gi, lang === "es" ? "velada" : "evening")
@@ -2689,27 +2758,13 @@ async function handleSocialQueueSaveDraftClick(button) {
     throw new Error(display);
   }
 
-  const platforms = normalizeSocialQueuePlatforms(form.platforms?.length ? form : row);
-  const payload = pickSocialQueueUpdateRow({
-    title: String(form.title || "").trim(),
-    caption: String(form.caption || "").trim(),
-    scheduled_at: validation.scheduled_at,
-    platforms,
-    platform: platforms[0] || "instagram",
-    image_url: imageUrl,
-    resolved_image_url: imageUrl,
-    hashtags: String(form.hashtags || "").trim() || null,
-    cta_text: String(form.cta_text || "").trim() || null,
-    postiz_response: mergeSocialQueuePostizResponse(row.postiz_response, form.hashtags, form.cta_text, {
-      style_mode: form.style_mode
-    })
-  });
+  const payload = buildSocialQueueDraftSavePayload(form, row, validation, imageUrl);
 
   console.log("social queue save-draft payload", {
     queueId,
     eventId: row.event_id ?? null,
     scheduled_at: validation.scheduled_at,
-    platform,
+    platforms: payload.platforms,
     status: row.status ?? null,
     payload
   });
@@ -2726,7 +2781,11 @@ async function handleSocialQueueSaveDraftClick(button) {
     console.log("[save-draft] 7 supabase response", { attempt, data, error });
     if (!error) {
       patchSocialQueueRowInState(queueId, body);
-      const savedRow = { ...row, ...body, scheduled_at: validation.scheduled_at };
+      const savedRow = applySocialQueuePlatformsToRecord({
+        ...row,
+        ...body,
+        scheduled_at: validation.scheduled_at
+      });
       syncSocialQueueScheduledAtInput(editorEl, savedRow);
       state.socialQueueDraftSnapshots.set(
         String(queueId),
@@ -2739,7 +2798,7 @@ async function handleSocialQueueSaveDraftClick(button) {
         queueId,
         eventId: row.event_id ?? null,
         scheduled_at: validation.scheduled_at,
-        platforms,
+        platforms: savedRow.platforms,
         status: row.status ?? null,
         data
       });
@@ -2835,7 +2894,7 @@ async function confirmSocialQueueDraftForPostiz(queueId, editorEl, button) {
     queueId: idKey,
     eventId: row?.event_id ?? null,
     scheduled_at: row?.scheduled_at ?? null,
-    platform: row?.platform ?? null,
+    platforms: normalizeSocialQueuePlatforms(row),
     status: row?.status ?? null,
     postiz_post_id: row?.postiz_post_id ?? handoff?.postiz_post_id ?? null
   });
@@ -5074,7 +5133,7 @@ function normalizeSocialQueueRow(row) {
   return {
     ...out,
     platforms,
-    platform: platforms[0] || out.platform || "instagram",
+    platform: adminPrimaryPlatform(platforms, out.platform),
     title: cleanTitle || null,
     event_title,
     _event: eventRef,
@@ -8808,7 +8867,7 @@ function bindEvents() {
     if (event.target.matches('[name="scheduled_at"]')) {
       warnIfInvalidSocialQueueDatetimeInput(event.target, "change");
     }
-    if (event.target.matches('[name="style_mode"], [name="platform"]')) {
+    if (event.target.matches('[name="style_mode"], [name="platforms"]')) {
       console.log("style mode", { style_mode: editor.querySelector('[name="style_mode"]')?.value });
       updateSocialCaptionEditorUi(editor, { dirty: true });
     }
@@ -8899,7 +8958,7 @@ function bindEvents() {
         queueId: queueIdPostiz,
         eventId: postizCtx.eventId ?? null,
         scheduled_at: postizCtx.row?.scheduled_at ?? null,
-        platform: postizCtx.row?.platform ?? null,
+        platforms: normalizeSocialQueuePlatforms(postizCtx.row),
         status: postizCtx.row?.status ?? null
       });
       const editorForPostiz = postizCtx.editorEl || resolveSocialQueueEditorEl(sendToPostizBtn, queueIdPostiz);
@@ -8976,7 +9035,7 @@ function bindEvents() {
       queueId,
       eventId: eventId ?? null,
       scheduled_at: row?.scheduled_at ?? null,
-      platform: row?.platform ?? null,
+      platforms: normalizeSocialQueuePlatforms(row),
       status: row?.status ?? null
     });
 
