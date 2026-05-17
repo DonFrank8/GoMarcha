@@ -2,7 +2,7 @@ const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
 const ADMIN_REQUIRED_ROLE = "admin";
 const ADMIN_ALLOWED_EMAILS = [];
-const ADMIN_DASHBOARD_BUILD = "2026.05.17-admin-cleanup-stable";
+const ADMIN_DASHBOARD_BUILD = "2026.05.17-save-dom-description-rootfix";
 if (typeof window !== "undefined") {
   window.PARTYRADAR_ADMIN_BUILD = ADMIN_DASHBOARD_BUILD;
   console.log("[admin-build]", ADMIN_DASHBOARD_BUILD);
@@ -200,17 +200,77 @@ function adminMergeLocalizedDescriptionsPreserveExisting(target, ...sources) {
   return target;
 }
 
-/** Merge save payload + Supabase row without wiping localized fields with null/empty. */
+const ADMIN_DESCRIPTION_FORM_FIELDS = ["description", ...ADMIN_LOCALIZED_EDITOR_SYNC_FIELDS];
+
+function adminLogSaveLocalizedDescriptions(payload, label) {
+  const out = {};
+  for (const field of ADMIN_DESCRIPTION_FORM_FIELDS) {
+    out[field] = String(payload?.[field] ?? "").slice(0, 200);
+  }
+  console.log(label, out);
+}
+
+/** Read description textarea from live DOM (scoped id first; never FormData for localized fields). */
+function adminReadLiveDomDescriptionField(form, overlay, fieldName) {
+  const name = String(fieldName || "").trim();
+  if (!name) return "";
+  const root = adminEditorTranslationRoot(form, overlay);
+  const domId = ADMIN_DESCRIPTION_FIELD_DOM_IDS[name];
+  if (domId && root) {
+    const safeId = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(domId) : domId;
+    const byId = root.querySelector(`#${safeId}`);
+    if (byId instanceof HTMLTextAreaElement) return String(byId.value ?? "");
+  }
+  if (root) {
+    const safeName = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(name) : name.replace(/"/g, '\\"');
+    const byName = root.querySelector(`textarea[name="${safeName}"]`);
+    if (byName instanceof HTMLTextAreaElement) return String(byName.value ?? "");
+  }
+  if (form) {
+    const safeName = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(name) : name.replace(/"/g, '\\"');
+    const byName = form.querySelector(`textarea[name="${safeName}"]`);
+    if (byName instanceof HTMLTextAreaElement) return String(byName.value ?? "");
+  }
+  return "";
+}
+
+function adminDescriptionFieldToPayloadValue(raw) {
+  const text = String(raw ?? "").trim();
+  return text || null;
+}
+
+function adminLogSaveFormDomCheck(form, overlay) {
+  console.log("SAVE FORM DOM CHECK", {
+    description_es_dom: adminReadLiveDomDescriptionField(form, overlay, "description_es").slice(0, 200),
+    description_de_dom: adminReadLiveDomDescriptionField(form, overlay, "description_de").slice(0, 200),
+    description_en_dom: adminReadLiveDomDescriptionField(form, overlay, "description_en").slice(0, 200)
+  });
+}
+
+function adminAssertLocalizedDescriptionsSaved(payload, savedRow) {
+  for (const field of ADMIN_LOCALIZED_EDITOR_SYNC_FIELDS) {
+    const sent = String(payload?.[field] ?? "").trim();
+    if (!sent) continue;
+    const got = savedRow ? adminReadLocalizedDescriptionFromRow(savedRow, field).trim() : "";
+    if (!got) {
+      console.warn("LOCALIZED DESCRIPTION LOST DURING SAVE", {
+        field,
+        sentPreview: sent.slice(0, 160)
+      });
+    }
+  }
+}
+
+/** Merge save: DB row first, payload fallback — never stale eventData. */
 function adminBuildPostSaveStatePatch(payload, savedRow) {
-  const patch = { ...(payload || {}) };
+  const patch = {};
   if (savedRow?.id) patch.id = savedRow.id;
   if (savedRow?.status) patch.status = savedRow.status;
-  for (const field of ADMIN_LOCALIZED_EDITOR_SYNC_FIELDS) {
+  for (const field of ADMIN_DESCRIPTION_FORM_FIELDS) {
     const fromDb = savedRow ? adminReadLocalizedDescriptionFromRow(savedRow, field) : "";
-    const fromPayload = String(patch[field] ?? "").trim();
+    const fromPayload = String(payload?.[field] ?? "").trim();
     if (fromDb.trim()) patch[field] = fromDb;
     else if (fromPayload) patch[field] = fromPayload;
-    else delete patch[field];
   }
   return patch;
 }
@@ -665,14 +725,14 @@ async function adminEditorGeocodeFromForm(form, eventData, busyButtons = []) {
 /**
  * Speichern aus dem Event-Editor (ein Codepfad für „Speichern“ und „Speichern + Social neu“).
  */
-async function adminEditorSaveEventPayload(form, eventData, { regenerateSocial }) {
+async function adminEditorSaveEventPayload(form, eventData, { regenerateSocial }, overlay = null) {
   const eventId = eventData?.id;
   if (!eventId) throw new Error("Event-ID fehlt.");
 
   console.log("admin save start", { eventId, regenerateSocial });
 
-  const rawPayload = eventEditPayloadFromForm(form);
-  adminStripEmptyFormOverrides(rawPayload, eventData);
+  const rawPayload = eventEditPayloadFromForm(form, overlay);
+  adminStripEmptyFormOverrides(rawPayload, eventData, form, overlay);
   adminEditorMergeLatLngIntoPayload(rawPayload, form, eventData);
   let payload = sanitizeEventPayloadForDb(rawPayload);
 
@@ -711,13 +771,21 @@ async function adminEditorSaveEventPayload(form, eventData, { regenerateSocial }
     throw new Error(reportAdminEventValidationFailure(merged, "editor-save", payload));
   }
 
+  adminLogSaveLocalizedDescriptions(payload, "SAVE PAYLOAD LOCALIZED DESCRIPTIONS");
   console.log("admin save payload", { eventId, payload });
   const savedRow = await updateEventWithFallback(eventId, payload);
-  patchAdminEventInState(eventId, adminBuildPostSaveStatePatch(payload, savedRow));
+  adminAssertLocalizedDescriptionsSaved(payload, savedRow);
+
+  const statePatch = adminBuildPostSaveStatePatch(payload, savedRow);
+  patchAdminEventInState(eventId, statePatch);
   if (state.adminEditorEventId && String(state.adminEditorEventId) === String(eventId)) {
     state.adminEditorEvent = adminResolveEventFromState(eventId) || state.adminEditorEvent;
   }
+
+  adminPopulateEditorLocalizedDescriptions(form, statePatch, overlay);
   console.log("admin save success", { eventId });
+
+  const base = { saved: true, socialOk: true, savedRow, payload: statePatch };
 
   if (regenerateSocial) {
     if (isAdminEventIncompleteForApproval(merged)) {
@@ -726,13 +794,13 @@ async function adminEditorSaveEventPayload(form, eventData, { regenerateSocial }
     try {
       await regenerateSocialDraftsForEvent(merged);
       console.log("admin social regenerate success", { eventId });
-      return { saved: true, socialOk: true };
+      return base;
     } catch (socErr) {
       console.error("admin save social error", socErr);
-      return { saved: true, socialOk: false, socialError: socErr };
+      return { ...base, socialOk: false, socialError: socErr };
     }
   }
-  return { saved: true, socialOk: true };
+  return base;
 }
 
 function parseAdminYmd(rawDate) {
@@ -5113,7 +5181,9 @@ async function updateEventWithFallback(eventId, updates) {
       if (!Array.isArray(data) || !data.length) {
         throw new Error("No row updated. Check admin role and RLS policies.");
       }
-      return data[0];
+      const row = data[0];
+      adminLogSaveLocalizedDescriptions(row, "SAVE RESULT LOCALIZED DESCRIPTIONS");
+      return row;
     }
     lastError = error;
     const missing = parseMissingColumn(error);
@@ -6511,15 +6581,12 @@ function adminOptionalFormString(formData, name) {
   return value || null;
 }
 
-/** Prevent empty editor inputs from wiping persisted DB values on merge/save. */
-function adminStripEmptyFormOverrides(payload, eventData) {
+/** Prevent empty non-description fields from wiping persisted DB values. Never strip description_* from payload. */
+function adminStripEmptyFormOverrides(payload, eventData, form, overlay) {
   if (!payload || !eventData) return payload;
+  const descriptionSkip = new Set(ADMIN_DESCRIPTION_FORM_FIELDS);
   const preserveKeys = [
     "name",
-    "description",
-    "description_es",
-    "description_de",
-    "description_en",
     "genre",
     "event_date",
     "event_time",
@@ -6534,11 +6601,15 @@ function adminStripEmptyFormOverrides(payload, eventData) {
     "price_text"
   ];
   for (const key of preserveKeys) {
+    if (descriptionSkip.has(key)) continue;
     const formVal = payload[key];
     const stored = eventData[key];
     if ((formVal === null || formVal === "") && stored != null && String(stored).trim()) {
       delete payload[key];
     }
+  }
+  for (const field of ADMIN_DESCRIPTION_FORM_FIELDS) {
+    payload[field] = adminDescriptionFieldToPayloadValue(adminReadLiveDomDescriptionField(form, overlay, field));
   }
   if (payload.image_urls === null && eventData.image_urls) {
     delete payload.image_urls;
@@ -6546,7 +6617,7 @@ function adminStripEmptyFormOverrides(payload, eventData) {
   return payload;
 }
 
-function eventEditPayloadFromForm(form) {
+function eventEditPayloadFromForm(form, overlay = null) {
   const formData = new FormData(form);
   const latRaw = String(formData.get("lat") || "").trim();
   const lngRaw = String(formData.get("lng") || "").trim();
@@ -6559,10 +6630,16 @@ function eventEditPayloadFromForm(form) {
     title_de: adminOptionalFormString(formData, "title_de"),
     title_en: adminOptionalFormString(formData, "title_en"),
     title_es: adminOptionalFormString(formData, "title_es"),
-    description: adminOptionalFormString(formData, "description"),
-    description_es: adminOptionalFormString(formData, "description_es"),
-    description_de: adminOptionalFormString(formData, "description_de"),
-    description_en: adminOptionalFormString(formData, "description_en"),
+    description: adminDescriptionFieldToPayloadValue(adminReadLiveDomDescriptionField(form, overlay, "description")),
+    description_es: adminDescriptionFieldToPayloadValue(
+      adminReadLiveDomDescriptionField(form, overlay, "description_es")
+    ),
+    description_de: adminDescriptionFieldToPayloadValue(
+      adminReadLiveDomDescriptionField(form, overlay, "description_de")
+    ),
+    description_en: adminDescriptionFieldToPayloadValue(
+      adminReadLiveDomDescriptionField(form, overlay, "description_en")
+    ),
     genre: categoryVal || null,
     event_date: adminNormalizeEventDateForValidation(eventDateRaw) || null,
     event_time: adminNormalizeEventTimeForValidation(eventTimeRaw) || null,
@@ -8107,7 +8184,9 @@ function openEventEditorModal(eventDataInput) {
       const regenerateSocial = Boolean(submitEvent.submitter?.hasAttribute("data-editor-save-social"));
       try {
         setBusy(true, "Speichern…");
-        const saveResult = await adminEditorSaveEventPayload(form, eventData, { regenerateSocial });
+        eventData = adminGetCanonicalEditorEvent() || eventData;
+        adminLogSaveFormDomCheck(form, overlay);
+        const saveResult = await adminEditorSaveEventPayload(form, eventData, { regenerateSocial }, overlay);
         if (saveResult.socialOk === false) {
           const se = saveResult.socialError && typeof saveResult.socialError === "object" ? saveResult.socialError : {};
           console.error("admin save error", { phase: "social", eventId: eventData?.id, message: se.message }, saveResult.socialError);
