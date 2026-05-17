@@ -27,10 +27,12 @@ let editorLocationAutocompleteDispose = null;
 let editorPlacesHideSuggestionsFn = null;
 const ADMIN_MAPBOX_ACCESS_TOKEN = (window.PARTYRADAR_MAPBOX_TOKEN || "").toString().trim();
 const SOCIAL_REVIEW_PLATFORMS = ["instagram", "facebook"];
+const DEFAULT_SOCIAL_QUEUE_PLATFORMS = Object.freeze(["instagram", "facebook"]);
 
 const SOCIAL_QUEUE_INSERT_COLUMNS = new Set([
   "event_id",
   "platform",
+  "platforms",
   "status",
   "scheduled_at",
   "title",
@@ -52,6 +54,7 @@ const SOCIAL_QUEUE_POSTED_RETENTION_DAYS = 30;
 
 const SOCIAL_QUEUE_UPDATE_COLUMNS = new Set([
   "platform",
+  "platforms",
   "status",
   "scheduled_at",
   "title",
@@ -1677,7 +1680,40 @@ function buildAdminSocialCaption(event, eventStartOrScheduled, platform = "insta
   return generateHumanSocialCaptionBundle(event, platform, eventStartOrScheduled, { styleMode }).caption;
 }
 
-function buildSocialQueuePayload(event, platform, scheduledAt) {
+function normalizeSocialQueuePlatforms(source) {
+  const raw = source?.platforms;
+  if (Array.isArray(raw) && raw.length) {
+    const out = [];
+    for (const entry of raw) {
+      const key = String(entry || "").toLowerCase();
+      if (!SOCIAL_REVIEW_PLATFORMS.includes(key) || out.includes(key)) continue;
+      out.push(key);
+    }
+    if (out.length) return out;
+  }
+  const legacy = String(source?.platform || "").toLowerCase();
+  if (legacy && SOCIAL_REVIEW_PLATFORMS.includes(legacy)) return [legacy];
+  return [...DEFAULT_SOCIAL_QUEUE_PLATFORMS];
+}
+
+function renderSocialQueuePlatformBadges(platforms) {
+  return normalizeSocialQueuePlatforms({ platforms })
+    .map((p) => {
+      const pv = platformVisual(p);
+      return `<span class="admin-sq-platform-badge">${pv.icon} ${escapeHtml(pv.label)}</span>`;
+    })
+    .join("");
+}
+
+function socialQueuePlatformsSummary(row) {
+  const platforms = normalizeSocialQueuePlatforms(row);
+  if (platforms.length > 1) {
+    return platforms.map((p) => platformVisual(p).label).join(" + ");
+  }
+  return platformVisual(platforms[0]).label;
+}
+
+function buildSocialQueuePayload(event, scheduledAt, platforms = DEFAULT_SOCIAL_QUEUE_PLATFORMS) {
   const scheduled =
     scheduledAt instanceof Date
       ? scheduledAt
@@ -1686,14 +1722,16 @@ function buildSocialQueuePayload(event, platform, scheduledAt) {
   const eventStart = socialEffectiveEventStart(event, scheduled);
   const imageUrl = String(resolvePrimaryImageUrl(event) || "").trim();
   const title = String(event?.name || event?.title || "").trim();
-  const platformKey = String(platform || "instagram").toLowerCase();
-  const bundle = generateHumanSocialCaptionBundle(event, platformKey, eventStart || scheduled, {
+  const platformsList = normalizeSocialQueuePlatforms({ platforms });
+  const captionPlatform = platformsList[0] || "instagram";
+  const bundle = generateHumanSocialCaptionBundle(event, captionPlatform, eventStart || scheduled, {
     styleMode: "natural"
   });
 
   return {
     event_id: event?.id ?? null,
-    platform: platformKey,
+    platforms: platformsList,
+    platform: captionPlatform,
     status: "pending",
     scheduled_at: scheduledIso,
     title,
@@ -1726,13 +1764,13 @@ function isValidSocialQueuePayload(payload) {
   const eventId = String(payload?.event_id ?? "").trim();
   const title = String(payload?.title ?? "").trim();
   const imageUrl = String(payload?.image_url || payload?.resolved_image_url || "").trim();
-  const platform = String(payload?.platform || "").toLowerCase();
+  const platforms = normalizeSocialQueuePlatforms(payload);
   const scheduled = payload?.scheduled_at;
   return Boolean(
     eventId &&
     title &&
     imageUrl &&
-    SOCIAL_REVIEW_PLATFORMS.includes(platform) &&
+    platforms.length > 0 &&
     scheduled &&
     !Number.isNaN(new Date(scheduled).getTime())
   );
@@ -2299,10 +2337,12 @@ function renderSocialQueueEditor(row) {
     (st) =>
       `<button type="button" class="admin-sq-status-chip${String(row.status).toLowerCase() === st ? " is-active" : ""}" data-sq-status="${st}">${st}</button>`
   ).join("");
-  const platformOptions = SOCIAL_REVIEW_PLATFORMS.map(
-    (p) =>
-      `<option value="${p}"${String(row.platform).toLowerCase() === p ? " selected" : ""}>${platformVisual(p).label}</option>`
-  ).join("");
+  const rowPlatforms = normalizeSocialQueuePlatforms(row);
+  const platformPickMarkup = SOCIAL_REVIEW_PLATFORMS.map((p) => {
+    const pv = platformVisual(p);
+    const checked = rowPlatforms.includes(p) ? " checked" : "";
+    return `<label class="admin-sq-platform-pick"><input type="checkbox" name="platforms" value="${p}"${checked}> ${pv.icon} ${escapeHtml(pv.label)}</label>`;
+  }).join("");
 
   const postizAlreadySent =
     String(row.status || "").toLowerCase() === "sent_to_postiz" || Boolean(String(row.postiz_post_id || "").trim());
@@ -2349,9 +2389,9 @@ function renderSocialQueueEditor(row) {
           <span>Geplant</span>
           <input type="datetime-local" lang="en" name="scheduled_at" step="60" value="${escapeHtml(socialQueueScheduledAtInputValue(row))}" />
         </label>
-        <label class="admin-sq-field">
-          <span>Platform</span>
-          <select name="platform">${platformOptions}</select>
+        <label class="admin-sq-field admin-sq-field--full">
+          <span>Plattformen</span>
+          <div class="admin-sq-platform-picks">${platformPickMarkup}</div>
         </label>
         <label class="admin-sq-field admin-sq-field--full">
           <span>Hashtags</span>
@@ -2398,11 +2438,14 @@ function readSocialQueueEditorForm(editorEl) {
   } else {
     scheduled_at_local = coerceDatetimeLocalInputValue(rawScheduled, row?.scheduled_at);
   }
-  const platform = editorEl.querySelector('[name="platform"]')?.value ?? "";
+  const platforms = normalizeSocialQueuePlatforms({
+    platforms: [...editorEl.querySelectorAll('input[name="platforms"]:checked')].map((el) => el.value)
+  });
+  const platform = platforms[0] || "instagram";
   const hashtags = editorEl.querySelector('[name="hashtags"]')?.value ?? "";
   const cta_text = editorEl.querySelector('[name="cta_text"]')?.value ?? "";
   const style_mode = editorEl.querySelector('[name="style_mode"]')?.value ?? "natural";
-  return { title, caption, scheduled_at_local, platform, hashtags, cta_text, style_mode };
+  return { title, caption, scheduled_at_local, platforms, platform, hashtags, cta_text, style_mode };
 }
 
 function serializeSocialDraftForm(form, rowFallback = null) {
@@ -2646,12 +2689,13 @@ async function handleSocialQueueSaveDraftClick(button) {
     throw new Error(display);
   }
 
-  const platform = String(form.platform || row.platform || "").toLowerCase();
+  const platforms = normalizeSocialQueuePlatforms(form.platforms?.length ? form : row);
   const payload = pickSocialQueueUpdateRow({
     title: String(form.title || "").trim(),
     caption: String(form.caption || "").trim(),
     scheduled_at: validation.scheduled_at,
-    platform,
+    platforms,
+    platform: platforms[0] || "instagram",
     image_url: imageUrl,
     resolved_image_url: imageUrl,
     hashtags: String(form.hashtags || "").trim() || null,
@@ -2674,7 +2718,11 @@ async function handleSocialQueueSaveDraftClick(button) {
   const client = supabaseClient();
   let body = { ...payload };
   for (let attempt = 0; attempt < 4; attempt += 1) {
-    const { data, error } = await client.from("social_queue").update(body).eq("id", queueId).select("id,scheduled_at,platform,status");
+    const { data, error } = await client
+      .from("social_queue")
+      .update(body)
+      .eq("id", queueId)
+      .select("id,scheduled_at,platform,platforms,status");
     console.log("[save-draft] 7 supabase response", { attempt, data, error });
     if (!error) {
       patchSocialQueueRowInState(queueId, body);
@@ -2691,7 +2739,7 @@ async function handleSocialQueueSaveDraftClick(button) {
         queueId,
         eventId: row.event_id ?? null,
         scheduled_at: validation.scheduled_at,
-        platform,
+        platforms,
         status: row.status ?? null,
         data
       });
@@ -2818,8 +2866,8 @@ async function duplicateSocialQueueDraft(row, editorEl) {
   if (Number.isNaN(nextDate.getTime())) nextDate.setTime(Date.now() + 7 * 86400000);
   else nextDate.setDate(nextDate.getDate() + 7);
 
-  const platform = form?.platform || row.platform;
-  const payload = buildSocialQueuePayload(ev || row, platform, nextDate);
+  const platforms = normalizeSocialQueuePlatforms(form?.platforms?.length ? form : row);
+  const payload = buildSocialQueuePayload(ev || row, nextDate, platforms);
   if (form) {
     payload.title = String(form.title || payload.title || "").trim();
     payload.caption = String(form.caption || payload.caption || "").trim();
@@ -2915,20 +2963,16 @@ function buildSocialReviewQueueRows(event) {
   const rows = [];
   const immediateLastCall = immediateLastCallDateForEvent(event, now);
   if (immediateLastCall && immediateLastCall < eventStart) {
-    for (const platform of SOCIAL_REVIEW_PLATFORMS) {
-      const payload = buildSocialQueuePayload(event, platform, immediateLastCall);
-      payload._slot_id = "short_notice_last_call";
-      rows.push(payload);
-    }
+    const payload = buildSocialQueuePayload(event, immediateLastCall);
+    payload._slot_id = "short_notice_last_call";
+    rows.push(payload);
   }
   for (const slot of SOCIAL_REVIEW_SLOTS) {
     const scheduled = socialSlotDateForEvent(event, slot);
     if (!scheduled || Number.isNaN(scheduled.getTime())) continue;
     if (scheduled <= now) continue;
     if (scheduled >= eventStart) continue;
-    for (const platform of SOCIAL_REVIEW_PLATFORMS) {
-      rows.push(buildSocialQueuePayload(event, platform, scheduled));
-    }
+    rows.push(buildSocialQueuePayload(event, scheduled));
   }
   return rows;
 }
@@ -2981,11 +3025,9 @@ function buildRecurringSocialQueueRowsForOccurrence(event, occurrenceStart) {
   const slotPlan = buildRecurringSocialSlots(event, occurrenceStart);
   const rows = [];
   for (const slot of slotPlan) {
-    for (const platform of SOCIAL_REVIEW_PLATFORMS) {
-      const payload = buildSocialQueuePayload(event, platform, slot.scheduledAt);
-      payload.post_stage = slot.stage;
-      rows.push(payload);
-    }
+    const payload = buildSocialQueuePayload(event, slot.scheduledAt);
+    payload.post_stage = slot.stage;
+    rows.push(payload);
   }
   return rows;
 }
@@ -3006,7 +3048,7 @@ async function insertSocialQueueRows(rows) {
     }
     console.log("social draft generated", {
       event_id: payload.event_id,
-      platform: payload.platform,
+      platforms: payload.platforms,
       scheduled_at: payload.scheduled_at
     });
     toInsert.push(payload);
@@ -3042,25 +3084,24 @@ async function insertRecurringSocialQueueRows(occurrenceEvent, occurrenceStart) 
   const eventId = String(occurrenceEvent?.id || "").trim();
   const { data: existing, error: existingError } = await client
     .from("social_queue")
-    .select("platform,post_stage,status")
+    .select("platform,platforms,post_stage,status")
     .eq("event_id", eventId);
   if (existingError) throw new Error(existingError.message || "Social Queue konnte nicht geprüft werden.");
 
-  const existingKeys = new Set(
+  const existingStages = new Set(
     (existing || [])
       .filter((row) => String(row.status || "").toLowerCase() !== "skipped")
-      .map((row) => `${String(row.platform).toLowerCase()}:${String(row.post_stage || "").trim()}`)
-      .filter((k) => !k.endsWith(":"))
+      .map((row) => String(row.post_stage || "").trim())
+      .filter(Boolean)
   );
 
   const missing = candidates.filter((row) => {
     const stage = String(row.post_stage || "").trim();
-    const key = `${String(row.platform).toLowerCase()}:${stage}`;
-    if (stage && existingKeys.has(key)) {
+    if (stage && existingStages.has(stage)) {
       console.log("recurring social row skipped", {
         reason: "duplicate",
         event_id: eventId,
-        platform: row.platform,
+        platforms: row.platforms,
         post_stage: stage
       });
       return false;
@@ -4841,7 +4882,9 @@ function socialQueueRowsFlat() {
 }
 
 function socialQueueRowMatchesAdvancedFilters(row) {
-  if (state.socialQueueFilterPlatform && String(row.platform) !== state.socialQueueFilterPlatform) return false;
+  if (state.socialQueueFilterPlatform && !normalizeSocialQueuePlatforms(row).includes(state.socialQueueFilterPlatform)) {
+    return false;
+  }
   if (state.socialQueueFilterEventId && String(row.event_id) !== String(state.socialQueueFilterEventId)) return false;
   if (state.socialQueueFilterRecurringOnly) {
     const ev = state.allEvents.find((e) => String(e.id) === String(row.event_id));
@@ -4893,7 +4936,7 @@ function socialQueuePlatformPostLabel(platform) {
 function finalizeSocialQueueCardDisplayTitle(row, resolvedTitle) {
   let title = cleanSocialQueueDisplayText(resolvedTitle);
   if (!title || /^[-–—]+$/u.test(title)) {
-    title = socialQueuePlatformPostLabel(row?.platform);
+    title = `${socialQueuePlatformsSummary(row)} Post`;
   }
   return title;
 }
@@ -4947,7 +4990,7 @@ function extractTitleFromCaption(caption, knownNames = []) {
 
 function resolveSocialQueueDisplayTitle(row) {
   const ev = getSocialQueueRelatedEvent(row);
-  const platformPost = socialQueuePlatformPostLabel(row?.platform);
+  const platformPost = `${socialQueuePlatformsSummary(row)} Post`;
   const knownNames = [row?.title, row?.event_title, row?._event?.name, row?._event?.title, ev?.name, ev?.title];
 
   const candidates = [
@@ -5027,8 +5070,11 @@ function normalizeSocialQueueRow(row) {
   delete out.events;
   const cleanTitle = cleanSocialQueueDisplayText(out.title);
   const scheduledIso = normalizeSocialQueueScheduledAtIso(out.scheduled_at);
+  const platforms = normalizeSocialQueuePlatforms(out);
   return {
     ...out,
+    platforms,
+    platform: platforms[0] || out.platform || "instagram",
     title: cleanTitle || null,
     event_title,
     _event: eventRef,
@@ -5113,8 +5159,9 @@ function renderSocialQueueItem(row) {
 
 function renderSocialQueueCard(row) {
   const ev = getSocialQueueRelatedEvent(row);
-  const pv = platformVisual(row.platform);
-  const platformLabel = cleanSocialQueueDisplayText(pv.label) || "Social";
+  const rowPlatforms = normalizeSocialQueuePlatforms(row);
+  const platformBadges = renderSocialQueuePlatformBadges(rowPlatforms);
+  const platformLabel = socialQueuePlatformsSummary(row);
   const invalid = isSocialQueueRowInvalid(row);
   const thumb = String(row.image_url || row.resolved_image_url || ev?.image_url || "").trim();
   const cap = String(row.caption || "");
@@ -5122,7 +5169,7 @@ function renderSocialQueueCard(row) {
   let displayTitle = resolvedTitle;
   if (!invalid) {
     if (!displayTitle || displayTitle === "-" || displayTitle === "–" || displayTitle === "—") {
-      displayTitle = socialQueuePlatformPostLabel(row.platform);
+      displayTitle = `${socialQueuePlatformsSummary(row)} Post`;
     }
     displayTitle = finalizeSocialQueueCardDisplayTitle(row, displayTitle);
   }
@@ -5146,7 +5193,7 @@ function renderSocialQueueCard(row) {
   }
   const thumbInner = thumb
     ? `<img src="${escapeHtml(thumb)}" alt="" loading="lazy" class="admin-sq-card__thumb-img" />`
-    : `<span class="admin-sq-card__thumb-fallback">${invalid ? "⚠️" : pv.icon}</span>`;
+    : `<span class="admin-sq-card__thumb-fallback">${invalid ? "⚠️" : "📣"}</span>`;
   const capPreview = cap
     ? escapeHtml(cap.length > 120 ? `${cap.slice(0, 120)}…` : cap)
     : "—";
@@ -5165,7 +5212,7 @@ function renderSocialQueueCard(row) {
         <div class="admin-sq-card__thumb">${thumbInner}</div>
         <div class="admin-sq-card__summary-main">
           <div class="admin-sq-card__head">
-            <span class="admin-sq-card__platform">${pv.icon} ${escapeHtml(platformLabel)}</span>
+            <span class="admin-sq-card__platforms">${platformBadges}</span>
             <span class="admin-sq-badge admin-sq-badge--${tone}">${escapeHtml(socialQueueStatusLabel(row.status))}</span>
             ${invalid ? `<span class="admin-sq-badge admin-sq-badge--bad">Ungültig</span>` : ""}
           </div>
@@ -5308,19 +5355,18 @@ async function ensureSocialReviewQueueForEvent(event) {
   const client = supabaseClient();
   const { data: existing, error: existingError } = await client
     .from("social_queue")
-    .select("platform,scheduled_at,status")
+    .select("platform,platforms,scheduled_at,status")
     .eq("event_id", event.id);
   if (existingError) throw new Error(existingError.message || "Social Queue konnte nicht geprüft werden.");
 
   const existingKeys = new Set(
-    (existing || []).map((row) => `${row.platform}:${new Date(row.scheduled_at).toISOString()}`)
+    (existing || []).map((row) => new Date(row.scheduled_at).toISOString())
   );
   const eventStart = dateFromAdminEventWallTime(event);
   const now = new Date();
   const hasRecentLastCall = (candidate) => {
     if (candidate._slot_id !== "short_notice_last_call" || !eventStart) return false;
     return (existing || []).some((row) => {
-      if (String(row.platform) !== String(candidate.platform)) return false;
       if (String(row.status || "").toLowerCase() === "skipped") return false;
       const scheduled = new Date(row.scheduled_at);
       if (Number.isNaN(scheduled.getTime())) return false;
@@ -5329,7 +5375,7 @@ async function ensureSocialReviewQueueForEvent(event) {
   };
   const missing = candidates.filter((row) => {
     if (hasRecentLastCall(row)) return false;
-    return !existingKeys.has(`${row.platform}:${row.scheduled_at}`);
+    return !existingKeys.has(row.scheduled_at);
   });
   if (!missing.length) return 0;
 
@@ -7897,7 +7943,7 @@ function openEventEditorModal(eventDataInput) {
       ? `<ul class="admin-editor-sq-list">${sqRows
           .map(
             (r) => `<li class="admin-editor-sq-item">
-          <div class="admin-editor-sq-meta"><strong>${escapeHtml(platformVisual(r.platform).label)}</strong>
+          <div class="admin-editor-sq-meta"><strong class="admin-editor-sq-platforms">${renderSocialQueuePlatformBadges(r)}</strong>
           · ${escapeHtml(formatAdminDateTime(r.scheduled_at))}
           · <span class="admin-sq-badge admin-sq-badge--${socialQueueStatusTone(r.status)}">${escapeHtml(r.status || "-")}</span></div>
           <p class="admin-editor-sq-cap">${escapeHtml(String(r.caption || "(noch keine Caption)").slice(0, 400))}${String(r.caption || "").length > 400 ? "…" : ""}</p>

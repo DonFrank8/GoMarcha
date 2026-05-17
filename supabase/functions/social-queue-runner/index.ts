@@ -7,6 +7,7 @@ type QueueRow = {
   id: string;
   event_id: string;
   platform: SocialPlatform;
+  platforms?: SocialPlatform[] | null;
   scheduled_at: string;
   status: string;
   postiz_integration_id: string | null;
@@ -723,19 +724,38 @@ function utcDayRangeIso(scheduledAt: string): { start: string; end: string } {
  * - any other row already `posted`, or
  * - another row in `processing` with a lower `id` (stable tie-break so two workers cannot both publish).
  */
+function platformsOverlap(a: SocialPlatform[], b: SocialPlatform[]): boolean {
+  return a.some((p) => b.includes(p));
+}
+
+function platformsFromDbRow(row: { platform?: string | null; platforms?: string[] | null }): SocialPlatform[] {
+  if (Array.isArray(row.platforms) && row.platforms.length) {
+    const out: SocialPlatform[] = [];
+    for (const entry of row.platforms) {
+      const key = String(entry || "").toLowerCase();
+      if ((key === "instagram" || key === "facebook") && !out.includes(key as SocialPlatform)) {
+        out.push(key as SocialPlatform);
+      }
+    }
+    if (out.length) return out;
+  }
+  const legacy = String(row.platform || "").toLowerCase();
+  if (legacy === "instagram" || legacy === "facebook") return [legacy];
+  return ["instagram", "facebook"];
+}
+
 async function hasQueueConflict(
   supabase: SupabaseClient,
   eventId: string,
-  platform: SocialPlatform,
+  platforms: SocialPlatform[],
   excludeQueueId: string,
   scheduledAt: string
 ): Promise<boolean> {
   const { start, end } = utcDayRangeIso(scheduledAt);
   const { data, error } = await supabase
     .from("social_queue")
-    .select("id,status")
+    .select("id,status,platform,platforms")
     .eq("event_id", eventId)
-    .eq("platform", platform)
     .neq("id", excludeQueueId)
     .gte("scheduled_at", start)
     .lte("scheduled_at", end)
@@ -745,6 +765,7 @@ async function hasQueueConflict(
     return false;
   }
   for (const row of data ?? []) {
+    if (!platformsOverlap(platforms, platformsFromDbRow(row))) continue;
     if (row.status === "posted") return true;
     if (row.status === "processing" && typeof row.id === "string" && row.id < excludeQueueId) return true;
   }
@@ -944,11 +965,44 @@ function resolvedPostizImageFromQueue(row: QueueRow): { url: string; source: str
   return { url: resolved, source: "social_queue.resolved_image_url" };
 }
 
-function integrationForRow(row: QueueRow, envIg: string, envFb: string): string | null {
+function rowPlatforms(row: QueueRow): SocialPlatform[] {
+  if (Array.isArray(row.platforms) && row.platforms.length) {
+    const out: SocialPlatform[] = [];
+    for (const entry of row.platforms) {
+      const key = String(entry || "").toLowerCase();
+      if ((key === "instagram" || key === "facebook") && !out.includes(key as SocialPlatform)) {
+        out.push(key as SocialPlatform);
+      }
+    }
+    if (out.length) return out;
+  }
+  if (row.platform === "instagram" || row.platform === "facebook") return [row.platform];
+  return ["instagram", "facebook"];
+}
+
+function integrationForPlatform(
+  platform: SocialPlatform,
+  row: QueueRow,
+  envIg: string,
+  envFb: string
+): string | null {
   if (row.postiz_integration_id && row.postiz_integration_id.trim()) return row.postiz_integration_id.trim();
-  if (row.platform === "instagram") return envIg || null;
-  if (row.platform === "facebook") return envFb || null;
+  if (platform === "instagram") return envIg || null;
+  if (platform === "facebook") return envFb || null;
   return null;
+}
+
+function integrationTargetsForRow(
+  row: QueueRow,
+  envIg: string,
+  envFb: string
+): { platform: SocialPlatform; integrationId: string }[] {
+  const targets: { platform: SocialPlatform; integrationId: string }[] = [];
+  for (const platform of rowPlatforms(row)) {
+    const integrationId = integrationForPlatform(platform, row, envIg, envFb);
+    if (integrationId) targets.push({ platform, integrationId });
+  }
+  return targets;
 }
 
 function postizSettings(platform: SocialPlatform): Record<string, unknown> {
@@ -1084,6 +1138,57 @@ async function createPostizPost(args: {
   slog("postiz_create_request_payload", {
     queue_id: args.queueId,
     endpoint: url,
+    payload: requestPayload
+  });
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: args.apiKey,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(requestPayload)
+  });
+  let parsed: unknown = null;
+  try {
+    parsed = await res.json();
+  } catch {
+    parsed = await res.text();
+  }
+  const httpOk = res.status >= 200 && res.status < 300;
+  return { ok: httpOk, status: res.status, body: parsed, requestPayload };
+}
+
+async function createPostizPostMulti(args: {
+  base: string;
+  apiKey: string;
+  targets: { platform: SocialPlatform; integrationId: string }[];
+  scheduledIso: string;
+  caption: string;
+  image: PostizMedia;
+  queueId: string;
+  postType: PostizRootType;
+}): Promise<{ ok: boolean; status: number; body: unknown; requestPayload: Record<string, unknown> }> {
+  const url = `${args.base.replace(/\/$/, "")}/posts`;
+  const group = crypto.randomUUID();
+  const dateIso = toUtcPostizDateIso(args.scheduledIso);
+  const requestPayload: Record<string, unknown> = {
+    type: args.postType,
+    date: dateIso,
+    shortLink: false,
+    tags: postizTagsPayload(),
+    posts: args.targets.map((target) => ({
+      group,
+      integration: { id: target.integrationId },
+      value: [{ content: args.caption, image: [args.image] }],
+      settings: postizSettings(target.platform)
+    }))
+  };
+
+  slog("postiz_create_request_payload", {
+    queue_id: args.queueId,
+    endpoint: url,
+    platforms: args.targets.map((t) => t.platform),
     payload: requestPayload
   });
 
@@ -1457,10 +1562,10 @@ Deno.serve(async (req) => {
       continue;
     }
 
-    const integrationId = integrationForRow(claimed, intIg, intFb);
-    if (!integrationId) {
+    const integrationTargets = integrationTargetsForRow(claimed, intIg, intFb);
+    if (!integrationTargets.length) {
       const msg = "Missing postiz_integration_id on row and env fallback";
-      slog("no_integration", { queue_id: claimed.id, platform: claimed.platform });
+      slog("no_integration", { queue_id: claimed.id, platforms: rowPlatforms(claimed) });
       await supabase
         .from("social_queue")
         .update({
@@ -1514,9 +1619,14 @@ Deno.serve(async (req) => {
       continue;
     }
 
-    if (await hasQueueConflict(supabase, claimed.event_id, claimed.platform, claimed.id, claimed.scheduled_at)) {
+    const claimedPlatforms = rowPlatforms(claimed);
+    if (await hasQueueConflict(supabase, claimed.event_id, claimedPlatforms, claimed.id, claimed.scheduled_at)) {
       const msg = "duplicate_or_parallel_queue_same_day";
-      slog("skip_duplicate", { queue_id: claimed.id, event_id: claimed.event_id, platform: claimed.platform });
+      slog("skip_duplicate", {
+        queue_id: claimed.id,
+        event_id: claimed.event_id,
+        platforms: claimedPlatforms
+      });
       await supabase
         .from("social_queue")
         .update({
@@ -1763,7 +1873,7 @@ Deno.serve(async (req) => {
       queue_id: claimed.id,
       event_id: claimed.event_id,
       event_title: ev.name ?? "",
-      platform: claimed.platform,
+      platforms: claimedPlatforms,
       queue_scheduled_at: claimed.scheduled_at,
       review_window_hours: reviewWindowHours,
       eligible_for_review: eligibleForReview,
@@ -1782,24 +1892,36 @@ Deno.serve(async (req) => {
       caption_template_id: template_id,
       caption_source: captionBuilt.source,
       admin_confirmed: isAdminConfirmed,
-      postiz_integration_id: integrationId
+      postiz_integration_ids: integrationTargets.map((t) => t.integrationId)
     });
 
-    const postizRes = await createPostizPost({
-      base: postizBase,
-      apiKey: postizKey,
-      integrationId,
-      platform: claimed.platform,
-      scheduledIso: postizPublishIso,
-      postType: postizPlan.postType,
-      caption,
-      image: publishMedia,
-      queueId: claimed.id
-    });
+    const postizRes =
+      integrationTargets.length === 1
+        ? await createPostizPost({
+            base: postizBase,
+            apiKey: postizKey,
+            integrationId: integrationTargets[0].integrationId,
+            platform: integrationTargets[0].platform,
+            scheduledIso: postizPublishIso,
+            postType: postizPlan.postType,
+            caption,
+            image: publishMedia,
+            queueId: claimed.id
+          })
+        : await createPostizPostMulti({
+            base: postizBase,
+            apiKey: postizKey,
+            targets: integrationTargets,
+            scheduledIso: postizPublishIso,
+            postType: postizPlan.postType,
+            caption,
+            image: publishMedia,
+            queueId: claimed.id
+          });
 
     slog("postiz_create_response_body", {
       queue_id: claimed.id,
-      platform: claimed.platform,
+      platforms: claimedPlatforms,
       http_status: postizRes.status,
       body: postizRes.body
     });
@@ -1870,23 +1992,27 @@ Deno.serve(async (req) => {
         ? {
             ...(postizRes.body as object),
             _marcha_postiz_post_ids: createdPostIds,
+            _marcha_platforms: claimedPlatforms,
             _marcha_handoff_message: handoffMessage,
             _marcha_postiz_mode: "draft"
           }
         : {
             raw: postizRes.body,
             _marcha_postiz_post_ids: createdPostIds,
+            _marcha_platforms: claimedPlatforms,
             _marcha_handoff_message: handoffMessage,
             _marcha_postiz_mode: "draft"
           };
 
     if (captionBuilt.source === "template") {
-      await supabase.from("social_caption_usage").insert({
-        event_id: claimed.event_id,
-        template_id,
-        caption,
-        platform: claimed.platform
-      });
+      for (const platform of claimedPlatforms) {
+        await supabase.from("social_caption_usage").insert({
+          event_id: claimed.event_id,
+          template_id,
+          caption,
+          platform
+        });
+      }
     }
 
     const primaryPostId = createdPostIds[0] ?? null;

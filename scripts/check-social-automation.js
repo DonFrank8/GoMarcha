@@ -76,11 +76,21 @@ function looksSpanish(text) {
   return spanishSignal.test(s);
 }
 
+function rowPlatforms(row) {
+  if (Array.isArray(row.platforms) && row.platforms.length) {
+    return row.platforms.map((p) => String(p).toLowerCase()).filter(Boolean);
+  }
+  const legacy = String(row.platform || "").toLowerCase();
+  return legacy ? [legacy] : ["instagram", "facebook"];
+}
+
 function integrationForRow(row, envIg, envFb) {
   const fromRow = row.postiz_integration_id && String(row.postiz_integration_id).trim();
   if (fromRow) return fromRow;
-  if (row.platform === "instagram") return envIg || "";
-  if (row.platform === "facebook") return envFb || "";
+  for (const platform of rowPlatforms(row)) {
+    if (platform === "instagram" && envIg) return envIg;
+    if (platform === "facebook" && envFb) return envFb;
+  }
   return "";
 }
 
@@ -211,20 +221,28 @@ async function main() {
     }
   }
 
-  // --- CHK02: no duplicate (event + platform/post_stage + UTC day) for non-skipped rows ---
+  // --- CHK02: no duplicate (event + post_stage + UTC day) for non-skipped rows ---
   {
     const bucket = new Map();
     for (const row of queue) {
       if (row.status === "skipped") continue;
       const day = utcDayKey(row.scheduled_at);
-      const k = `${row.event_id}|${row.platform}|${day}`;
+      const stage = String(row.post_stage || "").trim();
+      const k = `${row.event_id}|${stage}|${day}`;
       if (!bucket.has(k)) bucket.set(k, []);
       bucket.get(k).push(row);
     }
     const dups = [];
     for (const [, rows] of bucket) {
       if (rows.length > 1) {
-        dups.push(rows.map((r) => ({ id: r.id, status: r.status, platform: r.platform })));
+        dups.push(
+          rows.map((r) => ({
+            id: r.id,
+            status: r.status,
+            platforms: rowPlatforms(r),
+            post_stage: r.post_stage || null
+          }))
+        );
       }
     }
     if (dups.length) {
@@ -234,7 +252,7 @@ async function main() {
       printResult(
         true,
         "CHK02_no_duplicate_event_post_stage",
-        "platform = post stage (instagram | facebook), dedupe per UTC day"
+        "one campaign row per event/post_stage/UTC day (platforms[] on row)"
       );
     }
   }
@@ -360,7 +378,7 @@ async function main() {
     for (const row of queue) {
       if (row.status === "skipped") continue;
       const pid = integrationForRow(row, envIg, envFb);
-      if (!pid) missing.push(`${row.id} (${row.platform})`);
+      if (!pid) missing.push(`${row.id} (${rowPlatforms(row).join("+")})`);
     }
     if (missing.length) {
       fail++;
