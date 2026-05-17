@@ -2,7 +2,7 @@ const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
 const ADMIN_REQUIRED_ROLE = "admin";
 const ADMIN_ALLOWED_EMAILS = [];
-const ADMIN_DASHBOARD_BUILD = "2026.05.17-translation-strip-header-fix";
+const ADMIN_DASHBOARD_BUILD = "2026.05.17-hard-overwrite-fix";
 if (typeof window !== "undefined") {
   window.PARTYRADAR_ADMIN_BUILD = ADMIN_DASHBOARD_BUILD;
   console.log("[admin-build]", ADMIN_DASHBOARD_BUILD);
@@ -5641,22 +5641,35 @@ function adminShouldRegenerateDescriptionField(field, currentValue, targetLang, 
   return !adminLocalizedFieldLanguageValid(field, text);
 }
 
-/** Apply translated description only — value must be cleaned API text, never source/existing. */
+function adminHardOverwriteTranslationFieldValue(value) {
+  if (value == null) return "";
+  return String(value);
+}
+
+/** Apply translated description only — hard replace, never append/merge prior field text. */
 function applyTranslationUpdate(updates, field, value, context = {}) {
+  const fieldName = String(field || "").trim();
+  const finalValue = adminHardOverwriteTranslationFieldValue(value);
   console.log("CALL APPLY TRANSLATION UPDATE", {
-    field,
-    valuePreview: value?.slice?.(0, 120),
-    translatedTextPreview: context.translatedText?.slice?.(0, 120),
+    field: fieldName,
+    valuePreview: finalValue.slice(0, 120),
+    translatedTextPreview: adminHardOverwriteTranslationFieldValue(context.translatedText).slice(0, 120),
     sourcePreview: context.sourceText?.slice?.(0, 120)
   });
-  const applied = value == null ? "" : String(value);
-  updates[field] = applied;
+  updates[fieldName] = finalValue;
+  const storedValue = adminHardOverwriteTranslationFieldValue(updates[fieldName]);
   console.log("DESCRIPTION TRANSLATION APPLY", {
-    field,
-    appliedValue: applied.slice(0, 160),
-    length: applied.length
+    field: fieldName,
+    appliedValue: storedValue.slice(0, 160),
+    length: storedValue.length
   });
-  return applied;
+  console.log("FINAL APPLIED EXACT VALUE", {
+    field: fieldName,
+    finalValuePreview: finalValue.slice(0, 160),
+    storedValuePreview: storedValue.slice(0, 160),
+    matches: finalValue === storedValue
+  });
+  return finalValue;
 }
 
 /** Copy main Beschreibung into the matching source-language field (not a translation). */
@@ -5940,18 +5953,30 @@ function buildAdminStrictTranslationPrompt(sourceText, languageCode) {
 
 const ADMIN_LOCALIZED_EDITOR_SYNC_FIELDS = ["description_es", "description_de", "description_en"];
 
-/** Extract description_es/de/en map from regenerate result (flat or nested .updates). */
+/** Extract description_es/de/en — prefer flat keys over nested .updates (avoids stale nested ref). */
 function adminPickDescriptionTranslationUpdates(raw) {
-  const source =
-    raw && typeof raw === "object" && raw.updates && typeof raw.updates === "object" ? raw.updates : raw;
   const out = {};
-  if (!source || typeof source !== "object") return out;
+  if (!raw || typeof raw !== "object") return out;
+  const nested = raw.updates && typeof raw.updates === "object" ? raw.updates : null;
   for (const field of ADMIN_LOCALIZED_EDITOR_SYNC_FIELDS) {
-    if (Object.prototype.hasOwnProperty.call(source, field)) {
-      out[field] = source[field] == null ? "" : String(source[field]);
+    if (Object.prototype.hasOwnProperty.call(raw, field)) {
+      out[field] = adminHardOverwriteTranslationFieldValue(raw[field]);
+    } else if (nested && Object.prototype.hasOwnProperty.call(nested, field)) {
+      out[field] = adminHardOverwriteTranslationFieldValue(nested[field]);
     }
   }
   return out;
+}
+
+function adminBuildDescriptionTranslationUpdatesMap(updates) {
+  const flat = {};
+  if (!updates || typeof updates !== "object") return flat;
+  for (const field of ADMIN_LOCALIZED_EDITOR_SYNC_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(updates, field)) {
+      flat[field] = adminHardOverwriteTranslationFieldValue(updates[field]);
+    }
+  }
+  return flat;
 }
 
 function adminEditorTranslationRoot(form, overlay = null) {
@@ -6028,18 +6053,22 @@ function adminMergeDescriptionTranslationsToEventState(eventData, updates) {
   const statePatch = {};
   for (const field of ADMIN_LOCALIZED_EDITOR_SYNC_FIELDS) {
     if (!Object.prototype.hasOwnProperty.call(updates, field)) continue;
-    const next = updates[field] == null ? null : String(updates[field]);
+    const next = adminHardOverwriteTranslationFieldValue(updates[field]);
     eventData[field] = next;
     statePatch[field] = next;
   }
   if (!eventData.id || !Object.keys(statePatch).length) return;
   patchAdminEventInState(eventData.id, statePatch);
-  const fresh = state.allEvents.find((e) => String(e.id) === String(eventData.id));
-  if (!fresh) return;
   for (const field of ADMIN_LOCALIZED_EDITOR_SYNC_FIELDS) {
-    if (Object.prototype.hasOwnProperty.call(statePatch, field)) {
-      eventData[field] = fresh[field];
-    }
+    if (!Object.prototype.hasOwnProperty.call(statePatch, field)) continue;
+    const expected = statePatch[field];
+    eventData[field] = expected;
+    console.log("FINAL APPLIED EXACT VALUE", {
+      field,
+      finalValuePreview: expected.slice(0, 160),
+      storedValuePreview: adminHardOverwriteTranslationFieldValue(eventData[field]).slice(0, 160),
+      phase: "eventData-after-patch"
+    });
   }
 }
 
@@ -6053,7 +6082,9 @@ function syncAdminTranslationUpdatesToEditor(form, overlay, updates, eventData) 
     updateKeys: Object.keys(updates || {}),
     eventId: eventData?.id
   });
-  const fieldUpdates = adminPickDescriptionTranslationUpdates(updates);
+  const fieldUpdates = adminBuildDescriptionTranslationUpdatesMap(
+    adminPickDescriptionTranslationUpdates(updates)
+  );
   if (!form || !Object.keys(fieldUpdates).length) {
     console.warn("SYNC TRANSLATION EDITOR SKIP", {
       hasForm: !!form,
@@ -6066,7 +6097,7 @@ function syncAdminTranslationUpdatesToEditor(form, overlay, updates, eventData) 
   const missing = [];
   for (const field of ADMIN_LOCALIZED_EDITOR_SYNC_FIELDS) {
     if (!Object.prototype.hasOwnProperty.call(fieldUpdates, field)) continue;
-    const expected = fieldUpdates[field] == null ? "" : String(fieldUpdates[field]);
+    const expected = adminHardOverwriteTranslationFieldValue(fieldUpdates[field]);
     console.log("SYNC FIELD", { field, valuePreview: expected.slice(0, 80) });
     if (forceSetTextareaValue(form, field, expected)) synced.push(field);
     else missing.push(field);
@@ -6077,7 +6108,7 @@ function syncAdminTranslationUpdatesToEditor(form, overlay, updates, eventData) 
   window.requestAnimationFrame(() => {
     for (const field of ADMIN_LOCALIZED_EDITOR_SYNC_FIELDS) {
       if (!Object.prototype.hasOwnProperty.call(fieldUpdates, field)) continue;
-      const expected = fieldUpdates[field] == null ? "" : String(fieldUpdates[field]);
+      const expected = adminHardOverwriteTranslationFieldValue(fieldUpdates[field]);
       const root = adminEditorTranslationRoot(form, overlay);
       const safeName = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(field) : field;
       const el = root?.querySelector(`textarea[name="${safeName}"]`);
@@ -6177,13 +6208,13 @@ async function regenerateAdminEventTranslations(eventData, form, { forceOverwrit
     updatedFields
   });
 
+  const flatUpdates = adminBuildDescriptionTranslationUpdatesMap(updates);
   return {
     failedFields,
     skippedManual,
     needsConfirm,
     sourceLanguageCode: sourceLang,
-    updates,
-    ...updates
+    ...flatUpdates
   };
 }
 
@@ -7690,7 +7721,7 @@ function openEventEditorModal(eventData) {
           setBusy(true, "Übersetzungen…");
           try {
             let result = await regenerateAdminEventTranslations(eventData, form, { forceOverwrite: false });
-            let updates = adminPickDescriptionTranslationUpdates(result);
+            let updates = adminBuildDescriptionTranslationUpdatesMap(adminPickDescriptionTranslationUpdates(result));
             if (result.needsConfirm.length) {
               const labels = result.needsConfirm.map((x) => x.label).join(", ");
               const ok = await showAdminConfirmModal(
@@ -7699,7 +7730,10 @@ function openEventEditorModal(eventData) {
               );
               if (ok) {
                 const forced = await regenerateAdminEventTranslations(eventData, form, { forceOverwrite: true });
-                updates = { ...updates, ...adminPickDescriptionTranslationUpdates(forced) };
+                updates = {
+                  ...adminBuildDescriptionTranslationUpdatesMap(updates),
+                  ...adminPickDescriptionTranslationUpdates(forced)
+                };
                 result = {
                   ...forced,
                   failedFields: [...new Set([...result.failedFields, ...forced.failedFields])],
