@@ -2,7 +2,7 @@ const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
 const ADMIN_REQUIRED_ROLE = "admin";
 const ADMIN_ALLOWED_EMAILS = [];
-const ADMIN_DASHBOARD_BUILD = "2026.05.17-translation-runtime-rootfix";
+const ADMIN_DASHBOARD_BUILD = "2026.05.17-admin-cleanup-stable";
 if (typeof window !== "undefined") {
   window.PARTYRADAR_ADMIN_BUILD = ADMIN_DASHBOARD_BUILD;
   console.log("[admin-build]", ADMIN_DASHBOARD_BUILD);
@@ -170,6 +170,50 @@ const ADMIN_DESCRIPTION_FIELD_DOM_IDS = Object.freeze({
   description_de: "adminDescriptionDe",
   description_en: "adminDescriptionEn"
 });
+
+function adminReadLocalizedDescriptionFromRow(event, field) {
+  const key = String(field || "").trim();
+  if (!key) return "";
+  const primary = event?.[key];
+  if (primary != null && String(primary).trim()) return String(primary);
+  const typoKey =
+    key === "description_es" ? "descrption_es" : key === "description_de" ? "descrption_de" : key === "description_en" ? "descrption_en" : null;
+  const typo = typoKey ? event?.[typoKey] : null;
+  if (typo != null && String(typo).trim()) return String(typo);
+  return primary != null ? String(primary) : "";
+}
+
+/** Never replace non-empty localized text with empty values from a stale object. */
+function adminMergeLocalizedDescriptionsPreserveExisting(target, ...sources) {
+  if (!target || typeof target !== "object") return target;
+  for (const field of ADMIN_LOCALIZED_EDITOR_SYNC_FIELDS) {
+    if (String(target[field] ?? "").trim()) continue;
+    for (const src of sources) {
+      if (!src || typeof src !== "object") continue;
+      const next = adminReadLocalizedDescriptionFromRow(src, field);
+      if (next.trim()) {
+        target[field] = next;
+        break;
+      }
+    }
+  }
+  return target;
+}
+
+/** Merge save payload + Supabase row without wiping localized fields with null/empty. */
+function adminBuildPostSaveStatePatch(payload, savedRow) {
+  const patch = { ...(payload || {}) };
+  if (savedRow?.id) patch.id = savedRow.id;
+  if (savedRow?.status) patch.status = savedRow.status;
+  for (const field of ADMIN_LOCALIZED_EDITOR_SYNC_FIELDS) {
+    const fromDb = savedRow ? adminReadLocalizedDescriptionFromRow(savedRow, field) : "";
+    const fromPayload = String(patch[field] ?? "").trim();
+    if (fromDb.trim()) patch[field] = fromDb;
+    else if (fromPayload) patch[field] = fromPayload;
+    else delete patch[field];
+  }
+  return patch;
+}
 const ADMIN_GERMAN_LANGUAGE_INDICATORS = [
   "erlebe",
   "erleben",
@@ -556,7 +600,9 @@ function adminBindEditorEventState(eventDataInput) {
   const seed = adminNormalizeRecurrenceState(eventDataInput || {});
   state.adminEditorEventId = seed?.id ?? null;
   const fresh = adminResolveEventFromState(state.adminEditorEventId);
-  state.adminEditorEvent = fresh || seed;
+  const bound = fresh ? { ...fresh } : { ...seed };
+  adminMergeLocalizedDescriptionsPreserveExisting(bound, seed, eventDataInput);
+  state.adminEditorEvent = bound;
   return state.adminEditorEvent;
 }
 
@@ -581,12 +627,6 @@ function adminPatchGlobalEventState(eventId, updates) {
     state.adminEditorEvent = fresh;
   }
 
-  console.log("GLOBAL EVENT STATE PATCHED", {
-    eventId: key,
-    description_es: String(fresh.description_es || "").slice(0, 120),
-    description_de: String(fresh.description_de || "").slice(0, 120),
-    description_en: String(fresh.description_en || "").slice(0, 120)
-  });
   return fresh;
 }
 
@@ -672,7 +712,11 @@ async function adminEditorSaveEventPayload(form, eventData, { regenerateSocial }
   }
 
   console.log("admin save payload", { eventId, payload });
-  await updateEventWithFallback(eventId, payload);
+  const savedRow = await updateEventWithFallback(eventId, payload);
+  patchAdminEventInState(eventId, adminBuildPostSaveStatePatch(payload, savedRow));
+  if (state.adminEditorEventId && String(state.adminEditorEventId) === String(eventId)) {
+    state.adminEditorEvent = adminResolveEventFromState(eventId) || state.adminEditorEvent;
+  }
   console.log("admin save success", { eventId });
 
   if (regenerateSocial) {
@@ -3151,8 +3195,12 @@ async function adminSyncPastEventArchiveState(events = state.allEvents) {
   if (!isSessionAdmin(state.adminSession) || !Array.isArray(events) || !events.length) return;
 
   const now = new Date();
-  const today = new Date(now);
-  today.setHours(0, 0, 0, 0);
+  const summary = {
+    skippedMasters: 0,
+    archivedOneTime: 0,
+    archivedChildren: 0,
+    unarchivedMasters: 0
+  };
 
   for (const raw of events) {
     const event = adminCoerceRecurrenceFields(raw);
@@ -3160,11 +3208,7 @@ async function adminSyncPastEventArchiveState(events = state.allEvents) {
     if (!eventId) continue;
 
     if (adminIsRecurringMasterEvent(event)) {
-      console.log("SKIP ARCHIVE RECURRING MASTER", {
-        id: eventId,
-        name: event.name || event.title || "",
-        recurrence_type: event.recurrence_type || "none"
-      });
+      summary.skippedMasters += 1;
 
       const wronglyEnded = adminRecurrenceEndDateInPast(event, now);
       const hasArchiveStamp = Boolean(event.archived_at);
@@ -3180,9 +3224,9 @@ async function adminSyncPastEventArchiveState(events = state.allEvents) {
       try {
         await updateEventWithFallback(eventId, patch);
         patchAdminEventInState(eventId, patch);
-        console.log("UNARCHIVE RECURRING MASTER", { id: eventId, name: event.name, patch });
+        summary.unarchivedMasters += 1;
       } catch (error) {
-        console.warn("UNARCHIVE RECURRING MASTER failed", { id: eventId, message: error?.message }, error);
+        console.warn("RECURRING ARCHIVE CHECK unarchive failed", { id: eventId, message: error?.message }, error);
       }
       continue;
     }
@@ -3194,9 +3238,9 @@ async function adminSyncPastEventArchiveState(events = state.allEvents) {
       try {
         await updateEventWithFallback(eventId, patch);
         patchAdminEventInState(eventId, patch);
-        console.log("AUTO ARCHIVE RECURRING CHILD", { id: eventId, event_date: event.event_date });
+        summary.archivedChildren += 1;
       } catch (error) {
-        console.warn("AUTO ARCHIVE RECURRING CHILD failed", { id: eventId, message: error?.message }, error);
+        console.warn("RECURRING ARCHIVE CHECK child archive failed", { id: eventId, message: error?.message }, error);
       }
       continue;
     }
@@ -3208,11 +3252,13 @@ async function adminSyncPastEventArchiveState(events = state.allEvents) {
     try {
       await updateEventWithFallback(eventId, patch);
       patchAdminEventInState(eventId, patch);
-      console.log("AUTO ARCHIVE ONE-TIME EVENT", { id: eventId, event_date: event.event_date });
+      summary.archivedOneTime += 1;
     } catch (error) {
-      console.warn("AUTO ARCHIVE ONE-TIME EVENT failed", { id: eventId, message: error?.message }, error);
+      console.warn("RECURRING ARCHIVE CHECK one-time archive failed", { id: eventId, message: error?.message }, error);
     }
   }
+
+  console.log("RECURRING ARCHIVE CHECK", summary);
 }
 
 function buildEventValidationBadges(event) {
@@ -3947,9 +3993,9 @@ function normalizeEvent(event) {
     category: event.category || event.genre || "",
     price_text: event.price_text || "",
     description: event.description || "",
-    description_es: event.description_es || event.descrption_es || "",
-    description_de: event.description_de || event.descrption_de || "",
-    description_en: event.description_en || event.descrption_en || "",
+    description_es: adminReadLocalizedDescriptionFromRow(event, "description_es"),
+    description_de: adminReadLocalizedDescriptionFromRow(event, "description_de"),
+    description_en: adminReadLocalizedDescriptionFromRow(event, "description_en"),
     artist_name: event.artist_name || "",
     tags: event.tags ?? null,
     submitted_by: event.submitted_by || "",
@@ -5061,7 +5107,7 @@ async function updateEventWithFallback(eventId, updates) {
       .from("events")
       .update(payload)
       .eq("id", idKey)
-      .select("id,status")
+      .select("id,status,description,description_es,description_de,description_en")
       .limit(1);
     if (!error) {
       if (!Array.isArray(data) || !data.length) {
@@ -5784,21 +5830,9 @@ function resolveAdminPrimaryDescription(eventData, form) {
   const text = editorMain || eventMain || "";
   const source = editorMain ? "editor.description" : eventMain ? "eventData.description" : null;
   if (!text) {
-    console.log("DESCRIPTION SOURCE LANGUAGE", {
-      source: null,
-      sourceLanguageCode: "",
-      length: 0,
-      preview: ""
-    });
     return { text: "", source: null, sourceLanguageCode: "" };
   }
   const sourceLanguageCode = adminDetectDescriptionSourceLanguage(text);
-  console.log("DESCRIPTION SOURCE LANGUAGE", {
-    source,
-    sourceLanguageCode,
-    length: text.length,
-    preview: text.slice(0, 120)
-  });
   return { text, source, sourceLanguageCode };
 }
 
@@ -5820,28 +5854,10 @@ function adminHardOverwriteTranslationFieldValue(value) {
 }
 
 /** Apply translated description only — hard replace, never append/merge prior field text. */
-function applyTranslationUpdate(updates, field, value, context = {}) {
+function applyTranslationUpdate(updates, field, value) {
   const fieldName = String(field || "").trim();
   const finalValue = adminHardOverwriteTranslationFieldValue(value);
-  console.log("CALL APPLY TRANSLATION UPDATE", {
-    field: fieldName,
-    valuePreview: finalValue.slice(0, 120),
-    translatedTextPreview: adminHardOverwriteTranslationFieldValue(context.translatedText).slice(0, 120),
-    sourcePreview: context.sourceText?.slice?.(0, 120)
-  });
   updates[fieldName] = finalValue;
-  const storedValue = adminHardOverwriteTranslationFieldValue(updates[fieldName]);
-  console.log("DESCRIPTION TRANSLATION APPLY", {
-    field: fieldName,
-    appliedValue: storedValue.slice(0, 160),
-    length: storedValue.length
-  });
-  console.log("FINAL APPLIED EXACT VALUE", {
-    field: fieldName,
-    finalValuePreview: finalValue.slice(0, 160),
-    storedValuePreview: storedValue.slice(0, 160),
-    matches: finalValue === storedValue
-  });
   return finalValue;
 }
 
@@ -5849,10 +5865,6 @@ function applyTranslationUpdate(updates, field, value, context = {}) {
 function adminApplyDescriptionSourceFieldCopy(updates, field, sourceText) {
   const applied = sourceText == null ? "" : String(sourceText);
   updates[field] = applied;
-  console.log("DESCRIPTION SOURCE FIELD COPY", {
-    field,
-    appliedValue: applied.slice(0, 160)
-  });
   return applied;
 }
 
@@ -5960,10 +5972,6 @@ function adminCleanTranslatedDescriptionForApply(translatedText, primarySourceTe
   if (header && norm.startsWith(header)) {
     text = norm.slice(header.length).trim().replace(/^[.:\-–—•\s]+/, "").trim();
   }
-  console.log("FINAL CLEAN TRANSLATION", {
-    field: field || null,
-    finalPreview: text?.slice?.(0, 160)
-  });
   return text;
 }
 
@@ -5974,13 +5982,6 @@ async function translateAdminDescriptionText(sourceText, targetLangCode, meta = 
   const targetLanguage =
     code === "es" ? ADMIN_SMART_ACTION_TARGET_SPANISH : ADMIN_TRANSLATION_TARGET_LANGUAGE_BY_CODE[code];
   if (!targetLanguage) throw new Error(`Unknown language code: ${targetLangCode}`);
-
-  console.log("DESCRIPTION TRANSLATION REQUEST", {
-    targetLang: targetLanguage,
-    sourceLang: meta.sourceLang || null,
-    field: fieldName,
-    preview: String(sourceText || "").slice(0, 160)
-  });
 
   const tryTranslate = async (requestText) => {
     const apiRaw = await translateAdminText(requestText, targetLanguage, {
@@ -6027,15 +6028,6 @@ async function translateAdminDescriptionText(sourceText, targetLangCode, meta = 
       }
     }
   }
-
-  console.log("DESCRIPTION TRANSLATION RESPONSE", {
-    targetLang: targetLanguage,
-    field: fieldName,
-    ok: Boolean(translatedText),
-    apiRawPreview: lastApiRaw ? lastApiRaw.slice(0, 160) : null,
-    resultPreview: translatedText ? translatedText.slice(0, 160) : null,
-    error: translatedText ? null : lastError?.message || String(lastError)
-  });
 
   if (!translatedText) throw lastError || new Error(`Translation failed for ${code}`);
   return translatedText;
@@ -6107,10 +6099,6 @@ async function translateAdminText(text, targetLang, { source = null, sourceLang 
   return translated;
 }
 
-function normalizeAdminTranslationOutput(translatedText, primarySourceText = "", field = "") {
-  return adminCleanTranslatedDescriptionForApply(translatedText, primarySourceText, field);
-}
-
 function buildAdminStrictTranslationPrompt(sourceText, languageCode) {
   const cleanSource = String(sourceText || "").trim();
   if (!cleanSource) return "";
@@ -6169,30 +6157,19 @@ function adminDirectSetDescriptionFieldById(elementId, finalValue, root = null) 
     el = document.getElementById(id);
   }
   if (!(el instanceof HTMLTextAreaElement)) {
-    console.log("DIRECT DESCRIPTION FIELD SET", {
-      id,
-      found: false,
-      valuePreview: expected.slice(0, 160),
-      domValuePreview: null
-    });
     return false;
   }
   adminWriteTextareaDomValue(el, expected);
-  const domValue = adminHardOverwriteTranslationFieldValue(el.value);
-  console.log("DIRECT DESCRIPTION FIELD SET", {
-    id,
-    found: true,
-    valuePreview: expected.slice(0, 160),
-    domValuePreview: domValue.slice(0, 160)
-  });
-  return domValue === expected;
+  return adminHardOverwriteTranslationFieldValue(el.value) === expected;
 }
 
-function adminPopulateEditorLocalizedDescriptions(form, eventData) {
-  const root = adminEditorTranslationRoot(form, null);
+function adminPopulateEditorLocalizedDescriptions(form, eventData, overlay = null) {
+  const root = adminEditorTranslationRoot(form, overlay);
+  const expected = {};
   for (const field of ADMIN_LOCALIZED_EDITOR_SYNC_FIELDS) {
     const id = ADMIN_DESCRIPTION_FIELD_DOM_IDS[field];
-    const value = adminHardOverwriteTranslationFieldValue(eventData?.[field] ?? "");
+    const value = adminHardOverwriteTranslationFieldValue(adminReadLocalizedDescriptionFromRow(eventData, field));
+    expected[field] = value;
     let el = null;
     if (id && root) {
       const safeId = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(id) : id;
@@ -6204,12 +6181,43 @@ function adminPopulateEditorLocalizedDescriptions(form, eventData) {
     if (el instanceof HTMLTextAreaElement) {
       adminWriteTextareaDomValue(el, value);
     }
-    console.log("LOCALIZED TEXTAREA INITIALIZED", {
-      field,
-      id: id || null,
-      valuePreview: value.slice(0, 160)
-    });
   }
+  return expected;
+}
+
+function adminVerifyLocalizedDomHydration(form, eventData, overlay = null) {
+  const root = adminEditorTranslationRoot(form, overlay);
+  const esExpected = adminHardOverwriteTranslationFieldValue(
+    adminReadLocalizedDescriptionFromRow(eventData, "description_es")
+  );
+  const deExpected = adminHardOverwriteTranslationFieldValue(
+    adminReadLocalizedDescriptionFromRow(eventData, "description_de")
+  );
+  const enExpected = adminHardOverwriteTranslationFieldValue(
+    adminReadLocalizedDescriptionFromRow(eventData, "description_en")
+  );
+  const readField = (field) => {
+    const id = ADMIN_DESCRIPTION_FIELD_DOM_IDS[field];
+    let el = null;
+    if (id && root) {
+      const safeId = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(id) : id;
+      el = root.querySelector(`#${safeId}`);
+    }
+    if (!(el instanceof HTMLTextAreaElement) && form) {
+      el = form.querySelector(`textarea[name="${field}"]`);
+    }
+    return el instanceof HTMLTextAreaElement
+      ? adminHardOverwriteTranslationFieldValue(el.value)
+      : "";
+  };
+  const esValue = readField("description_es");
+  const deValue = readField("description_de");
+  const enValue = readField("description_en");
+  return {
+    matches_es: esValue === esExpected,
+    matches_de: deValue === deExpected,
+    matches_en: enValue === enExpected
+  };
 }
 
 function adminFindEditorDescriptionTextarea(form, overlay, fieldName) {
@@ -6266,12 +6274,6 @@ function forceRenderTranslationTextarea(form, overlay, fieldName, finalValue, st
   if (domId) adminDirectSetDescriptionFieldById(domId, expected, root);
   let el = adminFindEditorDescriptionTextarea(form, overlay, name);
   if (!el) {
-    console.log("TEXTAREA UI FINAL RENDER", {
-      field: name,
-      domValuePreview: null,
-      stateValuePreview: stateExpected.slice(0, 160),
-      matches: false
-    });
     return false;
   }
 
@@ -6289,15 +6291,7 @@ function forceRenderTranslationTextarea(form, overlay, fieldName, finalValue, st
     domValue = adminHardOverwriteTranslationFieldValue(el.value);
   }
 
-  const matches = domValue === expected;
-  console.log("TEXTAREA UI FINAL RENDER", {
-    field: name,
-    domValuePreview: domValue.slice(0, 160),
-    stateValuePreview: stateExpected.slice(0, 160),
-    expectedPreview: expected.slice(0, 160),
-    matches
-  });
-  return matches;
+  return domValue === expected;
 }
 
 /**
@@ -6307,19 +6301,7 @@ function adminCommitDescriptionTranslationsToEditor({ form, overlay, updates, ev
   const eventId = eventData?.id ?? state.adminEditorEventId ?? null;
   const flat = adminBuildDescriptionTranslationUpdatesMap(adminPickDescriptionTranslationUpdates(updates || {}));
 
-  console.log("EDITOR TRANSLATION FLOW TRACE", {
-    eventId,
-    updateKeys: Object.keys(flat),
-    hasForm: !!form,
-    hasOverlay: !!overlay
-  });
-
   if (!form || !eventId || !Object.keys(flat).length) {
-    console.warn("EDITOR TRANSLATION FLOW TRACE SKIP", {
-      hasForm: !!form,
-      eventId,
-      fieldUpdateKeys: Object.keys(flat)
-    });
     return { synced: [], missing: [], eventData: adminGetCanonicalEditorEvent() || eventData || null };
   }
 
@@ -6349,27 +6331,7 @@ function adminCommitDescriptionTranslationsToEditor({ form, overlay, updates, ev
   writeDom();
   writeDom();
 
-  for (const field of ADMIN_LOCALIZED_EDITOR_SYNC_FIELDS) {
-    if (!Object.prototype.hasOwnProperty.call(flat, field)) continue;
-    const expected = adminHardOverwriteTranslationFieldValue(flat[field]);
-    const el = adminFindEditorDescriptionTextarea(form, overlay, field);
-    const domValue = el ? adminHardOverwriteTranslationFieldValue(el.value) : "";
-    const stateValue = adminHardOverwriteTranslationFieldValue(activeEvent?.[field]);
-    console.log("POST TRANSLATION DOM VERIFY", {
-      field,
-      matches: domValue === expected && stateValue === expected,
-      domValuePreview: domValue.slice(0, 160),
-      stateValuePreview: stateValue.slice(0, 160),
-      expectedPreview: expected.slice(0, 160)
-    });
-  }
-
   return { synced, missing, eventData: activeEvent };
-}
-
-/** @deprecated Use adminCommitDescriptionTranslationsToEditor */
-function syncAdminTranslationUpdatesToEditor(form, overlay, updates, eventData) {
-  return adminCommitDescriptionTranslationsToEditor({ form, overlay, updates, eventData });
 }
 
 function adminWaitEditorFieldsEnabled() {
@@ -6378,22 +6340,9 @@ function adminWaitEditorFieldsEnabled() {
   });
 }
 
-/**
- * Regenerate description_es / description_de / description_en from main Beschreibung only.
- * Source language field gets the main text; the other two are translated.
- */
-/**
- * Sole runtime entry for „Übersetzungen neu erzeugen“ — translate API + state/DOM commit.
- */
+/** Sole runtime entry for „Übersetzungen neu erzeugen“ — translate API + state/DOM commit. */
 async function adminEditorRunRegenerateTranslationsFlow({ form, overlay, getEventData, setEventData, setBusy }) {
-  console.log("EDITOR REGENERATE TRANSLATIONS RUNTIME START", {
-    build: ADMIN_DASHBOARD_BUILD,
-    eventId: getEventData()?.id ?? null,
-    hasForm: !!form,
-    hasOverlay: !!overlay
-  });
   if (!form || !overlay) {
-    console.warn("EDITOR REGENERATE TRANSLATIONS ABORT", { hasForm: !!form, hasOverlay: !!overlay });
     return;
   }
 
@@ -6431,11 +6380,6 @@ async function adminEditorRunRegenerateTranslationsFlow({ form, overlay, getEven
     setBusy(false, "");
     await adminWaitEditorFieldsEnabled();
 
-    console.log("EDITOR REGENERATE TRANSLATIONS COMMIT PHASE", {
-      build: ADMIN_DASHBOARD_BUILD,
-      updateKeys: Object.keys(updates)
-    });
-
     const commit = adminCommitDescriptionTranslationsToEditor({ form, overlay, updates, eventData });
     if (commit?.eventData) {
       eventData = commit.eventData;
@@ -6466,6 +6410,12 @@ async function adminEditorRunRegenerateTranslationsFlow({ form, overlay, getEven
         "info"
       );
     }
+
+    console.log("TRANSLATION FLOW OK", {
+      eventId: eventData?.id ?? null,
+      updatedFields: Object.keys(updates),
+      failedFields: result?.failedFields || []
+    });
   } catch (error) {
     console.error("admin action editor-regenerate-translations error", error);
     setBusy(false, error.message || "Fehler");
@@ -6546,12 +6496,6 @@ async function regenerateAdminEventTranslations(eventData, form, { forceOverwrit
     }
   }
 
-  const updatedFields = Object.keys(updates);
-  console.log("DESCRIPTION TRANSLATION FINAL", {
-    sourceLanguage: sourceLang,
-    updatedFields
-  });
-
   const flatUpdates = adminBuildDescriptionTranslationUpdatesMap(updates);
   return {
     failedFields,
@@ -6573,6 +6517,9 @@ function adminStripEmptyFormOverrides(payload, eventData) {
   const preserveKeys = [
     "name",
     "description",
+    "description_es",
+    "description_de",
+    "description_en",
     "genre",
     "event_date",
     "event_time",
@@ -7970,7 +7917,17 @@ function openEventEditorModal(eventDataInput) {
   const { signal } = editorAbort;
 
   document.body.appendChild(overlay);
-  adminPopulateEditorLocalizedDescriptions(form, state.adminEditorEvent || eventData);
+
+  const hydrateLocalizedFromEditor = () =>
+    adminGetCanonicalEditorEvent() || state.adminEditorEvent || eventData;
+
+  const hydrateLocalizedDescriptions = () => {
+    const source = hydrateLocalizedFromEditor();
+    adminPopulateEditorLocalizedDescriptions(form, source, overlay);
+    adminVerifyLocalizedDomHydration(form, source, overlay);
+  };
+
+  hydrateLocalizedDescriptions();
 
   const regenTranslationsBtn = overlay.querySelector('[data-admin-action="editor-regenerate-translations"]');
   regenTranslationsBtn?.addEventListener(
@@ -8199,6 +8156,10 @@ function openEventEditorModal(eventDataInput) {
       refreshAdminEditorMapInForm(form);
     } catch (mapErr) {
       console.warn("admin editor map refresh (post-init) failed", mapErr);
+    }
+    const verify = adminVerifyLocalizedDomHydration(form, hydrateLocalizedFromEditor(), overlay);
+    if (!verify.matches_es || !verify.matches_de || !verify.matches_en) {
+      hydrateLocalizedDescriptions();
     }
   };
 
