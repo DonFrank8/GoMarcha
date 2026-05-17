@@ -2,7 +2,7 @@ const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
 const ADMIN_REQUIRED_ROLE = "admin";
 const ADMIN_ALLOWED_EMAILS = [];
-const ADMIN_DASHBOARD_BUILD = "2026.05.17-final-textarea-render-fix";
+const ADMIN_DASHBOARD_BUILD = "2026.05.17-localized-textarea-render-fix";
 if (typeof window !== "undefined") {
   window.PARTYRADAR_ADMIN_BUILD = ADMIN_DASHBOARD_BUILD;
   console.log("[admin-build]", ADMIN_DASHBOARD_BUILD);
@@ -5952,6 +5952,11 @@ function buildAdminStrictTranslationPrompt(sourceText, languageCode) {
 }
 
 const ADMIN_LOCALIZED_EDITOR_SYNC_FIELDS = ["description_es", "description_de", "description_en"];
+const ADMIN_DESCRIPTION_FIELD_DOM_IDS = Object.freeze({
+  description_es: "adminDescriptionEs",
+  description_de: "adminDescriptionDe",
+  description_en: "adminDescriptionEn"
+});
 
 /** Extract description_es/de/en — prefer flat keys over nested .updates (avoids stale nested ref). */
 function adminPickDescriptionTranslationUpdates(raw) {
@@ -5989,9 +5994,58 @@ function adminEditorTranslationRoot(form, overlay = null) {
   );
 }
 
+function adminDirectSetDescriptionFieldById(elementId, finalValue) {
+  const id = String(elementId || "").trim();
+  const expected = adminHardOverwriteTranslationFieldValue(finalValue);
+  const el = typeof document !== "undefined" ? document.getElementById(id) : null;
+  if (!(el instanceof HTMLTextAreaElement)) {
+    console.log("DIRECT DESCRIPTION FIELD SET", {
+      id,
+      found: false,
+      valuePreview: expected.slice(0, 160),
+      domValuePreview: null
+    });
+    return false;
+  }
+  adminWriteTextareaDomValue(el, expected);
+  const domValue = adminHardOverwriteTranslationFieldValue(el.value);
+  console.log("DIRECT DESCRIPTION FIELD SET", {
+    id,
+    found: true,
+    valuePreview: expected.slice(0, 160),
+    domValuePreview: domValue.slice(0, 160)
+  });
+  return domValue === expected;
+}
+
+function adminPopulateEditorLocalizedDescriptions(form, eventData) {
+  for (const field of ADMIN_LOCALIZED_EDITOR_SYNC_FIELDS) {
+    const id = ADMIN_DESCRIPTION_FIELD_DOM_IDS[field];
+    const value = adminHardOverwriteTranslationFieldValue(eventData?.[field] ?? "");
+    let el =
+      id && typeof document !== "undefined" ? document.getElementById(id) : null;
+    if (!(el instanceof HTMLTextAreaElement) && form) {
+      el = form.querySelector(`textarea[name="${field}"]`);
+    }
+    if (el instanceof HTMLTextAreaElement) {
+      adminWriteTextareaDomValue(el, value);
+    }
+    console.log("LOCALIZED TEXTAREA INITIALIZED", {
+      field,
+      id: id || null,
+      valuePreview: value.slice(0, 160)
+    });
+  }
+}
+
 function adminFindEditorDescriptionTextarea(form, overlay, fieldName) {
-  const root = adminEditorTranslationRoot(form, overlay);
   const name = String(fieldName || "").trim();
+  const domId = ADMIN_DESCRIPTION_FIELD_DOM_IDS[name];
+  if (domId && typeof document !== "undefined") {
+    const byId = document.getElementById(domId);
+    if (byId instanceof HTMLTextAreaElement) return byId;
+  }
+  const root = adminEditorTranslationRoot(form, overlay);
   if (!root || !name) return null;
   const safeName = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(name) : name.replace(/"/g, '\\"');
   const el = root.querySelector(`textarea[name="${safeName}"]`);
@@ -6028,6 +6082,8 @@ function forceRenderTranslationTextarea(form, overlay, fieldName, finalValue, st
   const expected = adminHardOverwriteTranslationFieldValue(finalValue);
   const stateExpected =
     stateValue == null ? expected : adminHardOverwriteTranslationFieldValue(stateValue);
+  const domId = ADMIN_DESCRIPTION_FIELD_DOM_IDS[name];
+  if (domId) adminDirectSetDescriptionFieldById(domId, expected);
   let el = adminFindEditorDescriptionTextarea(form, overlay, name);
   if (!el) {
     console.log("TEXTAREA UI FINAL RENDER", {
@@ -7546,9 +7602,9 @@ function openEventEditorModal(eventData) {
           <label class="field"><span>Titel ES</span><input name="title_es" value="${escapeHtml(eventData.title_es)}"></label>
           <label class="field"><span>Titel DE</span><input name="title_de" value="${escapeHtml(eventData.title_de)}"></label>
           <label class="field"><span>Titel EN</span><input name="title_en" value="${escapeHtml(eventData.title_en)}"></label>
-          <label class="field admin-editor-span-2"><span>Beschreibung ES</span><textarea name="description_es" rows="2">${escapeHtml(eventData.description_es)}</textarea></label>
-          <label class="field admin-editor-span-2"><span>Beschreibung DE</span><textarea name="description_de" rows="2">${escapeHtml(eventData.description_de)}</textarea></label>
-          <label class="field admin-editor-span-2"><span>Beschreibung EN</span><textarea name="description_en" rows="2">${escapeHtml(eventData.description_en)}</textarea></label>
+          <label class="field admin-editor-span-2"><span>Beschreibung ES</span><textarea id="adminDescriptionEs" name="description_es" rows="2"></textarea></label>
+          <label class="field admin-editor-span-2"><span>Beschreibung DE</span><textarea id="adminDescriptionDe" name="description_de" rows="2"></textarea></label>
+          <label class="field admin-editor-span-2"><span>Beschreibung EN</span><textarea id="adminDescriptionEn" name="description_en" rows="2"></textarea></label>
           <div class="admin-editor-span-2 admin-editor-translation-row">
             <button type="button" class="btn-pill btn-pill--soft" data-editor-regenerate-translations data-admin-action="editor-regenerate-translations">Übersetzungen neu erzeugen</button>
             <span class="card__intro">Übersetzt nur Beschreibung ES/DE/EN aus der Haupt-Beschreibung (Quellsprache → zwei Zielsprachen). Titel bleiben unverändert.</span>
@@ -7632,6 +7688,7 @@ function openEventEditorModal(eventData) {
   const { signal } = editorAbort;
 
   document.body.appendChild(overlay);
+  adminPopulateEditorLocalizedDescriptions(form, eventData);
 
   const activateTab = (name) => {
     tabs.forEach((t) => t.classList.toggle("is-active", t.dataset.editorTab === name));
