@@ -2,22 +2,22 @@
  * Cloudflare Worker for public GoMarcha share URLs.
  *
  * Route recommendation:
- *   https://www.gomarcha.com/e/*
+ *   https://gomarcha.com/e/*
  *
  * Required Worker environment variables:
  * - SUPABASE_URL: https://dwyhpirtbjfmohcnhdak.supabase.co
  * - SUPABASE_ANON_KEY or SUPABASE_SERVICE_ROLE_KEY
  *
  * Optional Worker environment variables:
- * - PUBLIC_SITE_URL: https://www.gomarcha.com
- * - DEFAULT_OG_IMAGE_URL: https://www.gomarcha.com/social-preview.png
+ * - PUBLIC_SITE_URL: https://gomarcha.com
+ * - DEFAULT_OG_IMAGE_URL: https://gomarcha.com/assets/social-preview-es.jpg
  *
  * The Worker returns crawler-visible HTML with OG/Twitter tags before any
  * meta-refresh/JS redirect. It never exposes a service role key to frontend JS.
  */
 
-const DEFAULT_SITE_URL = "https://www.gomarcha.com";
-const DEFAULT_OG_IMAGE_URL = `${DEFAULT_SITE_URL}/social-preview.png`;
+const DEFAULT_SITE_URL = "https://gomarcha.com";
+const DEFAULT_OG_IMAGE_URL = `${DEFAULT_SITE_URL}/assets/social-preview-es.jpg`;
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -246,22 +246,33 @@ function htmlResponse(html, status = 200) {
 function renderRootHtml(siteUrl) {
   const safeSiteUrl = escapeHtml(siteUrl);
   const sampleUrl = `${safeSiteUrl}/e/53`;
+  const safeTitle = "Marcha | Música en vivo y eventos";
+  const safeDescription = "Descubre conciertos, música en vivo, DJs, bares y eventos cerca de ti.";
+  const safeImageUrl = `${safeSiteUrl}/assets/social-preview-es.jpg`;
   return `<!doctype html>
 <html lang="es">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>GoMarcha Event Share Worker</title>
+  <title>${safeTitle}</title>
   <meta name="robots" content="noindex">
-  <meta property="og:title" content="GoMarcha Event Share">
-  <meta property="og:description" content="Share previews are available at /e/:eventId.">
-  <meta property="og:image" content="${safeSiteUrl}/social-preview.png">
+  <meta name="description" content="${safeDescription}">
+  <meta property="og:title" content="${safeTitle}">
+  <meta property="og:description" content="${safeDescription}">
+  <meta property="og:image" content="${safeImageUrl}">
+  <meta property="og:image:secure_url" content="${safeImageUrl}">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:url" content="${safeSiteUrl}/">
   <meta property="og:type" content="website">
   <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="${safeTitle}">
+  <meta name="twitter:description" content="${safeDescription}">
+  <meta name="twitter:image" content="${safeImageUrl}">
 </head>
 <body>
   <main>
-    <h1>GoMarcha Event Share Worker</h1>
+    <h1>${safeTitle}</h1>
     <p>Use <code>/e/:eventId</code> for crawler-safe event previews.</p>
     <p><a href="${sampleUrl}">${sampleUrl}</a></p>
   </main>
