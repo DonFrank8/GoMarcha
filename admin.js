@@ -2,7 +2,7 @@ const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
 const ADMIN_REQUIRED_ROLE = "admin";
 const ADMIN_ALLOWED_EMAILS = [];
-const ADMIN_DASHBOARD_BUILD = "2026.05.24-recurring-auto-prep-400-fix";
+const ADMIN_DASHBOARD_BUILD = "2026.05.24-recurring-auto-prep-diagnose";
 if (typeof window !== "undefined") {
   window.PARTYRADAR_ADMIN_BUILD = ADMIN_DASHBOARD_BUILD;
   console.log("[admin-build]", ADMIN_DASHBOARD_BUILD);
@@ -1046,6 +1046,37 @@ function isRecurringSocialMaster(event) {
   return eventIsRecurringSocialFlag(event) && isAdminRecurringEvent(adminCoerceRecurrenceFields(event));
 }
 
+/** Auto-prep eligibility: weekly/monthly series with social automation enabled (not a child row). */
+function isRecurringAutoPrepEligible(event) {
+  const coerced = adminCoerceRecurrenceFields(event);
+  if (adminIsRecurringChildEvent(coerced)) return false;
+  if (String(coerced?.status || "").toLowerCase() !== "approved") return false;
+  if (coerced.recurring_social_enabled !== true) return false;
+  const type = normalizeAdminRecurrenceType(coerced?.recurrence_type);
+  if (type !== "weekly" && type !== "monthly") return false;
+  const start = String(coerced.recurrence_start_date || coerced.event_date || "").trim();
+  if (!start) return false;
+  if (type === "weekly" && normalizeAdminRecurrenceWeekday(coerced.recurrence_weekday, start) === null) {
+    return false;
+  }
+  if (type === "monthly" && normalizeAdminRecurrenceDayOfMonth(coerced.recurrence_day_of_month, start) === null) {
+    return false;
+  }
+  return true;
+}
+
+function getRecurringAutoPrepIneligibleReason(event) {
+  const coerced = adminCoerceRecurrenceFields(event);
+  if (adminIsRecurringChildEvent(coerced)) return "child_event";
+  if (String(coerced?.status || "").toLowerCase() !== "approved") return "status_not_approved";
+  if (coerced.recurring_social_enabled !== true) return "recurring_social_disabled";
+  const type = normalizeAdminRecurrenceType(coerced?.recurrence_type);
+  if (type !== "weekly" && type !== "monthly") return "recurrence_type_not_weekly_monthly";
+  if (!String(coerced.recurrence_start_date || coerced.event_date || "").trim()) return "missing_start_date";
+  if (adminRecurrenceEndDateInPast(coerced)) return "recurrence_ended";
+  return null;
+}
+
 function adminFormatLocalYmd(date = new Date()) {
   const d = date instanceof Date ? date : new Date(date);
   if (Number.isNaN(d.getTime())) return "";
@@ -1483,8 +1514,9 @@ function getRecurringOccurrencesWithinHorizon(
   horizonDays = RECURRING_SOCIAL_AUTO_PREP_HORIZON_DAYS,
   now = new Date()
 ) {
-  if (!isRecurringSocialMaster(event)) return [];
+  if (!isRecurringAutoPrepEligible(event)) return [];
   const coerced = adminCoerceRecurrenceFields(event);
+  if (adminRecurrenceEndDateInPast(coerced, now)) return [];
   const type = normalizeAdminRecurrenceType(coerced?.recurrence_type);
 
   if (type === "weekly") {
@@ -1492,8 +1524,10 @@ function getRecurringOccurrencesWithinHorizon(
     logRecurrenceNextOccurrence(coerced, now, current, next, reason);
     if (!next) return [];
 
-    const primary = advanceWeeklyRecurringOccurrenceWithSlots(coerced, next, now);
-    if (!primary) return [];
+    let primary = advanceWeeklyRecurringOccurrenceWithSlots(coerced, next, now);
+    if (!primary) {
+      primary = next;
+    }
 
     const out = [primary];
     const days = Math.min(Math.max(Number(horizonDays) || 7, RECURRING_WEEKLY_PREP_LOOKAHEAD_DAYS), 30);
@@ -1536,11 +1570,121 @@ function getRecurringOccurrencesWithinHorizon(
   }
   if (!out.length) {
     const fallback = getNextRecurringOccurrence(coerced, now);
-    if (fallback && recurringOccurrenceHasFutureSlots(coerced, fallback, now)) {
+    if (fallback) {
       out.push(fallback);
     }
   }
   return out;
+}
+
+function logRecurrencePrepDecision(decision) {
+  console.log("RECURRENCE PREP DECISION", decision);
+}
+
+function createEmptyRecurringAutoPrepSummary() {
+  return {
+    recurringMasters: 0,
+    checked: 0,
+    candidates: 0,
+    nextOccurrences: 0,
+    rowsWanted: 0,
+    rowsInserted: 0,
+    skippedExisting: 0,
+    skippedNoFutureOccurrence: 0,
+    skippedEnded: 0,
+    skippedNoStages: 0,
+    skippedMissingEventDate: 0,
+    skippedNotEligible: 0,
+    skippedNoFutureQueueNeeded: 0,
+    errors: [],
+    decisions: []
+  };
+}
+
+function logRecurringAutoPrepResult(summary) {
+  console.log("RECURRING AUTO PREP RESULT", {
+    recurringMasters: summary.recurringMasters,
+    checked: summary.checked,
+    candidates: summary.candidates,
+    nextOccurrences: summary.nextOccurrences,
+    rowsWanted: summary.rowsWanted,
+    rowsInserted: summary.rowsInserted,
+    skippedExisting: summary.skippedExisting,
+    skippedNoFutureOccurrence: summary.skippedNoFutureOccurrence,
+    skippedEnded: summary.skippedEnded,
+    skippedNoStages: summary.skippedNoStages,
+    skippedMissingEventDate: summary.skippedMissingEventDate,
+    skippedNotEligible: summary.skippedNotEligible,
+    errors: summary.errors
+  });
+}
+
+async function collectRecurringOccurrenceEventIds(client, occurrenceEvent) {
+  const ids = new Set();
+  const eventId = String(occurrenceEvent?.id || "").trim();
+  let masterId = String(occurrenceEvent?.original_event_id || "").trim();
+  if (!masterId && !adminIsRecurringChildEvent(occurrenceEvent)) {
+    masterId = eventId;
+  }
+  if (eventId) ids.add(eventId);
+  if (masterId) {
+    ids.add(masterId);
+    const { data: children, error } = await client.from("events").select("id").eq("original_event_id", masterId);
+    if (error) {
+      logSupabaseOperationFailure("collectRecurringOccurrenceEventIds", error, { masterId });
+    } else {
+      for (const row of children || []) {
+        if (row?.id) ids.add(String(row.id));
+      }
+    }
+  }
+  return [...ids];
+}
+
+async function countFutureQueueRowsForRecurringOccurrence(client, master, occurrenceStart, now = new Date()) {
+  const occurrenceYmd = adminFormatLocalYmd(occurrenceStart);
+  if (!occurrenceYmd) return { total: 0, futureCount: 0, occurrenceYmd: "" };
+
+  const eventIds = await collectRecurringOccurrenceEventIds(client, master);
+  const { rows } = await fetchSocialQueueDedupeRows(client, { eventIds });
+  const nowMs = now.getTime();
+  const forOccurrence = (rows || []).filter((row) => {
+    if (String(row.status || "").toLowerCase() === "skipped") return false;
+    const occ = String(row.event_date || "").trim();
+    return !occ || occ === occurrenceYmd;
+  });
+  const future = forOccurrence.filter((row) => {
+    const sched = new Date(row.scheduled_at).getTime();
+    return Number.isFinite(sched) && sched > nowMs;
+  });
+  return { total: forOccurrence.length, futureCount: future.length, occurrenceYmd };
+}
+
+function recurringQueueStagesMatch(existingRow, candidateRow) {
+  const a = String(existingRow?.post_stage || "").trim();
+  const b = String(candidateRow?.post_stage || "").trim();
+  if (!a || !b) return false;
+  return a === b;
+}
+
+function recurringQueueRowBlocksInsert(existingRow, candidateRow, occurrenceYmd, now = new Date()) {
+  if (String(existingRow?.status || "").toLowerCase() === "skipped") return false;
+
+  const existingOcc = String(existingRow?.event_date || "").trim();
+  const rowOccurrence = String(candidateRow?.event_date || candidateRow?.occurrence_date || occurrenceYmd || "").trim();
+  if (existingOcc && rowOccurrence && existingOcc !== rowOccurrence) return false;
+
+  const schedMs = new Date(existingRow?.scheduled_at || "").getTime();
+  const isFuture = Number.isFinite(schedMs) && schedMs > now.getTime();
+
+  if (!existingOcc && rowOccurrence) {
+    if (!isFuture) return false;
+  } else if (!existingOcc && !rowOccurrence) {
+    if (!isFuture) return false;
+  }
+
+  if (!recurringQueueStagesMatch(existingRow, candidateRow)) return false;
+  return socialQueuePlatformsOverlap(existingRow, candidateRow);
 }
 
 function isRecurringEventPast(event, now = new Date()) {
@@ -3635,58 +3779,27 @@ async function insertSocialQueueRows(rows) {
   throw new Error("Social Queue Insert fehlgeschlagen (Schema-Spalten prüfen).");
 }
 
-async function insertRecurringSocialQueueRows(occurrenceEvent, occurrenceStart) {
+async function insertRecurringSocialQueueRows(occurrenceEvent, occurrenceStart, now = new Date()) {
   const candidates = buildRecurringSocialQueueRowsForOccurrence(occurrenceEvent, occurrenceStart);
-  if (!candidates.length) return { inserted: 0, skippedExisting: 0 };
+  const occurrenceYmd = adminFormatLocalYmd(occurrenceStart);
+  if (!occurrenceYmd) {
+    return { inserted: 0, skippedExisting: 0, candidates: 0, rowsWanted: 0, skippedNoStages: candidates.length };
+  }
+  if (!candidates.length) {
+    return { inserted: 0, skippedExisting: 0, candidates: 0, rowsWanted: 0, skippedNoStages: 1 };
+  }
+
   const client = supabaseClient();
   const eventId = String(occurrenceEvent?.id || "").trim();
-  const occurrenceYmd = adminFormatLocalYmd(occurrenceStart);
-
-  const { rows: existing } = await fetchSocialQueueDedupeRows(client, { eventId });
-  let activeExisting = existing.filter((row) => String(row.status || "").toLowerCase() !== "skipped");
-
-  const masterId = String(occurrenceEvent?.original_event_id || "").trim();
-  if (masterId && occurrenceYmd) {
-    const { data: siblingEvents, error: siblingErr } = await client
-      .from("events")
-      .select("id")
-      .eq("original_event_id", masterId);
-    if (siblingErr) {
-      logSupabaseOperationFailure("events sibling lookup", siblingErr, {
-        query: "events.select(id).eq(original_event_id)",
-        masterId,
-        occurrenceYmd
-      });
-    } else if (Array.isArray(siblingEvents) && siblingEvents.length) {
-      const siblingIds = siblingEvents.map((e) => e.id).filter((id) => id && id !== eventId);
-      if (siblingIds.length) {
-        try {
-          const { rows: siblingRows } = await fetchSocialQueueDedupeRows(client, {
-            eventIds: siblingIds,
-            eventDate: occurrenceYmd
-          });
-          activeExisting = activeExisting.concat(
-            siblingRows.filter((row) => String(row.status || "").toLowerCase() !== "skipped")
-          );
-        } catch (siblingRowsErr) {
-          logSupabaseOperationFailure("social_queue sibling dedupe fetch", siblingRowsErr, {
-            query: "social_queue.select(...).in(event_id).eq(event_date)",
-            siblingIds,
-            occurrenceYmd
-          });
-        }
-      }
-    }
-  }
+  const eventIds = await collectRecurringOccurrenceEventIds(client, occurrenceEvent);
+  const { rows: existing } = await fetchSocialQueueDedupeRows(client, { eventIds });
+  const activeExisting = (existing || []).filter((row) => String(row.status || "").toLowerCase() !== "skipped");
   let skippedExisting = 0;
 
   const missing = candidates.filter((row) => {
-    const rowOccurrence = String(row.event_date || row.occurrence_date || occurrenceYmd || "").trim();
-    const duplicate = activeExisting.some((existingRow) => {
-      const sameStage = String(existingRow.post_stage || "").trim() === String(row.post_stage || "").trim();
-      const sameOccurrence = String(existingRow.event_date || "").trim() === rowOccurrence;
-      return sameStage && sameOccurrence && socialQueuePlatformsOverlap(existingRow, row);
-    });
+    const duplicate = activeExisting.some((existingRow) =>
+      recurringQueueRowBlocksInsert(existingRow, row, occurrenceYmd, now)
+    );
     if (duplicate) {
       skippedExisting += 1;
       console.log("recurring social row skipped", {
@@ -3694,15 +3807,19 @@ async function insertRecurringSocialQueueRows(occurrenceEvent, occurrenceStart) 
         event_id: eventId,
         platforms: row.platforms,
         post_stage: row.post_stage,
-        event_date: row.event_date
+        event_date: row.event_date || occurrenceYmd
       });
       return false;
     }
     return true;
   });
-  if (!missing.length) return { inserted: 0, skippedExisting };
+
+  if (!missing.length) {
+    return { inserted: 0, skippedExisting, candidates: candidates.length, rowsWanted: 0 };
+  }
+
   const inserted = await insertSocialQueueRows(missing);
-  return { inserted, skippedExisting };
+  return { inserted, skippedExisting, candidates: candidates.length, rowsWanted: missing.length };
 }
 
 function buildRecurringChildEventInsertPayload(master, occurrenceStart) {
@@ -3803,16 +3920,145 @@ async function createRecurringChildEventForOccurrence(master, occurrenceStart) {
   throw new Error("Kind-Event Insert fehlgeschlagen (Schema-Spalten prüfen).");
 }
 
-async function prepareRecurringOccurrencesForDates(master, occurrenceStarts) {
+async function prepareRecurringAutoPrepMaster(masterEvent, summary, now = new Date()) {
+  const coerced = adminCoerceRecurrenceFields(masterEvent);
+  const recurrenceType = normalizeAdminRecurrenceType(coerced?.recurrence_type);
+  const decision = {
+    eventId: coerced?.id ?? null,
+    name: String(coerced?.name || coerced?.title || "").trim() || null,
+    recurrence_type: recurrenceType,
+    is_recurring: coerced?.is_recurring === true,
+    event_date: coerced?.event_date ?? null,
+    event_time: coerced?.event_time ?? null,
+    nextOccurrence: null,
+    stagesWanted: 0,
+    existingRowsForOccurrence: 0,
+    action: "skip-error",
+    reason: ""
+  };
+
+  if (!isRecurringAutoPrepEligible(coerced)) {
+    decision.reason = getRecurringAutoPrepIneligibleReason(coerced) || "not_eligible";
+    summary.skippedNotEligible += 1;
+    logRecurrencePrepDecision(decision);
+    return { skipped: true, decision, draftsInserted: 0, skippedExisting: 0, occurrences: 0 };
+  }
+
+  if (adminRecurrenceEndDateInPast(coerced, now)) {
+    decision.reason = "recurrence_ended";
+    summary.skippedEnded += 1;
+    decision.action = "skip-no-occurrence";
+    logRecurrencePrepDecision(decision);
+    return { skipped: true, decision, draftsInserted: 0, skippedExisting: 0, occurrences: 0 };
+  }
+
+  const nextOcc = getNextRecurringOccurrence(coerced, now);
+  decision.nextOccurrence =
+    nextOcc instanceof Date && !Number.isNaN(nextOcc.getTime()) ? nextOcc.toISOString() : null;
+  if (!nextOcc) {
+    decision.reason = "no_future_occurrence";
+    summary.skippedNoFutureOccurrence += 1;
+    decision.action = "skip-no-occurrence";
+    logRecurrencePrepDecision(decision);
+    return { skipped: true, decision, draftsInserted: 0, skippedExisting: 0, occurrences: 0 };
+  }
+
+  const client = supabaseClient();
+  const futureInfo = await countFutureQueueRowsForRecurringOccurrence(client, coerced, nextOcc, now);
+  decision.existingRowsForOccurrence = futureInfo.futureCount;
+
+  let occurrences = getRecurringOccurrencesWithinHorizon(coerced, RECURRING_SOCIAL_AUTO_PREP_HORIZON_DAYS, now);
+  if (!occurrences.length) {
+    occurrences = [nextOcc];
+    decision.reason = "forced_next_occurrence_no_horizon_match";
+  } else if (futureInfo.futureCount === 0) {
+    decision.reason = "next_occurrence_no_future_queue_rows";
+  } else {
+    decision.reason = "next_occurrence_partial_future_rows";
+  }
+
+  summary.nextOccurrences += occurrences.length;
+
+  let draftsInserted = 0;
+  let skippedExisting = 0;
+  let childrenCreated = 0;
+  let candidates = 0;
+  let rowsWanted = 0;
+
+  for (const occurrenceStart of occurrences) {
+    const ymd = adminFormatLocalYmd(occurrenceStart);
+    if (!ymd) {
+      summary.skippedMissingEventDate += 1;
+      continue;
+    }
+
+    const slotCount = buildRecurringSocialSlots(coerced, occurrenceStart).length;
+    decision.stagesWanted += slotCount;
+    if (!slotCount) summary.skippedNoStages += 1;
+
+    const { event: child, created } = await createRecurringChildEventForOccurrence(coerced, occurrenceStart);
+    if (created) childrenCreated += 1;
+
+    const insertResult = await insertRecurringSocialQueueRows(child, occurrenceStart, now);
+    candidates += insertResult.candidates || 0;
+    rowsWanted += insertResult.rowsWanted || 0;
+    draftsInserted += insertResult.inserted || 0;
+    skippedExisting += insertResult.skippedExisting || 0;
+    if (insertResult.skippedNoStages) summary.skippedNoStages += 1;
+  }
+
+  summary.candidates += candidates;
+  summary.rowsWanted += rowsWanted;
+  summary.rowsInserted += draftsInserted;
+  summary.skippedExisting += skippedExisting;
+  summary.recurringMasters += 1;
+
+  if (draftsInserted > 0) {
+    decision.action = "insert";
+    decision.reason = `${decision.reason}|inserted_${draftsInserted}`;
+  } else if (skippedExisting > 0 && candidates > 0) {
+    decision.action = "skip-existing";
+    decision.reason = `${decision.reason}|all_stages_existing`;
+  } else if (decision.stagesWanted === 0) {
+    decision.action = "skip-no-occurrence";
+    decision.reason = `${decision.reason}|no_future_post_stages`;
+  } else if (futureInfo.futureCount > 0) {
+    decision.action = "skip-existing";
+    decision.reason = `${decision.reason}|future_rows_already_exist`;
+  } else {
+    decision.action = "skip-error";
+    decision.reason = `${decision.reason}|insert_zero`;
+  }
+
+  logRecurrencePrepDecision(decision);
+  summary.decisions.push(decision);
+
+  return {
+    skipped: false,
+    decision,
+    occurrences: occurrences.length,
+    childrenCreated,
+    draftsInserted,
+    skippedExisting,
+    horizonDays: RECURRING_SOCIAL_AUTO_PREP_HORIZON_DAYS
+  };
+}
+
+async function prepareRecurringOccurrencesForDates(master, occurrenceStarts, summary = null, now = new Date()) {
   let childrenCreated = 0;
   let draftsInserted = 0;
   let skippedExisting = 0;
   for (const occurrenceStart of occurrenceStarts) {
     const { event: child, created } = await createRecurringChildEventForOccurrence(master, occurrenceStart);
     if (created) childrenCreated += 1;
-    const insertResult = await insertRecurringSocialQueueRows(child, occurrenceStart);
+    const insertResult = await insertRecurringSocialQueueRows(child, occurrenceStart, now);
     draftsInserted += insertResult.inserted;
     skippedExisting += insertResult.skippedExisting;
+    if (summary) {
+      summary.candidates += insertResult.candidates || 0;
+      summary.rowsWanted += insertResult.rowsWanted || 0;
+      if (insertResult.skippedNoStages) summary.skippedNoStages += 1;
+    }
   }
   return { occurrences: occurrenceStarts.length, childrenCreated, draftsInserted, skippedExisting };
 }
@@ -3823,17 +4069,24 @@ async function prepareRecurringOccurrencesForDates(master, occurrenceStarts) {
  */
 async function prepareRecurringOccurrencesWithinHorizon(
   masterEvent,
-  horizonDays = RECURRING_SOCIAL_AUTO_PREP_HORIZON_DAYS
+  horizonDays = RECURRING_SOCIAL_AUTO_PREP_HORIZON_DAYS,
+  options = {}
 ) {
+  const summary = options.summary || createEmptyRecurringAutoPrepSummary();
+  const now = options.now instanceof Date ? options.now : new Date();
   const master = adminCoerceRecurrenceFields(masterEvent);
-  if (!isRecurringSocialMaster(master) || master.recurring_social_enabled !== true) {
-    return { skipped: true, occurrences: 0, childrenCreated: 0, draftsInserted: 0, skippedExisting: 0, horizonDays };
+  if (!isRecurringAutoPrepEligible(master)) {
+    return {
+      skipped: true,
+      skipReason: getRecurringAutoPrepIneligibleReason(master) || "not_eligible",
+      occurrences: 0,
+      childrenCreated: 0,
+      draftsInserted: 0,
+      skippedExisting: 0,
+      horizonDays
+    };
   }
-  const occurrences = getRecurringOccurrencesWithinHorizon(master, horizonDays);
-  if (!occurrences.length) {
-    return { skipped: false, occurrences: 0, childrenCreated: 0, draftsInserted: 0, skippedExisting: 0, horizonDays };
-  }
-  const result = await prepareRecurringOccurrencesForDates(master, occurrences);
+  const result = await prepareRecurringAutoPrepMaster(master, summary, now);
   console.log("recurring social prepare done", {
     mode: "horizon",
     master_id: master.id,
@@ -3841,24 +4094,21 @@ async function prepareRecurringOccurrencesWithinHorizon(
     occurrences: result.occurrences,
     children_created: result.childrenCreated,
     drafts_inserted: result.draftsInserted,
-    skipped_existing: result.skippedExisting
+    skipped_existing: result.skippedExisting,
+    action: result.decision?.action,
+    reason: result.decision?.reason
   });
-  return { skipped: false, horizonDays, ...result };
+  return { skipped: result.skipped, horizonDays, ...result };
 }
 
 /** Weekly auto-prep: all approved recurring masters with social automation enabled. */
-async function runWeeklyRecurringSocialAutoPrep() {
-  const masters = state.allEvents.filter((ev) => {
-    if (String(ev.status || "").toLowerCase() !== "approved") return false;
-    const coerced = adminCoerceRecurrenceFields(ev);
-    return isRecurringSocialMaster(coerced) && coerced.recurring_social_enabled === true;
-  });
-  const refreshSummary = {
-    recurringMasters: 0,
-    occurrencesCreated: 0,
-    skippedExisting: 0,
-    errors: []
-  };
+async function runWeeklyRecurringSocialAutoPrep(options = {}) {
+  const now = options.now instanceof Date ? options.now : new Date();
+  const summary = createEmptyRecurringAutoPrepSummary();
+  summary.checked = Array.isArray(state.allEvents) ? state.allEvents.length : 0;
+
+  const masters = (state.allEvents || []).filter((ev) => isRecurringAutoPrepEligible(adminCoerceRecurrenceFields(ev)));
+
   const totals = {
     masters: 0,
     occurrences: 0,
@@ -3867,21 +4117,22 @@ async function runWeeklyRecurringSocialAutoPrep() {
     skippedExisting: 0,
     horizonDays: RECURRING_SOCIAL_AUTO_PREP_HORIZON_DAYS
   };
+
   for (const master of masters) {
     try {
-      const res = await prepareRecurringOccurrencesWithinHorizon(master);
+      const res = await prepareRecurringOccurrencesWithinHorizon(master, RECURRING_SOCIAL_AUTO_PREP_HORIZON_DAYS, {
+        summary,
+        now
+      });
       if (res.skipped) continue;
-      refreshSummary.recurringMasters += 1;
-      refreshSummary.occurrencesCreated += res.draftsInserted;
-      refreshSummary.skippedExisting += res.skippedExisting || 0;
       totals.masters += 1;
-      totals.occurrences += res.occurrences;
-      totals.childrenCreated += res.childrenCreated;
-      totals.draftsInserted += res.draftsInserted;
+      totals.occurrences += res.occurrences || 0;
+      totals.childrenCreated += res.childrenCreated || 0;
+      totals.draftsInserted += res.draftsInserted || 0;
       totals.skippedExisting += res.skippedExisting || 0;
     } catch (error) {
       const message = error?.message || String(error);
-      refreshSummary.errors.push({ master_id: master.id, message });
+      summary.errors.push({ master_id: master.id, message });
       logSupabaseOperationFailure("recurring weekly auto prep", error, {
         master_id: master.id,
         master_name: master?.name ?? null
@@ -3893,15 +4144,22 @@ async function runWeeklyRecurringSocialAutoPrep() {
       });
     }
   }
-  console.log("RECURRING SOCIAL QUEUE REFRESH", refreshSummary);
+
+  logRecurringAutoPrepResult(summary);
+  console.log("RECURRING SOCIAL QUEUE REFRESH", {
+    recurringMasters: summary.recurringMasters,
+    occurrencesCreated: summary.rowsInserted,
+    skippedExisting: summary.skippedExisting,
+    errors: summary.errors
+  });
   console.log("recurring weekly auto prep", totals);
-  return { ...totals, refreshSummary };
+  return { ...totals, summary };
 }
 
-function scheduleRecurringSocialAutoPrep() {
+function scheduleRecurringSocialAutoPrep(options = {}) {
   if (!isSessionAdmin(state.adminSession) || state.recurringSocialAutoPrepRunning) return;
   const lastRun = Number(state.recurringSocialAutoPrepLastRunAt) || 0;
-  if (Date.now() - lastRun < RECURRING_SOCIAL_PREP_MIN_INTERVAL_MS) return;
+  if (!options.force && Date.now() - lastRun < RECURRING_SOCIAL_PREP_MIN_INTERVAL_MS) return;
   if (state.recurringSocialAutoPrepScheduled) return;
   state.recurringSocialAutoPrepScheduled = true;
   window.setTimeout(async () => {
@@ -3909,7 +4167,7 @@ function scheduleRecurringSocialAutoPrep() {
     if (state.navSection !== "social" || state.recurringSocialAutoPrepRunning) return;
     state.recurringSocialAutoPrepRunning = true;
     try {
-      const res = await runWeeklyRecurringSocialAutoPrep();
+      const res = await runWeeklyRecurringSocialAutoPrep({ force: Boolean(options.force) });
       state.recurringSocialAutoPrepLastRunAt = Date.now();
       if (res.draftsInserted > 0 || res.childrenCreated > 0) {
         await loadSocialQueueRows();
@@ -3932,11 +4190,12 @@ function scheduleRecurringSocialAutoPrep() {
 /** Manual prepare — same 7-day window as weekly auto-prep. */
 async function prepareNextRecurringOccurrences(masterEvent) {
   const master = adminCoerceRecurrenceFields(masterEvent);
-  if (!isRecurringSocialMaster(master)) {
-    throw new Error("Nur für wiederkehrende Events mit aktivierter Option „Wiederkehrendes Event“.");
-  }
-  if (master.recurring_social_enabled !== true) {
-    throw new Error("Bitte „Social Automation (Serie)“ im Editor aktivieren und speichern.");
+  if (!isRecurringAutoPrepEligible(master)) {
+    const reason = getRecurringAutoPrepIneligibleReason(master);
+    if (reason === "recurring_social_disabled") {
+      throw new Error("Bitte „Social Automation (Serie)“ im Editor aktivieren und speichern.");
+    }
+    throw new Error("Nur für genehmigte wöchentliche/monatliche Serien mit Social Automation.");
   }
   const res = await prepareRecurringOccurrencesWithinHorizon(master, RECURRING_SOCIAL_AUTO_PREP_HORIZON_DAYS);
   if (!res.occurrences) {
@@ -9858,6 +10117,19 @@ async function start() {
     window.__ADMIN_STATE__ = state;
     window.adminState = state;
     window.applyFilters = applyFilters;
+    window.debugRecurringAutoPrep = async function debugRecurringAutoPrep() {
+      state.recurringSocialAutoPrepLastRunAt = 0;
+      state.recurringSocialAutoPrepScheduled = false;
+      state.recurringSocialAutoPrepRunning = false;
+      console.log("[debugRecurringAutoPrep] starting forced run…", { build: ADMIN_DASHBOARD_BUILD });
+      const res = await runWeeklyRecurringSocialAutoPrep({ force: true });
+      if (res.draftsInserted > 0 || res.childrenCreated > 0) {
+        await loadSocialQueueRows();
+        renderSocialQueuePanel();
+      }
+      console.log("[debugRecurringAutoPrep] done", res);
+      return res;
+    };
   }
   try {
     await checkSession();
