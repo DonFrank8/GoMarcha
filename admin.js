@@ -2,7 +2,7 @@ const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
 const ADMIN_REQUIRED_ROLE = "admin";
 const ADMIN_ALLOWED_EMAILS = [];
-const ADMIN_DASHBOARD_BUILD = "2026.05.25-recurring-global-series-policy";
+const ADMIN_DASHBOARD_BUILD = "2026.05.25-recurring-social-flag-fix";
 if (typeof window !== "undefined") {
   window.PARTYRADAR_ADMIN_BUILD = ADMIN_DASHBOARD_BUILD;
   console.log("[admin-build]", ADMIN_DASHBOARD_BUILD);
@@ -1046,9 +1046,23 @@ function isRecurringSocialMaster(event) {
   return eventIsRecurringSocialFlag(event) && isAdminRecurringEvent(adminCoerceRecurrenceFields(event));
 }
 
-/** Explicit opt-out only; null/undefined defaults to enabled for approved recurring series. */
+/** Only explicit boolean false disables recurring social automation (null/undefined/"" → enabled). */
+function isRecurringSocialEnabled(series) {
+  return series?.recurring_social_enabled !== false;
+}
+
 function isRecurringSocialAutomationEnabled(event) {
-  return event?.recurring_social_enabled !== false;
+  return isRecurringSocialEnabled(event);
+}
+
+function logRecurringSocialFlag(event) {
+  const raw = event && typeof event === "object" ? event : {};
+  console.log("RECURRING SOCIAL FLAG", {
+    eventId: raw?.id ?? null,
+    title: String(raw?.name || raw?.title || "").trim() || null,
+    rawValue: raw?.recurring_social_enabled,
+    enabled: isRecurringSocialEnabled(raw)
+  });
 }
 
 /**
@@ -1228,7 +1242,7 @@ function eventHasRecurringAutomationSignals(event, ctx) {
   const id = String(raw.id || "").trim();
   if (id && (ctx.childrenByMaster.get(id) || []).length > 0) return true;
   if (detectRecurringMasterCandidate(raw)) return true;
-  if (raw.recurring_social_enabled !== false && inferRecurringPatternFromSiblings(raw, ctx)) return true;
+  if (isRecurringSocialEnabled(raw) && inferRecurringPatternFromSiblings(raw, ctx)) return true;
   return false;
 }
 
@@ -1325,12 +1339,6 @@ function enrichCanonicalSeriesMaster(master, members) {
     enriched.is_recurring = true;
   }
 
-  if (pool.every((row) => row?.recurring_social_enabled === false)) {
-    enriched.recurring_social_enabled = false;
-  } else if (pool.some((row) => row?.recurring_social_enabled !== false)) {
-    if (enriched.recurring_social_enabled == null) enriched.recurring_social_enabled = true;
-  }
-
   if (!String(enriched.status || "").trim()) {
     const approved = pool.find((row) => String(row?.status || "").toLowerCase() === "approved");
     if (approved) enriched.status = approved.status;
@@ -1350,7 +1358,7 @@ function evaluateCanonicalRecurringSeries(series, now = new Date()) {
     reason: "unknown",
     recurrence_type: type !== "none" ? type : null,
     recurrence_weekday: coerced?.recurrence_weekday ?? master?.recurrence_weekday ?? null,
-    recurring_social_enabled: master?.recurring_social_enabled ?? null,
+    recurring_social_enabled: isRecurringSocialEnabled(master),
     nextOccurrence:
       nextOcc instanceof Date && !Number.isNaN(nextOcc.getTime()) ? nextOcc.toISOString() : null
   };
@@ -1358,7 +1366,7 @@ function evaluateCanonicalRecurringSeries(series, now = new Date()) {
   if (!master) {
     return { ...base, reason: "no_canonical_master" };
   }
-  if (master.recurring_social_enabled === false) {
+  if (!isRecurringSocialEnabled(master)) {
     return { ...base, reason: "recurring_social_disabled" };
   }
   if (members.length && members.every((row) => isRejectedOrDeletedEvent(row))) {
@@ -1440,6 +1448,7 @@ function buildCanonicalRecurringSeriesMap(allEvents, now = new Date()) {
     const picked = pickCanonicalSeriesMaster(group.members);
     const master = enrichCanonicalSeriesMaster(picked, group.members);
     master.canonical_series_id = group.canonicalSeriesId;
+    logRecurringSocialFlag(master);
     const evaluation = evaluateCanonicalRecurringSeries({ ...group, master }, now);
     const hasChild = group.members.some((m) => adminIsRecurringChildEvent(m));
     const hasParent = Boolean(ctx.byId.get(group.canonicalSeriesId));
@@ -1518,7 +1527,7 @@ function evaluateRecurringMasterEligibility(event, now = new Date()) {
     entry.reason = "status_not_approved";
     return entry;
   }
-  if (raw?.recurring_social_enabled === false) {
+  if (!isRecurringSocialEnabled(raw)) {
     entry.reason = "recurring_social_explicitly_disabled";
     return entry;
   }

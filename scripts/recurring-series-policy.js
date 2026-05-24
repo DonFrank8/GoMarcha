@@ -18,6 +18,10 @@ function isRejectedOrDeleted(event) {
   return status === "rejected" || status === "deleted";
 }
 
+function isRecurringSocialEnabled(series) {
+  return series?.recurring_social_enabled !== false;
+}
+
 function buildRecurringSeriesIndex(allEvents) {
   const list = Array.isArray(allEvents) ? allEvents : [];
   const byId = new Map();
@@ -74,7 +78,7 @@ function eventHasRecurringAutomationSignals(event, ctx) {
   if (isChildEvent(raw)) return true;
   const id = String(raw.id || "").trim();
   if (id && (ctx.childrenByMaster.get(id) || []).length > 0) return true;
-  if (raw.recurring_social_enabled !== false && inferRecurringPatternFromSiblings(raw, ctx)) return true;
+  if (isRecurringSocialEnabled(raw) && inferRecurringPatternFromSiblings(raw, ctx)) return true;
   return false;
 }
 
@@ -127,11 +131,6 @@ function enrichCanonicalSeriesMaster(master, members) {
     );
     if (Number.isInteger(Number(wd))) enriched.recurrence_weekday = wd;
   }
-  if (pool.every((row) => row?.recurring_social_enabled === false)) {
-    enriched.recurring_social_enabled = false;
-  } else if (pool.some((row) => row?.recurring_social_enabled !== false)) {
-    if (enriched.recurring_social_enabled == null) enriched.recurring_social_enabled = true;
-  }
   return enriched;
 }
 
@@ -140,7 +139,7 @@ function evaluateCanonicalRecurringSeries(series) {
   const members = series?.members || [];
   const type = normalizeRecurrenceType(master?.recurrence_type);
   if (!master) return { included: false, reason: "no_canonical_master" };
-  if (master.recurring_social_enabled === false) {
+  if (!isRecurringSocialEnabled(master)) {
     return { included: false, reason: "recurring_social_disabled" };
   }
   if (members.length && members.every((row) => isRejectedOrDeleted(row))) {
@@ -227,5 +226,6 @@ module.exports = {
   rowPlatforms,
   platformsOverlap,
   normalizeRecurrenceType,
-  isChildEvent
+  isChildEvent,
+  isRecurringSocialEnabled
 };
