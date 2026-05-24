@@ -2,7 +2,7 @@ const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
 const ADMIN_REQUIRED_ROLE = "admin";
 const ADMIN_ALLOWED_EMAILS = [];
-const ADMIN_DASHBOARD_BUILD = "2026.05.21-social-automation-stability";
+const ADMIN_DASHBOARD_BUILD = "2026.05.24-recurring-auto-prep-400-fix";
 if (typeof window !== "undefined") {
   window.PARTYRADAR_ADMIN_BUILD = ADMIN_DASHBOARD_BUILD;
   console.log("[admin-build]", ADMIN_DASHBOARD_BUILD);
@@ -2162,13 +2162,72 @@ function buildSocialQueuePayload(event, scheduledAt, platforms = DEFAULT_SOCIAL_
 }
 
 function pickSocialQueueInsertRow(row) {
+  const normalized = applySocialQueuePlatformsToRecord(row || {});
   const out = {};
-  for (const key of Object.keys(row || {})) {
+  for (const key of Object.keys(normalized)) {
     if (key.startsWith("_")) continue;
     if (!SOCIAL_QUEUE_INSERT_COLUMNS.has(key)) continue;
-    out[key] = row[key];
+    out[key] = normalized[key];
   }
   return out;
+}
+
+const SOCIAL_QUEUE_DEDUPE_SELECT_VARIANTS = [
+  "event_id,platform,platforms,post_stage,status,event_date,scheduled_at",
+  "event_id,platform,post_stage,status,event_date,scheduled_at",
+  "event_id,platform,status,event_date,scheduled_at"
+];
+
+function formatSupabaseError(error) {
+  if (!error) return { code: null, message: null, details: null, hint: null };
+  return {
+    code: error.code ?? null,
+    message: error.message ?? null,
+    details: error.details ?? null,
+    hint: error.hint ?? null
+  };
+}
+
+function logSupabaseOperationFailure(context, error, meta = {}) {
+  console.error("SUPABASE ERROR", {
+    context,
+    ...formatSupabaseError(error),
+    query: meta.query ?? null,
+    payload: meta.payload ?? null,
+    ...meta
+  });
+}
+
+function isSupabaseMissingColumnError(error) {
+  const missing = parseMissingColumn(error);
+  if (missing) return true;
+  const text = [error?.code, error?.message, error?.details].filter(Boolean).join(" ");
+  return /PGRST204|42703|could not find|does not exist/i.test(text);
+}
+
+async function fetchSocialQueueDedupeRows(client, options = {}) {
+  const { eventId = null, eventIds = null, eventDate = null } = options;
+  let lastError = null;
+
+  for (const selectCols of SOCIAL_QUEUE_DEDUPE_SELECT_VARIANTS) {
+    let query = client.from("social_queue").select(selectCols);
+    if (eventId) query = query.eq("event_id", eventId);
+    if (Array.isArray(eventIds) && eventIds.length) query = query.in("event_id", eventIds);
+    if (eventDate) query = query.eq("event_date", eventDate);
+
+    const { data, error } = await query;
+    if (!error) {
+      return { rows: data || [], selectCols };
+    }
+    lastError = error;
+    if (!isSupabaseMissingColumnError(error)) break;
+  }
+
+  logSupabaseOperationFailure("social_queue dedupe fetch", lastError, {
+    query: "social_queue.select(...)",
+    filters: { eventId, eventIds, eventDate }
+  });
+  throw new Error(lastError?.message || "Social Queue konnte nicht geprüft werden.");
 }
 
 function isValidSocialQueuePayload(payload) {
@@ -3556,13 +3615,16 @@ async function insertSocialQueueRows(rows) {
     const { error } = await client.from("social_queue").insert(batch);
     if (!error) return batch.length;
     const missing = parseMissingColumn(error);
-    console.error("admin social_queue insert error", {
+    logSupabaseOperationFailure("social_queue insert", error, {
       attempt,
       missingColumn: missing || null,
-      message: error.message,
-      code: error.code
+      query: "social_queue.insert",
+      payload: batch,
+      payloadColumns: batch.map((row) => Object.keys(row))
     });
-    if (!missing || !SOCIAL_QUEUE_INSERT_COLUMNS.has(missing)) throw new Error(error.message || "Social Queue konnte nicht erstellt werden.");
+    if (!missing || !SOCIAL_QUEUE_INSERT_COLUMNS.has(missing)) {
+      throw new Error(error.message || "Social Queue konnte nicht erstellt werden.");
+    }
     batch = batch.map((row) => {
       const next = { ...row };
       delete next[missing];
@@ -3579,31 +3641,39 @@ async function insertRecurringSocialQueueRows(occurrenceEvent, occurrenceStart) 
   const client = supabaseClient();
   const eventId = String(occurrenceEvent?.id || "").trim();
   const occurrenceYmd = adminFormatLocalYmd(occurrenceStart);
-  const { data: existing, error: existingError } = await client
-    .from("social_queue")
-    .select("platform,platforms,post_stage,status,event_date,scheduled_at")
-    .eq("event_id", eventId);
-  if (existingError) throw new Error(existingError.message || "Social Queue konnte nicht geprüft werden.");
 
-  let activeExisting = (existing || []).filter((row) => String(row.status || "").toLowerCase() !== "skipped");
+  const { rows: existing } = await fetchSocialQueueDedupeRows(client, { eventId });
+  let activeExisting = existing.filter((row) => String(row.status || "").toLowerCase() !== "skipped");
+
   const masterId = String(occurrenceEvent?.original_event_id || "").trim();
   if (masterId && occurrenceYmd) {
     const { data: siblingEvents, error: siblingErr } = await client
       .from("events")
       .select("id")
       .eq("original_event_id", masterId);
-    if (!siblingErr && Array.isArray(siblingEvents) && siblingEvents.length) {
+    if (siblingErr) {
+      logSupabaseOperationFailure("events sibling lookup", siblingErr, {
+        query: "events.select(id).eq(original_event_id)",
+        masterId,
+        occurrenceYmd
+      });
+    } else if (Array.isArray(siblingEvents) && siblingEvents.length) {
       const siblingIds = siblingEvents.map((e) => e.id).filter((id) => id && id !== eventId);
       if (siblingIds.length) {
-        const { data: siblingRows, error: siblingRowsErr } = await client
-          .from("social_queue")
-          .select("platform,platforms,post_stage,status,event_date,scheduled_at,event_id")
-          .in("event_id", siblingIds)
-          .eq("event_date", occurrenceYmd);
-        if (!siblingRowsErr && Array.isArray(siblingRows)) {
+        try {
+          const { rows: siblingRows } = await fetchSocialQueueDedupeRows(client, {
+            eventIds: siblingIds,
+            eventDate: occurrenceYmd
+          });
           activeExisting = activeExisting.concat(
             siblingRows.filter((row) => String(row.status || "").toLowerCase() !== "skipped")
           );
+        } catch (siblingRowsErr) {
+          logSupabaseOperationFailure("social_queue sibling dedupe fetch", siblingRowsErr, {
+            query: "social_queue.select(...).in(event_id).eq(event_date)",
+            siblingIds,
+            occurrenceYmd
+          });
         }
       }
     }
@@ -3689,7 +3759,15 @@ async function findRecurringChildEventByDate(masterId, ymd) {
     .eq("original_event_id", masterId)
     .eq("event_date", ymd)
     .maybeSingle();
-  if (error) throw new Error(error.message || "Kind-Event konnte nicht geladen werden.");
+  if (error) {
+    logSupabaseOperationFailure("findRecurringChildEventByDate", error, {
+      query: "events.select(*).eq(original_event_id).eq(event_date)",
+      masterId,
+      ymd
+    });
+    if (parseMissingColumn(error) === "original_event_id") return null;
+    throw new Error(error.message || "Kind-Event konnte nicht geladen werden.");
+  }
   return data;
 }
 
@@ -3712,6 +3790,12 @@ async function createRecurringChildEventForOccurrence(master, occurrenceStart) {
       });
       return { event: data, created: true };
     }
+    logSupabaseOperationFailure("recurring child event insert", error, {
+      query: "events.insert",
+      masterId: master.id,
+      ymd,
+      payload: body
+    });
     const missing = parseMissingColumn(error);
     if (!missing || !(missing in body)) throw new Error(error?.message || "Kind-Event konnte nicht erstellt werden.");
     delete body[missing];
@@ -3798,9 +3882,14 @@ async function runWeeklyRecurringSocialAutoPrep() {
     } catch (error) {
       const message = error?.message || String(error);
       refreshSummary.errors.push({ master_id: master.id, message });
+      logSupabaseOperationFailure("recurring weekly auto prep", error, {
+        master_id: master.id,
+        master_name: master?.name ?? null
+      });
       console.warn("recurring weekly auto prep failed", {
         master_id: master.id,
-        message
+        message,
+        ...formatSupabaseError(error)
       });
     }
   }
@@ -5791,9 +5880,11 @@ function renderSocialQueueCard(row) {
 }
 
 function parseMissingColumn(error) {
-  const text = [error?.message, error?.details, error?.hint].filter(Boolean).join(" | ");
-  const raw = text.match(/could not find the ['"]([^'"]+)['"] column/i)?.[1]
-    || text.match(/column ["']([^"']+)["'] does not exist/i)?.[1];
+  const text = [error?.message, error?.details, error?.hint, error?.code].filter(Boolean).join(" | ");
+  const raw =
+    text.match(/could not find the ['"]([^'"]+)['"] column/i)?.[1] ||
+    text.match(/column ["']([^"']+)["'] does not exist/i)?.[1] ||
+    text.match(/['"]?(\w+)['"]?\s+column of ['"]?\w+['"]? in the schema cache/i)?.[1];
   if (!raw) return "";
   return String(raw).split(".").pop().replace(/["']/g, "").trim();
 }
