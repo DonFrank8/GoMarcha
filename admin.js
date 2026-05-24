@@ -2,7 +2,7 @@ const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
 const ADMIN_REQUIRED_ROLE = "admin";
 const ADMIN_ALLOWED_EMAILS = [];
-const ADMIN_DASHBOARD_BUILD = "2026.05.17-postsave-state-overwrite-rootfix";
+const ADMIN_DASHBOARD_BUILD = "2026.05.21-social-image-fallback-fix";
 if (typeof window !== "undefined") {
   window.PARTYRADAR_ADMIN_BUILD = ADMIN_DASHBOARD_BUILD;
   console.log("[admin-build]", ADMIN_DASHBOARD_BUILD);
@@ -10,6 +10,32 @@ if (typeof window !== "undefined") {
 const SOCIAL_QUEUE_MIN_SCHEDULE_AHEAD_MS = 2 * 60 * 1000;
 const SOCIAL_QUEUE_POSTIZ_HANDOFF_MSG = "An Postiz übergeben – wartet auf Freigabe.";
 const SOCIAL_QUEUE_POSTIZ_SUCCESS_MSG = `✅ ${SOCIAL_QUEUE_POSTIZ_HANDOFF_MSG}`;
+const SOCIAL_POST_FALLBACK_IMAGE =
+  (typeof window !== "undefined" && window.MarchaSocialPostImage?.DEFAULT_SOCIAL_FALLBACK_IMAGE) ||
+  "https://gomarcha.com/assets/social-preview-es.jpg";
+
+function getSocialPostImageApi() {
+  return typeof window !== "undefined" ? window.MarchaSocialPostImage : null;
+}
+
+function resolveSocialPostImageForAdmin(queueRow, event) {
+  const api = getSocialPostImageApi();
+  if (!api) {
+    const fallback = String(resolvePrimaryImageUrl(event || queueRow) || SOCIAL_POST_FALLBACK_IMAGE).trim();
+    return {
+      selectedImage: fallback || SOCIAL_POST_FALLBACK_IMAGE,
+      source: "fallback_generic",
+      fallbackUsed: true,
+      candidates: []
+    };
+  }
+  return api.resolveSocialPostImage(queueRow, { event, fallbackUrl: SOCIAL_POST_FALLBACK_IMAGE });
+}
+
+function socialQueuePreviewImageUrl(row) {
+  const ev = getSocialQueueRelatedEvent(row);
+  return resolveSocialPostImageForAdmin(row, ev).selectedImage;
+}
 const EVENT_LIST_PAGE_SIZE = 22;
 
 const EVENT_IMAGES_BUCKET = "event-images";
@@ -1738,7 +1764,8 @@ function buildSocialQueuePayload(event, scheduledAt, platforms = DEFAULT_SOCIAL_
       : new Date(String(scheduledAt || ""));
   const scheduledIso = Number.isNaN(scheduled.getTime()) ? null : scheduled.toISOString();
   const eventStart = socialEffectiveEventStart(event, scheduled);
-  const imageUrl = String(resolvePrimaryImageUrl(event) || "").trim();
+  const imageResolution = resolveSocialPostImageForAdmin(event, event);
+  const imageUrl = String(imageResolution.selectedImage || "").trim();
   const title = String(event?.name || event?.title || "").trim();
   const platformsList = normalizeSocialQueuePlatforms({ platforms });
   const captionPlatform = adminPrimaryPlatform(platformsList);
@@ -2146,7 +2173,10 @@ function validateSocialQueueDraftForm(data) {
   return { ok: false, errors, scheduled_at: null, platforms: [] };
 }
 
-function buildSocialQueueDraftSavePayload(form, row, validation, imageUrl) {
+function buildSocialQueueDraftSavePayload(form, row, validation, eventForImage) {
+  const ev =
+    eventForImage ||
+    (row?.event_id ? state.allEvents.find((e) => String(e.id) === String(row.event_id)) : null);
   const platforms = Array.isArray(form?.platforms) && form.platforms.length
     ? form.platforms
         .map((p) => String(p || "").toLowerCase())
@@ -2163,14 +2193,24 @@ function buildSocialQueueDraftSavePayload(form, row, validation, imageUrl) {
     legacyPlatform: row?.platform ?? null
   });
 
+  const imageResolution = resolveSocialPostImageForAdmin(row, ev);
+  getSocialPostImageApi()?.logSocialImageResolution?.(console.log.bind(console), {
+    eventId: row?.event_id ?? null,
+    queueId: row?.id ?? null,
+    selectedImage: imageResolution.selectedImage,
+    source: imageResolution.source,
+    fallbackUsed: imageResolution.fallbackUsed,
+    candidates: imageResolution.candidates
+  });
+
   const payload = pickSocialQueueUpdateRow({
     title: String(form.title || "").trim(),
     caption: String(form.caption || "").trim(),
     scheduled_at: validation.scheduled_at,
     platforms,
     platform: primaryPlatform,
-    image_url: imageUrl,
-    resolved_image_url: imageUrl,
+    image_url: imageResolution.selectedImage,
+    resolved_image_url: imageResolution.selectedImage,
     hashtags: String(form.hashtags || "").trim() || null,
     cta_text: String(form.cta_text || "").trim() || null,
     postiz_response: mergeSocialQueuePostizResponse(row.postiz_response, form.hashtags, form.cta_text, {
@@ -2387,7 +2427,7 @@ function renderCaptionStyleOptions(selected) {
 function renderSocialQueueEditor(row) {
   const ev = state.allEvents.find((e) => String(e.id) === String(row.event_id));
   const extras = readSocialQueueExtras(row);
-  const imageUrl = String(row.image_url || row.resolved_image_url || ev?.image_url || "").trim();
+  const imageUrl = socialQueuePreviewImageUrl(row);
   const fullCaption = socialQueueFullCaption(row, extras);
   const draftPreview = {
     title: resolveSocialQueueDisplayTitle(row),
@@ -2540,7 +2580,7 @@ function updateSocialCaptionEditorUi(editorEl, { dirty = null } = {}) {
   }
   const row = findSocialQueueRow(queueId);
   const ev = getSocialQueueRelatedEvent(row);
-  const thumb = String(row?.image_url || row?.resolved_image_url || ev?.image_url || "").trim();
+  const thumb = socialQueuePreviewImageUrl(row);
   const draftPreview = {
     title: cleanSocialQueueDisplayText(form.title) || (row ? resolveSocialQueueDisplayTitle(row) : ""),
     image_url: thumb,
@@ -2749,7 +2789,7 @@ async function handleSocialQueueSaveDraftClick(button) {
   console.log("[save-draft] 4 form", form);
 
   const ev = row.event_id ? state.allEvents.find((e) => String(e.id) === String(row.event_id)) : null;
-  const imageUrl = String(row.image_url || row.resolved_image_url || ev?.image_url || "").trim();
+  const imageUrl = socialQueuePreviewImageUrl(row);
   const validation = validateSocialQueueDraftForm({ ...form, image_url: imageUrl });
   console.log("[save-draft] 5 validation", validation);
   if (!validation.ok) {
@@ -2758,7 +2798,7 @@ async function handleSocialQueueSaveDraftClick(button) {
     throw new Error(display);
   }
 
-  const payload = buildSocialQueueDraftSavePayload(form, row, validation, imageUrl);
+  const payload = buildSocialQueueDraftSavePayload(form, row, validation, ev);
 
   console.log("social queue save-draft payload", {
     queueId,
@@ -2887,9 +2927,29 @@ async function confirmSocialQueueDraftForPostiz(queueId, editorEl, button) {
   if (markError) throw new Error(markError.message || "Status konnte nicht gesetzt werden.");
   patchSocialQueueRowInState(idKey, markPatch);
 
+  let row = findSocialQueueRow(idKey);
+  const evForHandoff = row?.event_id ? state.allEvents.find((e) => String(e.id) === String(row.event_id)) : null;
+  const handoffImage = resolveSocialPostImageForAdmin(row, evForHandoff);
+  getSocialPostImageApi()?.logSocialImageResolution?.(console.log.bind(console), {
+    eventId: row?.event_id ?? null,
+    queueId: idKey,
+    selectedImage: handoffImage.selectedImage,
+    source: handoffImage.source,
+    fallbackUsed: handoffImage.fallbackUsed,
+    candidates: handoffImage.candidates
+  });
+  if (!handoffImage.fallbackUsed && handoffImage.selectedImage) {
+    const syncPatch = pickSocialQueueUpdateRow({
+      image_url: handoffImage.selectedImage,
+      resolved_image_url: handoffImage.selectedImage
+    });
+    await client.from("social_queue").update(syncPatch).eq("id", idKey);
+    patchSocialQueueRowInState(idKey, syncPatch);
+  }
+
   const handoff = await invokeSocialQueueRunnerHandoff(idKey);
   await refreshAdminData({ reloadSocial: true });
-  const row = findSocialQueueRow(idKey);
+  row = findSocialQueueRow(idKey);
   console.log("social queue confirm-postiz success", {
     queueId: idKey,
     eventId: row?.event_id ?? null,

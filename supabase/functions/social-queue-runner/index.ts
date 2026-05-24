@@ -1,5 +1,11 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2.49.1";
+import {
+  DEFAULT_SOCIAL_FALLBACK_IMAGE,
+  isPostizUploadsHost,
+  logSocialImageResolution,
+  resolveSocialPostImageReachable
+} from "./social-post-image-resolution.ts";
 
 type SocialPlatform = "instagram" | "facebook";
 
@@ -13,6 +19,7 @@ type QueueRow = {
   postiz_integration_id: string | null;
   retry_count: number;
   last_attempt_at: string | null;
+  image_url?: string | null;
   resolved_image_url?: string | null;
   caption?: string | null;
   hashtags?: string | null;
@@ -959,10 +966,11 @@ function safeHost(url: string): string {
   }
 }
 
-function resolvedPostizImageFromQueue(row: QueueRow): { url: string; source: string } | null {
-  const resolved = String(row.resolved_image_url || "").trim();
-  if (!resolved || !isPostizUploadsHost(resolved)) return null;
-  return { url: resolved, source: "social_queue.resolved_image_url" };
+function readPostizMediaIdFromRow(row: QueueRow): string | null {
+  const pr = row.postiz_response;
+  if (!pr || typeof pr !== "object") return null;
+  const id = String((pr as Record<string, unknown>).postiz_media_id || "").trim();
+  return id || null;
 }
 
 function rowPlatforms(row: QueueRow): SocialPlatform[] {
@@ -1458,8 +1466,7 @@ Deno.serve(async (req) => {
   const postizKey = Deno.env.get("POSTIZ_API_KEY") || "";
   const intIg = Deno.env.get("POSTIZ_INSTAGRAM_INTEGRATION_ID") || "";
   const intFb = Deno.env.get("POSTIZ_FACEBOOK_INTEGRATION_ID") || "";
-  const fallbackImage =
-    Deno.env.get("MARCHA_DEFAULT_SOCIAL_IMAGE_URL") || "https://gomarcha.com/assets/logo.png";
+  const fallbackImage = Deno.env.get("MARCHA_DEFAULT_SOCIAL_IMAGE_URL") || DEFAULT_SOCIAL_FALLBACK_IMAGE;
   const eventTimeZone = Deno.env.get("MARCHA_EVENT_TIMEZONE") || "Europe/Berlin";
   const postizPostModeEnv = (Deno.env.get("MARCHA_POSTIZ_POST_MODE") || "draft").trim().toLowerCase();
   const postizPostMode = postizPostModeEnv === "schedule" ? "schedule" : "draft";
@@ -1774,36 +1781,73 @@ Deno.serve(async (req) => {
       timezone: eventTimeZone
     });
 
-    const reusableResolvedImage = resolvedPostizImageFromQueue(claimed);
-    if (reusableResolvedImage) {
-      slog("event_image_reusing_resolved_postiz", {
-        queue_id: claimed.id,
-        event_id: ev.id,
-        resolved_image_url: reusableResolvedImage.url
-      });
-    }
+    const imageResolution = await resolveSocialPostImageReachable(
+      { ...(claimed as unknown as Record<string, unknown>) },
+      { event: ev as unknown as Record<string, unknown>, fallbackUrl: fallbackImage, fetchImpl: fetch }
+    );
 
-    const pickedImage = reusableResolvedImage ?? (await selectBestReachableEventImage(ev, fallbackImage));
-    const nonGenericCandidates = orderedEventImageCandidates(ev, fallbackImage).length;
+    logSocialImageResolution(slog, {
+      eventId: ev.id,
+      queueId: claimed.id,
+      selectedImage: imageResolution.selectedImage,
+      source: imageResolution.source,
+      fallbackUsed: imageResolution.fallbackUsed,
+      candidates: imageResolution.candidates
+    });
 
-    const finalImage = pickedImage.url;
-    const imageLoggedSource = pickedImage.source;
+    const finalImage = imageResolution.selectedImage;
+    const imageLoggedSource = imageResolution.source;
 
     slog("event_image_selected", {
       queue_id: claimed.id,
       event_id: ev.id,
       selected_source_image_url: finalImage,
       selection_source: imageLoggedSource,
-      non_generic_candidate_count: nonGenericCandidates,
-      using_generic_fallback: pickedImage.source === "fallback_generic"
+      using_generic_fallback: imageResolution.fallbackUsed,
+      reachable: imageResolution.reachable ?? null
     });
 
-    const uploadResult = await ensurePostizHostedMedia({
-      apiBase: postizBase,
-      apiKey: postizKey,
-      queueId: claimed.id,
-      sourceUrl: finalImage
-    });
+    if (!isPostizUploadsHost(finalImage)) {
+      await supabase
+        .from("social_queue")
+        .update({
+          image_url: finalImage,
+          resolved_image_url: finalImage,
+          updated_at: new Date().toISOString()
+        })
+        .eq("id", claimed.id);
+      claimed.image_url = finalImage;
+      claimed.resolved_image_url = finalImage;
+    }
+
+    const storedPostizMediaId = readPostizMediaIdFromRow(claimed);
+    const canReusePostizUpload =
+      imageResolution.source === "queue.resolved_image_url" &&
+      isPostizUploadsHost(finalImage) &&
+      !imageResolution.fallbackUsed &&
+      Boolean(storedPostizMediaId);
+
+    let uploadResult: Awaited<ReturnType<typeof ensurePostizHostedMedia>>;
+    if (canReusePostizUpload) {
+      slog("event_image_reusing_resolved_postiz", {
+        queue_id: claimed.id,
+        event_id: ev.id,
+        resolved_image_url: finalImage,
+        postiz_media_id: storedPostizMediaId
+      });
+      uploadResult = {
+        ok: true,
+        media: { id: storedPostizMediaId!, path: finalImage },
+        uploadPerformed: false
+      };
+    } else {
+      uploadResult = await ensurePostizHostedMedia({
+        apiBase: postizBase,
+        apiKey: postizKey,
+        queueId: claimed.id,
+        sourceUrl: finalImage
+      });
+    }
 
     if (!uploadResult.ok) {
       const errText =
@@ -1993,6 +2037,8 @@ Deno.serve(async (req) => {
             ...(postizRes.body as object),
             _marcha_postiz_post_ids: createdPostIds,
             _marcha_platforms: claimedPlatforms,
+            _marcha_source_image_url: finalImage,
+            postiz_media_id: publishMedia.id,
             _marcha_handoff_message: handoffMessage,
             _marcha_postiz_mode: "draft"
           }
@@ -2000,6 +2046,8 @@ Deno.serve(async (req) => {
             raw: postizRes.body,
             _marcha_postiz_post_ids: createdPostIds,
             _marcha_platforms: claimedPlatforms,
+            _marcha_source_image_url: finalImage,
+            postiz_media_id: publishMedia.id,
             _marcha_handoff_message: handoffMessage,
             _marcha_postiz_mode: "draft"
           };
@@ -2016,8 +2064,13 @@ Deno.serve(async (req) => {
     }
 
     const primaryPostId = createdPostIds[0] ?? null;
+    const rowImageUrl = isPostizUploadsHost(finalImage)
+      ? String(claimed.image_url || "").trim() || finalImage
+      : finalImage;
+
     const successPatch: Record<string, unknown> = {
       status: "sent_to_postiz",
+      image_url: rowImageUrl,
       resolved_image_url: resolvedPostizUrl,
       caption,
       caption_template_id: template_id,

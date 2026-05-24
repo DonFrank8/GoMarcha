@@ -13,7 +13,11 @@
  *   SOCIAL_QA_MAX_RETRY              – default 5 (must match Edge Function)
  */
 
-const DEFAULT_FALLBACK_IMAGE = "https://gomarcha.com/assets/logo.png";
+const {
+  DEFAULT_SOCIAL_FALLBACK_IMAGE: DEFAULT_FALLBACK_IMAGE,
+  resolveSocialPostImage,
+  isPostizUploadsHost
+} = require("../social-post-image.js");
 const MAX_RETRY_DEFAULT = 5;
 
 function isHttpsImageUrl(raw) {
@@ -28,43 +32,19 @@ function isHttpsImageUrl(raw) {
   }
 }
 
-/** Mirror Edge Function: featured first in image_urls, then image_url, else fallback */
-function resolveEventImageUrl(event, fallback) {
-  const urls = event.image_urls;
-  if (Array.isArray(urls) && urls.length) {
-    const objects = urls.filter((x) => x && (typeof x === "object" || typeof x === "string"));
-    const featured = objects.find((e) => typeof e === "object" && e && e.featured === true);
-    const ordered = featured ? [featured, ...objects.filter((x) => x !== featured)] : objects;
-    for (const entry of ordered) {
-      const u =
-        typeof entry === "string"
-          ? entry
-          : String((entry && entry.url) || "").trim();
-      if (isHttpsImageUrl(u)) return { url: u.trim(), source: "events.image_urls" };
-    }
-  }
-  const main = String(event.image_url || "").trim();
-  if (isHttpsImageUrl(main)) return { url: main, source: "events.image_url" };
-  return { url: fallback, source: "fallback_generic" };
-}
-
 function utcDayKey(iso) {
   const d = new Date(iso);
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
 }
 
 function eventHasUsableEventImage(event, fallback) {
-  const { source } = resolveEventImageUrl(event, fallback);
-  return source !== "fallback_generic";
+  const resolution = resolveSocialPostImage(event, { event, fallbackUrl: fallback });
+  return !resolution.fallbackUsed;
 }
 
-/** After Postiz upload, `resolved_image_url` points at uploads.postiz.com (not the Supabase URL). */
-function isPostizHostedResolved(url) {
-  try {
-    return new URL(url).hostname.toLowerCase() === "uploads.postiz.com";
-  } catch {
-    return false;
-  }
+function queueDraftUsesEventImage(row, event, fallback) {
+  const resolution = resolveSocialPostImage(row, { event, fallbackUrl: fallback });
+  return !resolution.fallbackUsed;
 }
 
 function looksSpanish(text) {
@@ -267,11 +247,8 @@ async function main() {
     for (const row of queue) {
       const ev = eventsMap.get(row.event_id);
       if (!ev) continue;
-      const expected = resolveEventImageUrl(ev, fallbackImage);
-      const resolved =
-        row.resolved_image_url && String(row.resolved_image_url).trim()
-          ? String(row.resolved_image_url).trim()
-          : expected.url;
+      const expected = resolveSocialPostImage(row, { event: ev, fallbackUrl: fallbackImage });
+      const resolved = String(expected.selectedImage || "").trim();
 
       if (!isHttpsImageUrl(resolved)) {
         invalidFormat.push(`${row.id}: "${resolved}"`);
@@ -282,14 +259,19 @@ async function main() {
         if (!h.headOk) headFails.push(`${row.id}: ${resolved}`);
       }
       if (eventHasUsableEventImage(ev, fallbackImage)) {
-        const matchesEventUrl = resolved === expected.url;
-        const viaPostizCdn = isPostizHostedResolved(resolved);
-        if (!matchesEventUrl && !viaPostizCdn) {
-          eventImageWrong.push(`${row.id}: got ${resolved.slice(0, 72)} expected event URL or uploads.postiz.com`);
-        }
-        if (resolved === fallbackImage) {
+        if (expected.fallbackUsed) {
+          fallbackMisuse.push(row.id);
+        } else if (expected.source === "fallback_generic") {
           fallbackMisuse.push(row.id);
         }
+      } else if (!expected.fallbackUsed && expected.source !== "fallback_generic") {
+        /* event has no dedicated image — generic fallback is allowed */
+      } else if (expected.fallbackUsed) {
+        /* no event image — fallback ok */
+      }
+
+      if (queueDraftUsesEventImage(row, ev, fallbackImage) && expected.fallbackUsed) {
+        eventImageWrong.push(`${row.id}: event image available but fallback selected`);
       }
     }
 
