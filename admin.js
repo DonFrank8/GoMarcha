@@ -2,7 +2,7 @@ const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
 const ADMIN_REQUIRED_ROLE = "admin";
 const ADMIN_ALLOWED_EMAILS = [];
-const ADMIN_DASHBOARD_BUILD = "2026.05.25-recurring-legacy-id-fix";
+const ADMIN_DASHBOARD_BUILD = "2026.05.25-recurring-all-events-eligibility-fix";
 if (typeof window !== "undefined") {
   window.PARTYRADAR_ADMIN_BUILD = ADMIN_DASHBOARD_BUILD;
   console.log("[admin-build]", ADMIN_DASHBOARD_BUILD);
@@ -1046,35 +1046,142 @@ function isRecurringSocialMaster(event) {
   return eventIsRecurringSocialFlag(event) && isAdminRecurringEvent(adminCoerceRecurrenceFields(event));
 }
 
-/** Auto-prep eligibility: weekly/monthly series with social automation enabled (not a child row). */
+/** Explicit opt-out only; null/undefined defaults to enabled for approved recurring series. */
+function isRecurringSocialAutomationEnabled(event) {
+  return event?.recurring_social_enabled !== false;
+}
+
+/**
+ * Resolve weekly/monthly series for auto-prep without adminNormalizeRecurrenceState stripping is_recurring.
+ */
+function resolveRecurringSeriesTypeForAutoPrep(event) {
+  const raw = event && typeof event === "object" ? event : {};
+  if (adminIsRecurringChildEvent(raw)) {
+    return { type: "none", coerced: raw };
+  }
+
+  let type = normalizeAdminRecurrenceType(raw.recurrence_type);
+  if (type !== "weekly" && type !== "monthly" && raw.is_recurring === true) {
+    type = inferAdminRecurrenceType(raw);
+  }
+  if (type !== "weekly" && type !== "monthly") {
+    if (Number.isInteger(Number(raw.recurrence_weekday))) type = "weekly";
+    else if (Number.isInteger(Number(raw.recurrence_day_of_month))) type = "monthly";
+    else if (adminIsRecurringMasterEvent(raw)) {
+      type = inferAdminRecurrenceType(raw);
+    }
+  }
+  if (type !== "weekly" && type !== "monthly") {
+    return { type: "none", coerced: adminCoerceRecurrenceFields(raw) };
+  }
+
+  const recurrence_start_date =
+    String(raw.recurrence_start_date || raw.event_date || "").trim();
+  const fallbackYmd = recurrence_start_date || raw.event_date;
+  const coerced = {
+    ...raw,
+    is_recurring: true,
+    recurrence_type: type,
+    recurrence_start_date
+  };
+  if (type === "weekly") {
+    coerced.recurrence_weekday = normalizeAdminRecurrenceWeekday(raw.recurrence_weekday, fallbackYmd);
+  }
+  if (type === "monthly") {
+    coerced.recurrence_day_of_month = normalizeAdminRecurrenceDayOfMonth(
+      raw.recurrence_day_of_month,
+      fallbackYmd
+    );
+  }
+  return { type, coerced };
+}
+
+function isRecurringMasterCandidate(event) {
+  const { type } = resolveRecurringSeriesTypeForAutoPrep(event);
+  return type === "weekly" || type === "monthly";
+}
+
+function evaluateRecurringMasterEligibility(event, now = new Date()) {
+  const raw = event && typeof event === "object" ? event : {};
+  const { type, coerced } = resolveRecurringSeriesTypeForAutoPrep(raw);
+  const entry = {
+    eventId: raw?.id ?? null,
+    name: String(raw?.name || raw?.title || "").trim() || null,
+    status: raw?.status ?? null,
+    is_recurring: raw?.is_recurring === true,
+    recurrence_type: type !== "none" ? type : raw?.recurrence_type ?? null,
+    recurring_social_enabled: raw?.recurring_social_enabled ?? null,
+    recurrence_start_date: coerced?.recurrence_start_date ?? raw?.recurrence_start_date ?? null,
+    recurrence_end_date: coerced?.recurrence_end_date ?? raw?.recurrence_end_date ?? null,
+    event_date: raw?.event_date ?? null,
+    event_time: raw?.event_time ?? null,
+    reason: null,
+    eligible: false
+  };
+
+  if (adminIsRecurringChildEvent(raw)) {
+    entry.reason = "child_event";
+    return entry;
+  }
+  if (type !== "weekly" && type !== "monthly") {
+    entry.reason = raw.is_recurring === true ? "recurrence_type_unresolved" : "not_recurring_series";
+    return entry;
+  }
+  if (String(raw?.status || "").toLowerCase() !== "approved") {
+    entry.reason = "status_not_approved";
+    return entry;
+  }
+  if (raw?.recurring_social_enabled === false) {
+    entry.reason = "recurring_social_explicitly_disabled";
+    return entry;
+  }
+  if (Boolean(raw?.archived_at)) {
+    entry.reason = "archived";
+    return entry;
+  }
+  const start = String(coerced?.recurrence_start_date || coerced?.event_date || "").trim();
+  if (!start) {
+    entry.reason = "missing_start_date";
+    return entry;
+  }
+  if (adminRecurrenceEndDateInPast(coerced, now)) {
+    entry.reason = "recurrence_ended";
+    return entry;
+  }
+  if (type === "weekly" && coerced.recurrence_weekday === null) {
+    entry.reason = "missing_recurrence_weekday";
+    return entry;
+  }
+  if (type === "monthly" && coerced.recurrence_day_of_month === null) {
+    entry.reason = "missing_recurrence_day_of_month";
+    return entry;
+  }
+  if (!getNextRecurringOccurrence(coerced, now)) {
+    entry.reason = "no_future_occurrence";
+    return entry;
+  }
+
+  entry.reason = "eligible";
+  entry.eligible = true;
+  return entry;
+}
+
+function logRecurringMasterEligibility(entry) {
+  console.log("RECURRING MASTER ELIGIBILITY", entry);
+}
+
+/** Auto-prep eligibility: approved weekly/monthly masters (social automation on unless explicitly false). */
 function isRecurringAutoPrepEligible(event) {
-  const coerced = adminCoerceRecurrenceFields(event);
-  if (adminIsRecurringChildEvent(coerced)) return false;
-  if (String(coerced?.status || "").toLowerCase() !== "approved") return false;
-  if (coerced.recurring_social_enabled !== true) return false;
-  const type = normalizeAdminRecurrenceType(coerced?.recurrence_type);
-  if (type !== "weekly" && type !== "monthly") return false;
-  const start = String(coerced.recurrence_start_date || coerced.event_date || "").trim();
-  if (!start) return false;
-  if (type === "weekly" && normalizeAdminRecurrenceWeekday(coerced.recurrence_weekday, start) === null) {
-    return false;
-  }
-  if (type === "monthly" && normalizeAdminRecurrenceDayOfMonth(coerced.recurrence_day_of_month, start) === null) {
-    return false;
-  }
-  return true;
+  return evaluateRecurringMasterEligibility(event).eligible;
 }
 
 function getRecurringAutoPrepIneligibleReason(event) {
-  const coerced = adminCoerceRecurrenceFields(event);
-  if (adminIsRecurringChildEvent(coerced)) return "child_event";
-  if (String(coerced?.status || "").toLowerCase() !== "approved") return "status_not_approved";
-  if (coerced.recurring_social_enabled !== true) return "recurring_social_disabled";
-  const type = normalizeAdminRecurrenceType(coerced?.recurrence_type);
-  if (type !== "weekly" && type !== "monthly") return "recurrence_type_not_weekly_monthly";
-  if (!String(coerced.recurrence_start_date || coerced.event_date || "").trim()) return "missing_start_date";
-  if (adminRecurrenceEndDateInPast(coerced)) return "recurrence_ended";
-  return null;
+  const entry = evaluateRecurringMasterEligibility(event);
+  return entry.eligible ? null : entry.reason;
+}
+
+function coerceRecurringMasterForAutoPrep(event) {
+  return resolveRecurringSeriesTypeForAutoPrep(event).coerced;
 }
 
 function isUuid(value) {
@@ -1527,9 +1634,9 @@ function getRecurringOccurrencesWithinHorizon(
   now = new Date()
 ) {
   if (!isRecurringAutoPrepEligible(event)) return [];
-  const coerced = adminCoerceRecurrenceFields(event);
+  const { type, coerced } = resolveRecurringSeriesTypeForAutoPrep(event);
+  if (type === "none") return [];
   if (adminRecurrenceEndDateInPast(coerced, now)) return [];
-  const type = normalizeAdminRecurrenceType(coerced?.recurrence_type);
 
   if (type === "weekly") {
     const { next, current, reason } = resolveNextRecurringOccurrenceWithReason(coerced, now);
@@ -3976,7 +4083,7 @@ async function createRecurringChildEventForOccurrence(master, occurrenceStart) {
 }
 
 async function prepareRecurringAutoPrepMaster(masterEvent, summary, now = new Date()) {
-  const coerced = adminCoerceRecurrenceFields(masterEvent);
+  const { coerced } = resolveRecurringSeriesTypeForAutoPrep(masterEvent);
   const recurrenceType = normalizeAdminRecurrenceType(coerced?.recurrence_type);
   const decision = {
     eventId: coerced?.id ?? null,
@@ -4145,11 +4252,11 @@ async function prepareRecurringOccurrencesWithinHorizon(
 ) {
   const summary = options.summary || createEmptyRecurringAutoPrepSummary();
   const now = options.now instanceof Date ? options.now : new Date();
-  const master = adminCoerceRecurrenceFields(masterEvent);
-  if (!isRecurringAutoPrepEligible(master)) {
+  const { coerced: master } = resolveRecurringSeriesTypeForAutoPrep(masterEvent);
+  if (!isRecurringAutoPrepEligible(masterEvent)) {
     return {
       skipped: true,
-      skipReason: getRecurringAutoPrepIneligibleReason(master) || "not_eligible",
+      skipReason: getRecurringAutoPrepIneligibleReason(masterEvent) || "not_eligible",
       occurrences: 0,
       childrenCreated: 0,
       draftsInserted: 0,
@@ -4178,7 +4285,21 @@ async function runWeeklyRecurringSocialAutoPrep(options = {}) {
   const summary = createEmptyRecurringAutoPrepSummary();
   summary.checked = Array.isArray(state.allEvents) ? state.allEvents.length : 0;
 
-  const masters = (state.allEvents || []).filter((ev) => isRecurringAutoPrepEligible(adminCoerceRecurrenceFields(ev)));
+  const allEvents = state.allEvents || [];
+  const candidateMasters = [];
+  for (const ev of allEvents) {
+    if (adminIsRecurringChildEvent(ev)) continue;
+    const storedType = normalizeAdminRecurrenceType(ev?.recurrence_type);
+    const looksRecurring =
+      ev?.is_recurring === true || storedType === "weekly" || storedType === "monthly" || isRecurringMasterCandidate(ev);
+    if (!looksRecurring) continue;
+    const eligibility = evaluateRecurringMasterEligibility(ev, now);
+    logRecurringMasterEligibility(eligibility);
+    if (eligibility.eligible) {
+      candidateMasters.push(resolveRecurringSeriesTypeForAutoPrep(ev).coerced);
+    }
+  }
+  const masters = candidateMasters;
 
   const totals = {
     masters: 0,
