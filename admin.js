@@ -181,6 +181,9 @@ const RECURRING_SOCIAL_SLOT_SPECS = [
 ];
 /** Weekly auto-prep: child events + social drafts for occurrences within this window. */
 const RECURRING_SOCIAL_AUTO_PREP_HORIZON_DAYS = 7;
+/** Extra lookahead so the next weekly occurrence is never cut off by the 7-day cap. */
+const RECURRING_WEEKLY_PREP_LOOKAHEAD_DAYS = 14;
+const RECURRING_SOCIAL_PREP_MIN_INTERVAL_MS = 45_000;
 
 const ADMIN_SMART_ACTION_ENDPOINT = `${SUPABASE_URL}/functions/v1/smart-action`;
 const ADMIN_TRANSLATION_TARGET_LANGUAGE_BY_CODE = Object.freeze({
@@ -1404,35 +1407,136 @@ function getNextRecurringOccurrence(event, now = new Date()) {
   return null;
 }
 
-/** Occurrence starts within the next N days (7-day weekly prep window). */
+function getWeeklyOccurrenceStartForCalendarDay(event, dayDate = new Date()) {
+  const coerced = adminCoerceRecurrenceFields(event);
+  const fallbackYmd = coerced.recurrence_start_date || coerced.event_date;
+  const targetWeekday = normalizeAdminRecurrenceWeekday(coerced.recurrence_weekday, fallbackYmd);
+  if (targetWeekday === null) return null;
+  const day = dayDate instanceof Date ? new Date(dayDate) : new Date(dayDate);
+  day.setHours(0, 0, 0, 0);
+  const occDay = adminResolveWeeklyOccurrence(day, targetWeekday);
+  return applyAdminEventWallTime(occDay, coerced);
+}
+
+function isRecurringDebugEvent(event) {
+  return /shiaoko/i.test(String(event?.name || event?.title || ""));
+}
+
+function logRecurrenceNextOccurrence(event, now, currentOccurrence, nextOccurrence, reason) {
+  const payload = {
+    eventId: event?.id ?? null,
+    name: String(event?.name || event?.title || "").trim() || null,
+    now: now instanceof Date ? now.toISOString() : String(now),
+    currentOccurrence:
+      currentOccurrence instanceof Date && !Number.isNaN(currentOccurrence.getTime())
+        ? currentOccurrence.toISOString()
+        : null,
+    nextOccurrence:
+      nextOccurrence instanceof Date && !Number.isNaN(nextOccurrence.getTime())
+        ? nextOccurrence.toISOString()
+        : null,
+    reason: String(reason || "")
+  };
+  const prefix = isRecurringDebugEvent(event) ? "SHIAOKO / recurring debug:" : "recurring debug:";
+  console.log(prefix, "RECURRENCE NEXT OCCURRENCE", payload);
+}
+
+function resolveNextRecurringOccurrenceWithReason(event, now = new Date()) {
+  const coerced = adminCoerceRecurrenceFields(event);
+  const type = normalizeAdminRecurrenceType(coerced?.recurrence_type);
+  const next = getNextRecurringOccurrence(coerced, now);
+  if (type !== "weekly") {
+    return { next, current: null, reason: next ? "strict_future" : "no_future_occurrence" };
+  }
+
+  const current = getWeeklyOccurrenceStartForCalendarDay(coerced, now);
+  let reason = "strict_future";
+  if (!next) {
+    reason = "no_future_occurrence";
+  } else if (current && current.getTime() <= now.getTime()) {
+    reason = "event_time_passed_use_next_week";
+  } else if (current && adminSameCalendarDay(current, next)) {
+    reason = "current_occurrence_upcoming";
+  } else {
+    reason = "next_week_after_current";
+  }
+  return { next, current, reason };
+}
+
+function advanceWeeklyRecurringOccurrenceWithSlots(event, occurrenceStart, now = new Date()) {
+  let target = occurrenceStart;
+  for (let i = 0; i < 6; i += 1) {
+    if (!target || Number.isNaN(target.getTime())) return null;
+    if (recurringOccurrenceHasFutureSlots(event, target, now)) return target;
+    const after = new Date(target.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const advanced = getNextRecurringOccurrence(event, after);
+    if (!advanced || advanced.toISOString() === target.toISOString()) return null;
+    logRecurrenceNextOccurrence(event, now, target, advanced, "slots_past_advance_week");
+    target = advanced;
+  }
+  return null;
+}
+
+/** Occurrences to prep: weekly always includes next strict-future occurrence (not capped at 7 days). */
 function getRecurringOccurrencesWithinHorizon(
   event,
   horizonDays = RECURRING_SOCIAL_AUTO_PREP_HORIZON_DAYS,
   now = new Date()
 ) {
   if (!isRecurringSocialMaster(event)) return [];
+  const coerced = adminCoerceRecurrenceFields(event);
+  const type = normalizeAdminRecurrenceType(coerced?.recurrence_type);
+
+  if (type === "weekly") {
+    const { next, current, reason } = resolveNextRecurringOccurrenceWithReason(coerced, now);
+    logRecurrenceNextOccurrence(coerced, now, current, next, reason);
+    if (!next) return [];
+
+    const primary = advanceWeeklyRecurringOccurrenceWithSlots(coerced, next, now);
+    if (!primary) return [];
+
+    const out = [primary];
+    const days = Math.min(Math.max(Number(horizonDays) || 7, RECURRING_WEEKLY_PREP_LOOKAHEAD_DAYS), 30);
+    const horizonEnd = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+    let cursor = new Date(primary.getTime() + 60_000);
+
+    for (let i = 0; i < 12 && out.length < 8; i += 1) {
+      const more = getNextRecurringOccurrence(coerced, cursor);
+      if (!more || Number.isNaN(more.getTime())) break;
+      if (more.getTime() <= primary.getTime()) {
+        cursor = new Date(more.getTime() + 7 * 24 * 60 * 60 * 1000);
+        continue;
+      }
+      if (more.getTime() > horizonEnd.getTime()) break;
+      const withSlots = advanceWeeklyRecurringOccurrenceWithSlots(coerced, more, now);
+      if (!withSlots) {
+        cursor = new Date(more.getTime() + 7 * 24 * 60 * 60 * 1000);
+        continue;
+      }
+      const key = withSlots.toISOString();
+      if (!out.some((d) => d.toISOString() === key)) out.push(withSlots);
+      cursor = new Date(withSlots.getTime() + 60_000);
+    }
+    return out;
+  }
+
   const days = Math.min(Math.max(Number(horizonDays) || 7, 1), 30);
   const horizonEnd = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
   const out = [];
   let cursor = now;
   for (let i = 0; i < 32 && out.length < 16; i += 1) {
-    const next = getNextRecurringOccurrence(event, cursor);
+    const next = getNextRecurringOccurrence(coerced, cursor);
     if (!next || Number.isNaN(next.getTime())) break;
     if (next.getTime() > horizonEnd.getTime()) break;
     const key = next.toISOString();
-    if (recurringOccurrenceHasFutureSlots(event, next, now) && !out.some((d) => d.toISOString() === key)) {
+    if (recurringOccurrenceHasFutureSlots(coerced, next, now) && !out.some((d) => d.toISOString() === key)) {
       out.push(next);
     }
     cursor = new Date(next.getTime() + 60_000);
   }
   if (!out.length) {
-    const fallback = getNextRecurringOccurrence(event, now);
-    if (
-      fallback &&
-      !Number.isNaN(fallback.getTime()) &&
-      fallback.getTime() <= horizonEnd.getTime() &&
-      recurringOccurrenceHasFutureSlots(event, fallback, now)
-    ) {
+    const fallback = getNextRecurringOccurrence(coerced, now);
+    if (fallback && recurringOccurrenceHasFutureSlots(coerced, fallback, now)) {
       out.push(fallback);
     }
   }
@@ -3474,20 +3578,43 @@ async function insertRecurringSocialQueueRows(occurrenceEvent, occurrenceStart) 
   if (!candidates.length) return { inserted: 0, skippedExisting: 0 };
   const client = supabaseClient();
   const eventId = String(occurrenceEvent?.id || "").trim();
+  const occurrenceYmd = adminFormatLocalYmd(occurrenceStart);
   const { data: existing, error: existingError } = await client
     .from("social_queue")
     .select("platform,platforms,post_stage,status,event_date,scheduled_at")
     .eq("event_id", eventId);
   if (existingError) throw new Error(existingError.message || "Social Queue konnte nicht geprüft werden.");
 
-  const activeExisting = (existing || []).filter((row) => String(row.status || "").toLowerCase() !== "skipped");
+  let activeExisting = (existing || []).filter((row) => String(row.status || "").toLowerCase() !== "skipped");
+  const masterId = String(occurrenceEvent?.original_event_id || "").trim();
+  if (masterId && occurrenceYmd) {
+    const { data: siblingEvents, error: siblingErr } = await client
+      .from("events")
+      .select("id")
+      .eq("original_event_id", masterId);
+    if (!siblingErr && Array.isArray(siblingEvents) && siblingEvents.length) {
+      const siblingIds = siblingEvents.map((e) => e.id).filter((id) => id && id !== eventId);
+      if (siblingIds.length) {
+        const { data: siblingRows, error: siblingRowsErr } = await client
+          .from("social_queue")
+          .select("platform,platforms,post_stage,status,event_date,scheduled_at,event_id")
+          .in("event_id", siblingIds)
+          .eq("event_date", occurrenceYmd);
+        if (!siblingRowsErr && Array.isArray(siblingRows)) {
+          activeExisting = activeExisting.concat(
+            siblingRows.filter((row) => String(row.status || "").toLowerCase() !== "skipped")
+          );
+        }
+      }
+    }
+  }
   let skippedExisting = 0;
 
   const missing = candidates.filter((row) => {
+    const rowOccurrence = String(row.event_date || row.occurrence_date || occurrenceYmd || "").trim();
     const duplicate = activeExisting.some((existingRow) => {
       const sameStage = String(existingRow.post_stage || "").trim() === String(row.post_stage || "").trim();
-      const sameOccurrence =
-        String(existingRow.event_date || "").trim() === String(row.event_date || "").trim();
+      const sameOccurrence = String(existingRow.event_date || "").trim() === rowOccurrence;
       return sameStage && sameOccurrence && socialQueuePlatformsOverlap(existingRow, row);
     });
     if (duplicate) {
@@ -3684,6 +3811,8 @@ async function runWeeklyRecurringSocialAutoPrep() {
 
 function scheduleRecurringSocialAutoPrep() {
   if (!isSessionAdmin(state.adminSession) || state.recurringSocialAutoPrepRunning) return;
+  const lastRun = Number(state.recurringSocialAutoPrepLastRunAt) || 0;
+  if (Date.now() - lastRun < RECURRING_SOCIAL_PREP_MIN_INTERVAL_MS) return;
   if (state.recurringSocialAutoPrepScheduled) return;
   state.recurringSocialAutoPrepScheduled = true;
   window.setTimeout(async () => {
@@ -3692,6 +3821,7 @@ function scheduleRecurringSocialAutoPrep() {
     state.recurringSocialAutoPrepRunning = true;
     try {
       const res = await runWeeklyRecurringSocialAutoPrep();
+      state.recurringSocialAutoPrepLastRunAt = Date.now();
       if (res.draftsInserted > 0 || res.childrenCreated > 0) {
         await loadSocialQueueRows();
         renderSocialQueuePanel();
@@ -5529,6 +5659,9 @@ function socialQueueStatusTone(status) {
 
 function renderSocialQueuePanel() {
   if (!dom.socialQueuePanel) return;
+  if (state.navSection === "social") {
+    scheduleRecurringSocialAutoPrep();
+  }
   renderSocialQueueStats();
   dom.socialQueueFilters.forEach((button) => {
     button.classList.toggle("is-active", button.dataset.socialFilter === state.socialQueueFilter);
