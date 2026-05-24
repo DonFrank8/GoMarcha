@@ -2,7 +2,7 @@ const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
 const ADMIN_REQUIRED_ROLE = "admin";
 const ADMIN_ALLOWED_EMAILS = [];
-const ADMIN_DASHBOARD_BUILD = "2026.05.21-social-image-fallback-fix";
+const ADMIN_DASHBOARD_BUILD = "2026.05.21-social-automation-stability";
 if (typeof window !== "undefined") {
   window.PARTYRADAR_ADMIN_BUILD = ADMIN_DASHBOARD_BUILD;
   console.log("[admin-build]", ADMIN_DASHBOARD_BUILD);
@@ -1415,14 +1415,26 @@ function getRecurringOccurrencesWithinHorizon(
   const horizonEnd = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
   const out = [];
   let cursor = now;
-  for (let i = 0; i < 24 && out.length < 16; i += 1) {
+  for (let i = 0; i < 32 && out.length < 16; i += 1) {
     const next = getNextRecurringOccurrence(event, cursor);
     if (!next || Number.isNaN(next.getTime())) break;
     if (next.getTime() > horizonEnd.getTime()) break;
     const key = next.toISOString();
-    if (out.some((d) => d.toISOString() === key)) break;
-    out.push(next);
+    if (recurringOccurrenceHasFutureSlots(event, next, now) && !out.some((d) => d.toISOString() === key)) {
+      out.push(next);
+    }
     cursor = new Date(next.getTime() + 60_000);
+  }
+  if (!out.length) {
+    const fallback = getNextRecurringOccurrence(event, now);
+    if (
+      fallback &&
+      !Number.isNaN(fallback.getTime()) &&
+      fallback.getTime() <= horizonEnd.getTime() &&
+      recurringOccurrenceHasFutureSlots(event, fallback, now)
+    ) {
+      out.push(fallback);
+    }
   }
   return out;
 }
@@ -1476,6 +1488,25 @@ const SOCIAL_CAPTION_SPANISH_MONTHS = [
 ];
 
 const SOCIAL_CAPTION_BANNED = [/planazo/gi, /\b\d{4}-\d{2}-\d{2}\b/g, /\bAI\b/g, /don't miss/gi];
+
+const SOCIAL_CAPTION_GENERIC_PHRASES = [
+  /buena energ[ií]a/gi,
+  /vibra buena/gi,
+  /buen plan para salir/gi,
+  /ambiente,?\s*gente cercana/gi,
+  /cuando la m[uú]sica encaja/gi,
+  /hay noches que se quedan/gi,
+  /sabor a costa/gi,
+  /brisa,?\s*m[uú]sica y buena compa[nñ][ií]a/gi
+];
+
+const SOCIAL_REVIEW_SLOT_POST_STAGE = Object.freeze({
+  week: "early_reminder",
+  three_days: "early_reminder",
+  one_day: "tomorrow",
+  final_call: "last_call",
+  short_notice_last_call: "last_call"
+});
 
 function detectSocialCaptionLanguage(event) {
   const country = String(event?.country || "").trim().toLowerCase();
@@ -1554,6 +1585,91 @@ function sanitizeHumanCaptionText(text) {
   for (const re of SOCIAL_CAPTION_BANNED) out = out.replace(re, "").trim();
   out = out.replace(/\s{2,}/g, " ").replace(/\n{3,}/g, "\n\n");
   return out;
+}
+
+function normalizeSocialPostStage(stage) {
+  const key = String(stage || "").trim().toLowerCase();
+  if (!key) return "";
+  if (key === "event_day") return "event_day";
+  if (key === "short_notice_last_call" || key === "final_call") return "last_call";
+  if (key === "week" || key === "three_days") return "early_reminder";
+  if (key === "one_day") return "tomorrow";
+  return key;
+}
+
+function pickSocialCaptionDescription(event, lang = "es") {
+  const es = String(event?.description_es || "").trim();
+  const de = String(event?.description_de || "").trim();
+  const en = String(event?.description_en || "").trim();
+  const base = String(event?.description || "").trim();
+  if (lang === "de") return de || base || es || en;
+  if (lang === "en") return en || base || es || de;
+  return es || base || de || en;
+}
+
+function stripHtmlForCaption(raw) {
+  return String(raw || "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractCaptionAtmosphereSnippet(description, maxLen = 110) {
+  const text = stripHtmlForCaption(description);
+  if (!text) return "";
+  const sentences = text.split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter((s) => s.length >= 24);
+  const pick = sentences.find((s) => !SOCIAL_CAPTION_GENERIC_PHRASES.some((re) => re.test(s))) || sentences[0] || text;
+  if (pick.length <= maxLen) return pick;
+  return `${pick.slice(0, maxLen - 1).trim()}…`;
+}
+
+function descriptionAllowsGenericPhrase(phraseRe, description) {
+  const text = stripHtmlForCaption(description).toLowerCase();
+  if (!text) return false;
+  const probe = phraseRe.source.replace(/\\b/g, "").replace(/\\/g, "").replace(/gi/g, "").toLowerCase();
+  return text.includes(probe.slice(0, Math.min(probe.length, 18)));
+}
+
+function scrubGenericCaptionPhrases(text, description) {
+  let out = String(text || "");
+  for (const re of SOCIAL_CAPTION_GENERIC_PHRASES) {
+    if (!descriptionAllowsGenericPhrase(re, description)) out = out.replace(re, "").trim();
+  }
+  return sanitizeHumanCaptionText(out);
+}
+
+function adminSameCalendarDay(a, b) {
+  if (!(a instanceof Date) || !(b instanceof Date)) return false;
+  return (
+    a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+  );
+}
+
+function adminIsTomorrow(eventStart, now = new Date()) {
+  if (!(eventStart instanceof Date) || Number.isNaN(eventStart.getTime())) return false;
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  tomorrow.setHours(0, 0, 0, 0);
+  const day = new Date(eventStart);
+  day.setHours(0, 0, 0, 0);
+  return day.getTime() === tomorrow.getTime();
+}
+
+function logCaptionQualityInput(eventId, ctx) {
+  const fieldKeys = ["title", "artist", "venue", "city", "genre", "dateLine", "timeLine", "atmosphere"];
+  const usedFields = [];
+  const missingFields = [];
+  for (const key of fieldKeys) {
+    const val = String(ctx[key] || "").trim();
+    if (val) usedFields.push(key);
+    else missingFields.push(key);
+  }
+  console.log("CAPTION QUALITY INPUT", {
+    eventId: eventId ?? null,
+    usedFields,
+    missingFields
+  });
+  return { usedFields, missingFields };
 }
 
 function socialCaptionTemplatePool(styleMode, platform, lang) {
@@ -1651,12 +1767,131 @@ function pickSocialCaptionTemplate(event, styleMode, platform, lang, seed = 0) {
 }
 
 function buildHumanSocialCaptionContext(event, eventStart, lang) {
-  const name = String(event?.name || event?.title || "").trim() || "Event";
-  const venue = String(event?.location_name || "").trim();
+  const title = String(event?.name || event?.title || "").trim() || "Event";
+  const artist = String(event?.artist_name || "").trim();
+  const venue = String(event?.location_name || event?.venue || "").trim();
   const city = String(event?.city || "").trim();
-  const genre = String(event?.genre || "").trim();
+  const genre = String(event?.genre || event?.category || "").trim();
+  const description = pickSocialCaptionDescription(event, lang);
+  const atmosphere = extractCaptionAtmosphereSnippet(description);
+  const headline =
+    artist && title && !title.toLowerCase().includes(artist.toLowerCase()) ? `${artist} — ${title}` : title;
   const dateLine = eventStart ? formatSocialCaptionDate(eventStart, lang, { withWeekday: lang === "es" }) : "";
-  return { name, venue, city, genre, dateLine };
+  const timeLine = eventStart ? formatSocialCaptionDate(eventStart, lang, { withWeekday: false, withTime: true }) : "";
+  const place = venue ? (city && !venue.toLowerCase().includes(city.toLowerCase()) ? `${venue} (${city})` : venue) : city;
+  return {
+    name: title,
+    title,
+    artist,
+    headline,
+    venue,
+    city,
+    genre,
+    description,
+    atmosphere,
+    dateLine,
+    timeLine,
+    place,
+    eventStart: eventStart instanceof Date && !Number.isNaN(eventStart.getTime()) ? eventStart : null
+  };
+}
+
+function buildSpanishCaptionByStage(ctx, stage, platformKey) {
+  const stageKey = normalizeSocialPostStage(stage) || "early_reminder";
+  const { headline, place, genre, dateLine, timeLine, atmosphere, eventStart } = ctx;
+  const genreLive = genre ? `${genre} en vivo` : "música en vivo";
+  const cta =
+    platformKey === "facebook"
+      ? "Reserva e info en el enlace."
+      : "Entradas e info en el enlace de la bio.";
+
+  let caption = "";
+
+  if (stageKey === "early_reminder") {
+    const lead = headline && genre ? `${headline} · ${genreLive}` : headline || genreLive;
+    const when = dateLine ? `${dateLine}` : "";
+    const where = place ? `Te esperamos en ${place}` : "";
+    const invite = atmosphere ? atmosphere : "Reserva tu sitio con antelación.";
+    caption = [lead, when, where, invite].filter(Boolean).join(". ").replace(/\.\./g, ".");
+  } else if (stageKey === "tomorrow") {
+    const when = timeLine || dateLine || "mañana";
+    caption = `${headline || genreLive}${place ? ` en ${place}` : ""} — mañana · ${when}.`;
+  } else if (stageKey === "last_call") {
+    const urgency = eventStart && adminSameCalendarDay(eventStart, new Date())
+      ? "Hoy"
+      : eventStart && adminIsTomorrow(eventStart)
+        ? "Mañana"
+        : dateLine || "Próximamente";
+    caption = `Última llamada: ${headline || genreLive}${place ? ` @ ${place}` : ""}. ${urgency}${timeLine ? ` · ${timeLine}` : ""}.`;
+  } else if (stageKey === "event_day") {
+    caption = `Hoy: ${headline || genreLive}${place ? ` en ${place}` : ""}${genre ? ` · ${genreLive}` : ""}${timeLine ? ` · ${timeLine}` : ""}.`;
+  } else {
+    const bits = [headline || genreLive, place ? `en ${place}` : "", dateLine || timeLine].filter(Boolean);
+    caption = bits.join(" · ");
+  }
+
+  if (!caption.includes(cta.split(" ")[0]) && (stageKey === "last_call" || stageKey === "event_day")) {
+    caption = `${caption} ${cta}`;
+  }
+  return scrubGenericCaptionPhrases(caption, ctx.description);
+}
+
+function buildGermanCaptionByStage(ctx, stage) {
+  const stageKey = normalizeSocialPostStage(stage) || "early_reminder";
+  const { headline, place, genre, dateLine, timeLine } = ctx;
+  if (stageKey === "last_call") {
+    return sanitizeHumanCaptionText(
+      `Letzter Aufruf: ${headline}${place ? ` im ${place}` : ""}${timeLine ? ` · ${timeLine}` : ""}.`
+    );
+  }
+  if (stageKey === "tomorrow") {
+    return sanitizeHumanCaptionText(`${headline}${place ? ` im ${place}` : ""} — morgen${timeLine ? ` · ${timeLine}` : ""}.`);
+  }
+  return sanitizeHumanCaptionText(
+    `${headline}${genre ? ` · ${genre} live` : ""}${place ? ` · ${place}` : ""}${dateLine ? ` · ${dateLine}` : ""}.`
+  );
+}
+
+function buildEnglishCaptionByStage(ctx, stage) {
+  const stageKey = normalizeSocialPostStage(stage) || "early_reminder";
+  const { headline, place, genre, dateLine, timeLine } = ctx;
+  if (stageKey === "last_call") {
+    return sanitizeHumanCaptionText(
+      `Last call: ${headline}${place ? ` at ${place}` : ""}${timeLine ? ` · ${timeLine}` : ""}.`
+    );
+  }
+  if (stageKey === "tomorrow") {
+    return sanitizeHumanCaptionText(`${headline}${place ? ` at ${place}` : ""} — tomorrow${timeLine ? ` · ${timeLine}` : ""}.`);
+  }
+  return sanitizeHumanCaptionText(
+    `${headline}${genre ? ` · live ${genre}` : ""}${place ? ` · ${place}` : ""}${dateLine ? ` · ${dateLine}` : ""}.`
+  );
+}
+
+function buildStageCaptionText(ctx, stage, lang, platformKey) {
+  if (lang === "de") return buildGermanCaptionByStage(ctx, stage);
+  if (lang === "en") return buildEnglishCaptionByStage(ctx, stage);
+  return buildSpanishCaptionByStage(ctx, stage, platformKey);
+}
+
+function socialQueueDraftDedupeKey(row) {
+  const eventId = String(row?.event_id || "").trim();
+  const stage = String(row?.post_stage || "").trim() || "_";
+  const occurrence = String(row?.event_date || row?.occurrence_date || "").trim() || "_";
+  const platforms = normalizeSocialQueuePlatforms(row).slice().sort().join("+");
+  return `${eventId}|${occurrence}|${stage}|${platforms}`;
+}
+
+function socialQueuePlatformsOverlap(a, b) {
+  const setA = new Set(normalizeSocialQueuePlatforms(a));
+  for (const p of normalizeSocialQueuePlatforms(b)) {
+    if (setA.has(p)) return true;
+  }
+  return false;
+}
+
+function recurringOccurrenceHasFutureSlots(event, occurrenceStart, now = new Date()) {
+  return buildRecurringSocialSlots(event, occurrenceStart).length > 0;
 }
 
 function generateHumanSocialCaptionBundle(event, platform, eventStartOrScheduled, options = {}) {
@@ -1665,18 +1900,31 @@ function generateHumanSocialCaptionBundle(event, platform, eventStartOrScheduled
   const lang = options.lang || detectSocialCaptionLanguage(event);
   const includeDate = options.includeDate !== false;
   const seed = Number(options.seed) || 0;
+  const postStage = normalizeSocialPostStage(options.postStage || options.post_stage || "");
   const start =
     eventStartOrScheduled instanceof Date && !Number.isNaN(eventStartOrScheduled.getTime())
       ? eventStartOrScheduled
       : socialEffectiveEventStart(event, new Date());
 
   const ctx = buildHumanSocialCaptionContext(event, start, lang);
-  const templateFn = pickSocialCaptionTemplate(event, styleMode, platformKey, lang, seed);
-  let caption = sanitizeHumanCaptionText(templateFn(ctx));
+  logCaptionQualityInput(event?.id, ctx);
+
+  let caption = "";
+  if (postStage) {
+    caption = buildStageCaptionText(ctx, postStage, lang, platformKey);
+  } else if (styleMode !== "natural") {
+    const templateFn = pickSocialCaptionTemplate(event, styleMode, platformKey, lang, seed);
+    caption = scrubGenericCaptionPhrases(sanitizeHumanCaptionText(templateFn(ctx)), ctx.description);
+    if (ctx.headline && !caption.toLowerCase().includes(ctx.headline.toLowerCase().slice(0, 12))) {
+      caption = `${ctx.headline}. ${caption}`.trim();
+    }
+  } else {
+    caption = buildStageCaptionText(ctx, "early_reminder", lang, platformKey);
+  }
 
   if (includeDate && ctx.dateLine && !caption.includes(ctx.dateLine)) {
     if (platformKey === "facebook") caption = `${caption}\n${ctx.dateLine}`;
-    else if (platformKey !== "tiktok" && Math.random() > 0.35) caption = `${caption}\n${ctx.dateLine}`;
+    else if (platformKey !== "tiktok" && postStage !== "last_call") caption = `${caption}\n${ctx.dateLine}`;
   }
 
   if (platformKey === "instagram" && caption.length > 280) {
@@ -1689,17 +1937,21 @@ function generateHumanSocialCaptionBundle(event, platform, eventStartOrScheduled
   const hashtags = options.hashtags ?? buildSocialHashtags(event, platformKey);
   const cta_text =
     options.cta_text ??
-    (styleMode === "promo" || platformKey === "facebook"
-      ? lang === "es"
-        ? "Más info en el enlace."
-        : lang === "de"
-          ? "Infos im Link."
-          : "Details in bio."
-      : "");
+    (lang === "es"
+      ? "Más info y entradas en el enlace."
+      : lang === "de"
+        ? "Infos und Tickets im Link."
+        : "Details and tickets in bio.");
 
-  console.log("caption regenerate", { eventId: event?.id, platform: platformKey, styleMode, lang });
+  console.log("caption regenerate", {
+    eventId: event?.id,
+    platform: platformKey,
+    styleMode,
+    lang,
+    postStage: postStage || null
+  });
 
-  return { caption, hashtags, cta_text, styleMode, lang };
+  return { caption, hashtags, cta_text, styleMode, lang, postStage: postStage || null };
 }
 
 function buildAdminSocialCaption(event, eventStartOrScheduled, platform = "instagram", styleMode = "natural") {
@@ -1757,27 +2009,34 @@ function socialQueuePlatformsSummary(row) {
   return platformVisual(platforms[0]).label;
 }
 
-function buildSocialQueuePayload(event, scheduledAt, platforms = DEFAULT_SOCIAL_QUEUE_PLATFORMS) {
+function buildSocialQueuePayload(event, scheduledAt, platforms = DEFAULT_SOCIAL_QUEUE_PLATFORMS, options = {}) {
   const scheduled =
     scheduledAt instanceof Date
       ? scheduledAt
       : new Date(String(scheduledAt || ""));
   const scheduledIso = Number.isNaN(scheduled.getTime()) ? null : scheduled.toISOString();
-  const eventStart = socialEffectiveEventStart(event, scheduled);
+  const occurrenceStart =
+    options.occurrenceStart instanceof Date && !Number.isNaN(options.occurrenceStart.getTime())
+      ? options.occurrenceStart
+      : null;
+  const eventStart = occurrenceStart || socialEffectiveEventStart(event, scheduled);
   const imageResolution = resolveSocialPostImageForAdmin(event, event);
   const imageUrl = String(imageResolution.selectedImage || "").trim();
   const title = String(event?.name || event?.title || "").trim();
   const platformsList = normalizeSocialQueuePlatforms({ platforms });
   const captionPlatform = adminPrimaryPlatform(platformsList);
+  const postStage = normalizeSocialPostStage(options.postStage || options.post_stage || "");
   const bundle = generateHumanSocialCaptionBundle(event, captionPlatform, eventStart || scheduled, {
-    styleMode: "natural"
+    styleMode: options.styleMode || "natural",
+    postStage
   });
+  const occurrenceYmd = adminSocialEventDateYmd(event, eventStart);
 
   return {
     event_id: event?.id ?? null,
     platforms: platformsList,
     platform: captionPlatform,
-    status: "pending",
+    status: options.status || "pending",
     scheduled_at: scheduledIso,
     title,
     caption: bundle.caption,
@@ -1785,12 +2044,15 @@ function buildSocialQueuePayload(event, scheduledAt, platforms = DEFAULT_SOCIAL_
     cta_text: bundle.cta_text || null,
     image_url: imageUrl,
     resolved_image_url: imageUrl,
-    event_date: adminSocialEventDateYmd(event, eventStart),
+    event_date: occurrenceYmd,
+    occurrence_date: occurrenceYmd,
     location_name: String(event?.location_name || "").trim() || null,
     city: String(event?.city || "").trim() || null,
     retry_count: 0,
+    post_stage: postStage || null,
     postiz_response: mergeSocialQueuePostizResponse(null, bundle.hashtags, bundle.cta_text, {
-      style_mode: bundle.styleMode
+      style_mode: bundle.styleMode,
+      post_stage: postStage || null
     })
   };
 }
@@ -2625,6 +2887,7 @@ function applyCaptionStudioTransform(editorEl, action, row) {
       scheduled ? new Date(scheduled) : null,
       {
         styleMode: form.style_mode,
+        postStage: row?.post_stage,
         seed: Date.now()
       }
     );
@@ -3082,7 +3345,9 @@ function buildSocialReviewQueueRows(event) {
   const rows = [];
   const immediateLastCall = immediateLastCallDateForEvent(event, now);
   if (immediateLastCall && immediateLastCall < eventStart) {
-    const payload = buildSocialQueuePayload(event, immediateLastCall);
+    const payload = buildSocialQueuePayload(event, immediateLastCall, DEFAULT_SOCIAL_QUEUE_PLATFORMS, {
+      postStage: "last_call"
+    });
     payload._slot_id = "short_notice_last_call";
     rows.push(payload);
   }
@@ -3091,7 +3356,12 @@ function buildSocialReviewQueueRows(event) {
     if (!scheduled || Number.isNaN(scheduled.getTime())) continue;
     if (scheduled <= now) continue;
     if (scheduled >= eventStart) continue;
-    rows.push(buildSocialQueuePayload(event, scheduled));
+    const postStage = SOCIAL_REVIEW_SLOT_POST_STAGE[slot.id] || slot.id;
+    rows.push(
+      buildSocialQueuePayload(event, scheduled, DEFAULT_SOCIAL_QUEUE_PLATFORMS, {
+        postStage
+      })
+    );
   }
   return rows;
 }
@@ -3144,7 +3414,10 @@ function buildRecurringSocialQueueRowsForOccurrence(event, occurrenceStart) {
   const slotPlan = buildRecurringSocialSlots(event, occurrenceStart);
   const rows = [];
   for (const slot of slotPlan) {
-    const payload = buildSocialQueuePayload(event, slot.scheduledAt);
+    const payload = buildSocialQueuePayload(event, slot.scheduledAt, DEFAULT_SOCIAL_QUEUE_PLATFORMS, {
+      occurrenceStart,
+      postStage: slot.stage
+    });
     payload.post_stage = slot.stage;
     rows.push(payload);
   }
@@ -3198,37 +3471,41 @@ async function insertSocialQueueRows(rows) {
 
 async function insertRecurringSocialQueueRows(occurrenceEvent, occurrenceStart) {
   const candidates = buildRecurringSocialQueueRowsForOccurrence(occurrenceEvent, occurrenceStart);
-  if (!candidates.length) return 0;
+  if (!candidates.length) return { inserted: 0, skippedExisting: 0 };
   const client = supabaseClient();
   const eventId = String(occurrenceEvent?.id || "").trim();
   const { data: existing, error: existingError } = await client
     .from("social_queue")
-    .select("platform,platforms,post_stage,status")
+    .select("platform,platforms,post_stage,status,event_date,scheduled_at")
     .eq("event_id", eventId);
   if (existingError) throw new Error(existingError.message || "Social Queue konnte nicht geprüft werden.");
 
-  const existingStages = new Set(
-    (existing || [])
-      .filter((row) => String(row.status || "").toLowerCase() !== "skipped")
-      .map((row) => String(row.post_stage || "").trim())
-      .filter(Boolean)
-  );
+  const activeExisting = (existing || []).filter((row) => String(row.status || "").toLowerCase() !== "skipped");
+  let skippedExisting = 0;
 
   const missing = candidates.filter((row) => {
-    const stage = String(row.post_stage || "").trim();
-    if (stage && existingStages.has(stage)) {
+    const duplicate = activeExisting.some((existingRow) => {
+      const sameStage = String(existingRow.post_stage || "").trim() === String(row.post_stage || "").trim();
+      const sameOccurrence =
+        String(existingRow.event_date || "").trim() === String(row.event_date || "").trim();
+      return sameStage && sameOccurrence && socialQueuePlatformsOverlap(existingRow, row);
+    });
+    if (duplicate) {
+      skippedExisting += 1;
       console.log("recurring social row skipped", {
         reason: "duplicate",
         event_id: eventId,
         platforms: row.platforms,
-        post_stage: stage
+        post_stage: row.post_stage,
+        event_date: row.event_date
       });
       return false;
     }
     return true;
   });
-  if (!missing.length) return 0;
-  return insertSocialQueueRows(missing);
+  if (!missing.length) return { inserted: 0, skippedExisting };
+  const inserted = await insertSocialQueueRows(missing);
+  return { inserted, skippedExisting };
 }
 
 function buildRecurringChildEventInsertPayload(master, occurrenceStart) {
@@ -3318,12 +3595,15 @@ async function createRecurringChildEventForOccurrence(master, occurrenceStart) {
 async function prepareRecurringOccurrencesForDates(master, occurrenceStarts) {
   let childrenCreated = 0;
   let draftsInserted = 0;
+  let skippedExisting = 0;
   for (const occurrenceStart of occurrenceStarts) {
     const { event: child, created } = await createRecurringChildEventForOccurrence(master, occurrenceStart);
     if (created) childrenCreated += 1;
-    draftsInserted += await insertRecurringSocialQueueRows(child, occurrenceStart);
+    const insertResult = await insertRecurringSocialQueueRows(child, occurrenceStart);
+    draftsInserted += insertResult.inserted;
+    skippedExisting += insertResult.skippedExisting;
   }
-  return { occurrences: occurrenceStarts.length, childrenCreated, draftsInserted };
+  return { occurrences: occurrenceStarts.length, childrenCreated, draftsInserted, skippedExisting };
 }
 
 /**
@@ -3336,11 +3616,11 @@ async function prepareRecurringOccurrencesWithinHorizon(
 ) {
   const master = adminCoerceRecurrenceFields(masterEvent);
   if (!isRecurringSocialMaster(master) || master.recurring_social_enabled !== true) {
-    return { skipped: true, occurrences: 0, childrenCreated: 0, draftsInserted: 0, horizonDays };
+    return { skipped: true, occurrences: 0, childrenCreated: 0, draftsInserted: 0, skippedExisting: 0, horizonDays };
   }
   const occurrences = getRecurringOccurrencesWithinHorizon(master, horizonDays);
   if (!occurrences.length) {
-    return { skipped: false, occurrences: 0, childrenCreated: 0, draftsInserted: 0, horizonDays };
+    return { skipped: false, occurrences: 0, childrenCreated: 0, draftsInserted: 0, skippedExisting: 0, horizonDays };
   }
   const result = await prepareRecurringOccurrencesForDates(master, occurrences);
   console.log("recurring social prepare done", {
@@ -3349,7 +3629,8 @@ async function prepareRecurringOccurrencesWithinHorizon(
     horizon_days: horizonDays,
     occurrences: result.occurrences,
     children_created: result.childrenCreated,
-    drafts_inserted: result.draftsInserted
+    drafts_inserted: result.draftsInserted,
+    skipped_existing: result.skippedExisting
   });
   return { skipped: false, horizonDays, ...result };
 }
@@ -3361,30 +3642,44 @@ async function runWeeklyRecurringSocialAutoPrep() {
     const coerced = adminCoerceRecurrenceFields(ev);
     return isRecurringSocialMaster(coerced) && coerced.recurring_social_enabled === true;
   });
+  const refreshSummary = {
+    recurringMasters: 0,
+    occurrencesCreated: 0,
+    skippedExisting: 0,
+    errors: []
+  };
   const totals = {
     masters: 0,
     occurrences: 0,
     childrenCreated: 0,
     draftsInserted: 0,
+    skippedExisting: 0,
     horizonDays: RECURRING_SOCIAL_AUTO_PREP_HORIZON_DAYS
   };
   for (const master of masters) {
     try {
       const res = await prepareRecurringOccurrencesWithinHorizon(master);
       if (res.skipped) continue;
+      refreshSummary.recurringMasters += 1;
+      refreshSummary.occurrencesCreated += res.draftsInserted;
+      refreshSummary.skippedExisting += res.skippedExisting || 0;
       totals.masters += 1;
       totals.occurrences += res.occurrences;
       totals.childrenCreated += res.childrenCreated;
       totals.draftsInserted += res.draftsInserted;
+      totals.skippedExisting += res.skippedExisting || 0;
     } catch (error) {
+      const message = error?.message || String(error);
+      refreshSummary.errors.push({ master_id: master.id, message });
       console.warn("recurring weekly auto prep failed", {
         master_id: master.id,
-        message: error?.message || String(error)
+        message
       });
     }
   }
+  console.log("RECURRING SOCIAL QUEUE REFRESH", refreshSummary);
   console.log("recurring weekly auto prep", totals);
-  return totals;
+  return { ...totals, refreshSummary };
 }
 
 function scheduleRecurringSocialAutoPrep() {

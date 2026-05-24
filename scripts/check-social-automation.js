@@ -47,6 +47,22 @@ function queueDraftUsesEventImage(row, event, fallback) {
   return !resolution.fallbackUsed;
 }
 
+function captionMentionsEventFields(caption, event) {
+  const cap = String(caption || "").toLowerCase();
+  if (!cap) return { ok: false, reason: "empty" };
+  const terms = [
+    event?.name,
+    event?.artist_name,
+    event?.location_name,
+    event?.city,
+    event?.genre
+  ]
+    .map((t) => String(t || "").trim())
+    .filter((t) => t.length >= 4);
+  const hit = terms.find((t) => cap.includes(t.toLowerCase()));
+  return hit ? { ok: true, term: hit } : { ok: false, reason: "no title/artist/venue/city/genre" };
+}
+
 function looksSpanish(text) {
   if (!text || typeof text !== "string") return false;
   const s = text.trim();
@@ -149,6 +165,7 @@ async function main() {
 
   let queue = [];
   const eventsMap = new Map();
+  let recurringMasters = [];
 
   try {
     queue = await restGet(baseUrl, key, `social_queue?select=*&order=scheduled_at.asc&limit=500`);
@@ -163,7 +180,7 @@ async function main() {
       const evs = await restGet(
         baseUrl,
         key,
-        `events?id=in.(${inList})&select=id,status,image_url,image_urls,name`
+        `events?id=in.(${inList})&select=id,status,image_url,image_urls,name,artist_name,location_name,city,genre,original_event_id,is_recurring,recurring_social_enabled,event_date`
       );
       if (Array.isArray(evs)) {
         for (const e of evs) {
@@ -171,6 +188,13 @@ async function main() {
         }
       }
     }
+
+    recurringMasters = await restGet(
+      baseUrl,
+      key,
+      "events?is_recurring=eq.true&recurring_social_enabled=eq.true&status=eq.approved&select=id,name,recurrence_type,recurrence_weekday,event_date,recurrence_start_date"
+    );
+    if (!Array.isArray(recurringMasters)) recurringMasters = [];
   } catch (e) {
     console.error("Failed to load Supabase data:", e.message || e);
     process.exit(1);
@@ -208,7 +232,8 @@ async function main() {
       if (row.status === "skipped") continue;
       const day = utcDayKey(row.scheduled_at);
       const stage = String(row.post_stage || "").trim();
-      const k = `${row.event_id}|${stage}|${day}`;
+      const occurrence = String(row.event_date || row.occurrence_date || "").trim();
+      const k = `${row.event_id}|${stage}|${occurrence}|${day}`;
       if (!bucket.has(k)) bucket.set(k, []);
       bucket.get(k).push(row);
     }
@@ -371,6 +396,76 @@ async function main() {
         "CHK09_postiz_integration_ids",
         queue.length ? "row or POSTIZ_* env set" : "no active queue rows"
       );
+    }
+  }
+
+  // --- CHK10a: platforms[] includes instagram + facebook on active drafts ---
+  {
+    const bad = [];
+    for (const row of queue) {
+      if (row.status === "skipped" || row.status === "posted") continue;
+      const plats = rowPlatforms(row);
+      if (!plats.includes("instagram") || !plats.includes("facebook")) {
+        bad.push(`${row.id} (${plats.join("+") || "none"})`);
+      }
+    }
+    if (bad.length) {
+      fail++;
+      printResult(false, "CHK10a_platforms_instagram_facebook", bad.slice(0, 8).join("; "));
+    } else {
+      printResult(true, "CHK10a_platforms_instagram_facebook", "active rows include instagram + facebook");
+    }
+  }
+
+  // --- CHK11: recurring masters have a future queue row (child or master) ---
+  {
+    const nowMs = Date.now();
+    const missing = [];
+    for (const master of recurringMasters) {
+      const futureRows = queue.filter((row) => {
+        if (row.status === "skipped") return false;
+        const scheduled = new Date(row.scheduled_at).getTime();
+        if (!Number.isFinite(scheduled) || scheduled <= nowMs) return false;
+        const ev = eventsMap.get(row.event_id);
+        if (!ev) return false;
+        if (String(ev.id) === String(master.id)) return true;
+        return String(ev.original_event_id || "") === String(master.id);
+      });
+      if (!futureRows.length) missing.push(master.id);
+    }
+    if (recurringMasters.length === 0) {
+      printResult(true, "CHK11_recurring_future_rows", "no recurring_social_enabled masters");
+    } else if (missing.length) {
+      fail++;
+      printResult(false, "CHK11_recurring_future_rows", `master id(s): ${missing.slice(0, 8).join(", ")}`);
+    } else {
+      printResult(true, "CHK11_recurring_future_rows", `${recurringMasters.length} master(s) with upcoming queue row(s)`);
+    }
+  }
+
+  // --- CHK12: captions mention event-specific fields when available ---
+  {
+    const weak = [];
+    for (const row of queue) {
+      if (row.status === "skipped") continue;
+      const caption = String(row.caption || "").trim();
+      if (!caption) continue;
+      const ev = eventsMap.get(row.event_id);
+      if (!ev) continue;
+      const hasSignal =
+        String(ev.name || "").trim().length >= 4 ||
+        String(ev.artist_name || "").trim().length >= 4 ||
+        String(ev.location_name || "").trim().length >= 4 ||
+        String(ev.city || "").trim().length >= 4;
+      if (!hasSignal) continue;
+      const check = captionMentionsEventFields(caption, ev);
+      if (!check.ok) weak.push(`${row.id}: ${check.reason}`);
+    }
+    if (weak.length) {
+      fail++;
+      printResult(false, "CHK12_caption_event_specific", weak.slice(0, 8).join("; "));
+    } else {
+      printResult(true, "CHK12_caption_event_specific", "caption cites title/artist/venue/city/genre when present");
     }
   }
 
