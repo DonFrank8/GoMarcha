@@ -2,7 +2,7 @@ const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
 const ADMIN_REQUIRED_ROLE = "admin";
 const ADMIN_ALLOWED_EMAILS = [];
-const ADMIN_DASHBOARD_BUILD = "2026.05.24-recurring-auto-prep-diagnose";
+const ADMIN_DASHBOARD_BUILD = "2026.05.25-recurring-legacy-id-fix";
 if (typeof window !== "undefined") {
   window.PARTYRADAR_ADMIN_BUILD = ADMIN_DASHBOARD_BUILD;
   console.log("[admin-build]", ADMIN_DASHBOARD_BUILD);
@@ -1077,6 +1077,18 @@ function getRecurringAutoPrepIneligibleReason(event) {
   return null;
 }
 
+function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || "").trim());
+}
+
+function logRecurringLegacyIdMode(eventId) {
+  console.log("RECURRING LEGACY ID MODE", {
+    eventId,
+    idType: "numeric",
+    action: "skip-child-uuid-query"
+  });
+}
+
 function adminFormatLocalYmd(date = new Date()) {
   const d = date instanceof Date ? date : new Date(date);
   if (Number.isNaN(d.getTime())) return "";
@@ -1627,8 +1639,14 @@ async function collectRecurringOccurrenceEventIds(client, occurrenceEvent) {
     masterId = eventId;
   }
   if (eventId) ids.add(eventId);
-  if (masterId) {
-    ids.add(masterId);
+  if (masterId) ids.add(masterId);
+
+  if (!isUuid(masterId)) {
+    logRecurringLegacyIdMode(masterId);
+    return [...ids];
+  }
+
+  try {
     const { data: children, error } = await client.from("events").select("id").eq("original_event_id", masterId);
     if (error) {
       logSupabaseOperationFailure("collectRecurringOccurrenceEventIds", error, { masterId });
@@ -1637,6 +1655,8 @@ async function collectRecurringOccurrenceEventIds(client, occurrenceEvent) {
         if (row?.id) ids.add(String(row.id));
       }
     }
+  } catch (error) {
+    logSupabaseOperationFailure("collectRecurringOccurrenceEventIds", error, { masterId, query: "events.children" });
   }
   return [...ids];
 }
@@ -3824,7 +3844,7 @@ async function insertRecurringSocialQueueRows(occurrenceEvent, occurrenceStart, 
 
 function buildRecurringChildEventInsertPayload(master, occurrenceStart) {
   const ymd = adminFormatLocalYmd(occurrenceStart);
-  return pickAdminEventSavePayload({
+  const payload = pickAdminEventSavePayload({
     name: master.name || master.title || "Event",
     title_es: master.title_es || null,
     title_de: master.title_de || null,
@@ -3863,61 +3883,96 @@ function buildRecurringChildEventInsertPayload(master, occurrenceStart) {
     recurrence_weekday: null,
     recurrence_day_of_month: null,
     is_recurring: false,
-    recurring_social_enabled: false,
-    original_event_id: master.id
+    recurring_social_enabled: false
   });
+  if (isUuid(master?.id)) {
+    payload.original_event_id = master.id;
+  }
+  return payload;
+}
+
+function recurringMasterEventForOccurrence(master, occurrenceStart) {
+  const ymd = adminFormatLocalYmd(occurrenceStart);
+  return { ...adminCoerceRecurrenceFields(master), event_date: ymd };
 }
 
 async function findRecurringChildEventByDate(masterId, ymd) {
-  const client = supabaseClient();
-  const { data, error } = await client
-    .from("events")
-    .select("*")
-    .eq("original_event_id", masterId)
-    .eq("event_date", ymd)
-    .maybeSingle();
-  if (error) {
-    logSupabaseOperationFailure("findRecurringChildEventByDate", error, {
-      query: "events.select(*).eq(original_event_id).eq(event_date)",
-      masterId,
-      ymd
-    });
-    if (parseMissingColumn(error) === "original_event_id") return null;
-    throw new Error(error.message || "Kind-Event konnte nicht geladen werden.");
+  const idKey = String(masterId || "").trim();
+  if (!isUuid(idKey)) {
+    logRecurringLegacyIdMode(idKey);
+    return null;
   }
-  return data;
+  try {
+    const client = supabaseClient();
+    const { data, error } = await client
+      .from("events")
+      .select("*")
+      .eq("original_event_id", idKey)
+      .eq("event_date", ymd)
+      .maybeSingle();
+    if (error) {
+      logSupabaseOperationFailure("findRecurringChildEventByDate", error, {
+        query: "events.select(*).eq(original_event_id).eq(event_date)",
+        masterId: idKey,
+        ymd
+      });
+      if (parseMissingColumn(error) === "original_event_id") return null;
+      return null;
+    }
+    return data;
+  } catch (error) {
+    console.warn("findRecurringChildEventByDate failed", {
+      masterId: idKey,
+      ymd,
+      message: error?.message || String(error)
+    });
+    return null;
+  }
 }
 
 async function createRecurringChildEventForOccurrence(master, occurrenceStart) {
   const ymd = adminFormatLocalYmd(occurrenceStart);
-  const existing = await findRecurringChildEventByDate(master.id, ymd);
-  if (existing) {
-    console.log("recurring child event skipped", { reason: "exists", master_id: master.id, event_date: ymd });
-    return { event: existing, created: false };
+  if (!isUuid(master?.id)) {
+    logRecurringLegacyIdMode(master.id);
+    return { event: recurringMasterEventForOccurrence(master, occurrenceStart), created: false, legacy: true };
   }
-  const client = supabaseClient();
-  let body = buildRecurringChildEventInsertPayload(master, occurrenceStart);
-  for (let attempt = 0; attempt < 4; attempt += 1) {
-    const { data, error } = await client.from("events").insert(body).select("*").maybeSingle();
-    if (!error && data) {
-      console.log("recurring child event created", {
-        master_id: master.id,
-        child_id: data.id,
-        event_date: ymd
-      });
-      return { event: data, created: true };
+  try {
+    const existing = await findRecurringChildEventByDate(master.id, ymd);
+    if (existing) {
+      console.log("recurring child event skipped", { reason: "exists", master_id: master.id, event_date: ymd });
+      return { event: existing, created: false };
     }
-    logSupabaseOperationFailure("recurring child event insert", error, {
-      query: "events.insert",
-      masterId: master.id,
-      ymd,
-      payload: body
+    const client = supabaseClient();
+    let body = buildRecurringChildEventInsertPayload(master, occurrenceStart);
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const { data, error } = await client.from("events").insert(body).select("*").maybeSingle();
+      if (!error && data) {
+        console.log("recurring child event created", {
+          master_id: master.id,
+          child_id: data.id,
+          event_date: ymd
+        });
+        return { event: data, created: true };
+      }
+      logSupabaseOperationFailure("recurring child event insert", error, {
+        query: "events.insert",
+        masterId: master.id,
+        ymd,
+        payload: body
+      });
+      const missing = parseMissingColumn(error);
+      if (!missing || !(missing in body)) break;
+      delete body[missing];
+    }
+  } catch (error) {
+    console.warn("recurring child event prep failed", {
+      master_id: master?.id ?? null,
+      event_date: ymd,
+      message: error?.message || String(error)
     });
-    const missing = parseMissingColumn(error);
-    if (!missing || !(missing in body)) throw new Error(error?.message || "Kind-Event konnte nicht erstellt werden.");
-    delete body[missing];
+    logSupabaseOperationFailure("createRecurringChildEventForOccurrence", error, { masterId: master?.id, ymd });
   }
-  throw new Error("Kind-Event Insert fehlgeschlagen (Schema-Spalten prüfen).");
+  return { event: recurringMasterEventForOccurrence(master, occurrenceStart), created: false, fallback: true };
 }
 
 async function prepareRecurringAutoPrepMaster(masterEvent, summary, now = new Date()) {
@@ -3996,7 +4051,23 @@ async function prepareRecurringAutoPrepMaster(masterEvent, summary, now = new Da
     decision.stagesWanted += slotCount;
     if (!slotCount) summary.skippedNoStages += 1;
 
-    const { event: child, created } = await createRecurringChildEventForOccurrence(coerced, occurrenceStart);
+    let child = coerced;
+    let created = false;
+    try {
+      const resolved = await createRecurringChildEventForOccurrence(coerced, occurrenceStart);
+      child = resolved?.event || coerced;
+      created = Boolean(resolved?.created);
+    } catch (error) {
+      console.warn("recurring occurrence prep failed for one event", {
+        master_id: coerced?.id ?? null,
+        message: error?.message || String(error)
+      });
+      logSupabaseOperationFailure("prepareRecurringAutoPrepMaster occurrence", error, {
+        masterId: coerced?.id,
+        occurrence: adminFormatLocalYmd(occurrenceStart)
+      });
+      child = recurringMasterEventForOccurrence(coerced, occurrenceStart);
+    }
     if (created) childrenCreated += 1;
 
     const insertResult = await insertRecurringSocialQueueRows(child, occurrenceStart, now);
