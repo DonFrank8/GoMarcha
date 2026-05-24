@@ -18,6 +18,10 @@ const {
   resolveSocialPostImage,
   isPostizUploadsHost
 } = require("../social-post-image.js");
+const {
+  buildCanonicalRecurringSeriesList,
+  recurringDedupeKey
+} = require("./recurring-series-policy.js");
 const MAX_RETRY_DEFAULT = 5;
 
 function isHttpsImageUrl(raw) {
@@ -165,7 +169,8 @@ async function main() {
 
   let queue = [];
   const eventsMap = new Map();
-  let recurringMasters = [];
+  let allEvents = [];
+  let canonicalSeries = [];
 
   try {
     queue = await restGet(baseUrl, key, `social_queue?select=*&order=scheduled_at.asc&limit=500`);
@@ -174,27 +179,34 @@ async function main() {
       process.exit(1);
     }
 
+    allEvents = await restGet(
+      baseUrl,
+      key,
+      "events?select=id,status,image_url,image_urls,name,title,artist_name,location_name,city,genre,original_event_id,is_recurring,recurring_social_enabled,recurrence_type,recurrence_weekday,recurrence_day_of_month,recurrence_day_of_week,recurrence_start_date,recurrence_end_date,event_date,event_time,archived_at&limit=2000"
+    );
+    if (!Array.isArray(allEvents)) allEvents = [];
+    for (const e of allEvents) {
+      if (e?.id) eventsMap.set(e.id, e);
+    }
+
     const eventIds = [...new Set(queue.map((r) => r.event_id).filter(Boolean))];
-    if (eventIds.length) {
-      const inList = eventIds.map((id) => `"${id}"`).join(",");
+    const missingIds = eventIds.filter((id) => !eventsMap.has(id));
+    if (missingIds.length) {
+      const inList = missingIds.map((id) => `"${id}"`).join(",");
       const evs = await restGet(
         baseUrl,
         key,
-        `events?id=in.(${inList})&select=id,status,image_url,image_urls,name,artist_name,location_name,city,genre,original_event_id,is_recurring,recurring_social_enabled,event_date`
+        `events?id=in.(${inList})&select=id,status,image_url,image_urls,name,title,artist_name,location_name,city,genre,original_event_id,is_recurring,recurring_social_enabled,recurrence_type,recurrence_weekday,recurrence_day_of_month,recurrence_day_of_week,recurrence_start_date,recurrence_end_date,event_date,event_time,archived_at`
       );
       if (Array.isArray(evs)) {
         for (const e of evs) {
           eventsMap.set(e.id, e);
+          if (!allEvents.some((row) => String(row.id) === String(e.id))) allEvents.push(e);
         }
       }
     }
 
-    recurringMasters = await restGet(
-      baseUrl,
-      key,
-      "events?is_recurring=eq.true&recurring_social_enabled=eq.true&status=eq.approved&select=id,name,recurrence_type,recurrence_weekday,event_date,recurrence_start_date"
-    );
-    if (!Array.isArray(recurringMasters)) recurringMasters = [];
+    canonicalSeries = buildCanonicalRecurringSeriesList(allEvents);
   } catch (e) {
     console.error("Failed to load Supabase data:", e.message || e);
     process.exit(1);
@@ -225,39 +237,45 @@ async function main() {
     }
   }
 
-  // --- CHK02: no duplicate (event + post_stage + UTC day) for non-skipped rows ---
+  // --- CHK02: no duplicate canonical series + occurrence + post_stage + platforms overlap ---
   {
+    const eventIdToSeriesId = new Map();
+    for (const series of canonicalSeries) {
+      for (const memberId of series.seriesMemberIds) {
+        eventIdToSeriesId.set(String(memberId), series.canonicalSeriesId);
+      }
+    }
     const bucket = new Map();
     for (const row of queue) {
       if (row.status === "skipped") continue;
-      const day = utcDayKey(row.scheduled_at);
-      const stage = String(row.post_stage || "").trim();
-      const occurrence = String(row.event_date || row.occurrence_date || "").trim();
-      const k = `${row.event_id}|${stage}|${occurrence}|${day}`;
+      const k = recurringDedupeKey(row, eventIdToSeriesId);
       if (!bucket.has(k)) bucket.set(k, []);
       bucket.get(k).push(row);
     }
     const dups = [];
-    for (const [, rows] of bucket) {
+    for (const [key, rows] of bucket) {
       if (rows.length > 1) {
-        dups.push(
-          rows.map((r) => ({
+        dups.push({
+          dedupeKey: key,
+          rows: rows.map((r) => ({
             id: r.id,
+            event_id: r.event_id,
             status: r.status,
             platforms: rowPlatforms(r),
-            post_stage: r.post_stage || null
+            post_stage: r.post_stage || null,
+            event_date: r.event_date || null
           }))
-        );
+        });
       }
     }
     if (dups.length) {
       fail++;
-      printResult(false, "CHK02_no_duplicate_event_post_stage", JSON.stringify(dups.slice(0, 3)));
+      printResult(false, "CHK02_no_duplicate_canonical_series_occurrence", JSON.stringify(dups.slice(0, 3)));
     } else {
       printResult(
         true,
-        "CHK02_no_duplicate_event_post_stage",
-        "one campaign row per event/post_stage/UTC day (platforms[] on row)"
+        "CHK02_no_duplicate_canonical_series_occurrence",
+        "one row per canonical series + occurrence date + post_stage + platforms"
       );
     }
   }
@@ -417,29 +435,55 @@ async function main() {
     }
   }
 
-  // --- CHK11: recurring masters have a future queue row (child or master) ---
+  // --- CHK11: every included canonical recurring series has a future queue row ---
   {
     const nowMs = Date.now();
+    const included = canonicalSeries.filter((s) => s.included);
     const missing = [];
-    for (const master of recurringMasters) {
+    for (const series of included) {
+      const memberIds = new Set(series.seriesMemberIds.map(String));
       const futureRows = queue.filter((row) => {
         if (row.status === "skipped") return false;
         const scheduled = new Date(row.scheduled_at).getTime();
         if (!Number.isFinite(scheduled) || scheduled <= nowMs) return false;
+        const eventId = String(row.event_id || "");
+        if (memberIds.has(eventId)) return true;
         const ev = eventsMap.get(row.event_id);
-        if (!ev) return false;
-        if (String(ev.id) === String(master.id)) return true;
-        return String(ev.original_event_id || "") === String(master.id);
+        return ev && memberIds.has(String(ev.original_event_id || ""));
       });
-      if (!futureRows.length) missing.push(master.id);
+      if (!futureRows.length) {
+        missing.push(`${series.canonicalSeriesId} (${series.master?.name || "series"})`);
+      }
     }
-    if (recurringMasters.length === 0) {
-      printResult(true, "CHK11_recurring_future_rows", "no recurring_social_enabled masters");
+    if (included.length === 0) {
+      printResult(true, "CHK11_recurring_future_rows", "no included canonical recurring series");
     } else if (missing.length) {
       fail++;
-      printResult(false, "CHK11_recurring_future_rows", `master id(s): ${missing.slice(0, 8).join(", ")}`);
+      printResult(
+        false,
+        "CHK11_recurring_future_rows",
+        `included series missing future queue: ${missing.slice(0, 8).join("; ")}`
+      );
     } else {
-      printResult(true, "CHK11_recurring_future_rows", `${recurringMasters.length} master(s) with upcoming queue row(s)`);
+      printResult(
+        true,
+        "CHK11_recurring_future_rows",
+        `${included.length} included series with upcoming queue row(s)`
+      );
+    }
+  }
+
+  // --- CHK11b: report skipped recurring series with reason (informational) ---
+  {
+    const skipped = canonicalSeries.filter((s) => !s.included);
+    if (!skipped.length) {
+      printResult(true, "CHK11b_recurring_skipped_series_report", "no skipped recurring series");
+    } else {
+      const summary = skipped
+        .slice(0, 12)
+        .map((s) => `${s.canonicalSeriesId}:${s.reason}`)
+        .join("; ");
+      printResult(true, "CHK11b_recurring_skipped_series_report", `${skipped.length} skipped — ${summary}`);
     }
   }
 
