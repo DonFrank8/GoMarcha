@@ -18,8 +18,34 @@ function isRejectedOrDeleted(event) {
   return status === "rejected" || status === "deleted";
 }
 
+function isRecurringSocialExplicitOptOut(event) {
+  return event?.recurring_social_opt_out === true;
+}
+
+function eventIsRecurringForSocialDefaults(event) {
+  if (!event || typeof event !== "object") return false;
+  if (isChildEvent(event)) return false;
+  const stored = normalizeRecurrenceType(event.recurrence_type);
+  if (event.is_recurring === true && (stored === "weekly" || stored === "monthly")) return true;
+  return stored === "weekly" || stored === "monthly";
+}
+
+function applyRecurringSocialDefaults(event) {
+  if (!event || typeof event !== "object") return event;
+  if (!eventIsRecurringForSocialDefaults(event)) {
+    return { ...event, recurring_social_enabled: false, recurring_social_opt_out: false };
+  }
+  if (isRecurringSocialExplicitOptOut(event)) {
+    return { ...event, recurring_social_enabled: false, recurring_social_opt_out: true };
+  }
+  if (event.recurring_social_enabled === true) {
+    return { ...event, recurring_social_enabled: true, recurring_social_opt_out: false };
+  }
+  return { ...event, recurring_social_enabled: true, recurring_social_opt_out: false };
+}
+
 function isRecurringSocialEnabled(series) {
-  return series?.recurring_social_enabled !== false;
+  return applyRecurringSocialDefaults(series).recurring_social_enabled === true;
 }
 
 function buildRecurringSeriesIndex(allEvents) {
@@ -139,7 +165,7 @@ function evaluateCanonicalRecurringSeries(series) {
   const members = series?.members || [];
   const type = normalizeRecurrenceType(master?.recurrence_type);
   if (!master) return { included: false, reason: "no_canonical_master" };
-  if (!isRecurringSocialEnabled(master)) {
+  if (!isRecurringSocialEnabled(applyRecurringSocialDefaults(master))) {
     return { included: false, reason: "recurring_social_disabled" };
   }
   if (members.length && members.every((row) => isRejectedOrDeleted(row))) {
@@ -179,7 +205,7 @@ function buildCanonicalRecurringSeriesList(allEvents) {
   const series = [];
   for (const group of groups.values()) {
     const picked = pickCanonicalSeriesMaster(group.members);
-    const master = enrichCanonicalSeriesMaster(picked, group.members);
+    const master = applyRecurringSocialDefaults(enrichCanonicalSeriesMaster(picked, group.members));
     const evaluation = evaluateCanonicalRecurringSeries({ ...group, master });
     series.push({
       canonicalSeriesId: group.canonicalSeriesId,
@@ -227,5 +253,6 @@ module.exports = {
   platformsOverlap,
   normalizeRecurrenceType,
   isChildEvent,
-  isRecurringSocialEnabled
+  isRecurringSocialEnabled,
+  applyRecurringSocialDefaults
 };

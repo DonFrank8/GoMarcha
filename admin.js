@@ -2,7 +2,7 @@ const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
 const ADMIN_REQUIRED_ROLE = "admin";
 const ADMIN_ALLOWED_EMAILS = [];
-const ADMIN_DASHBOARD_BUILD = "2026.05.25-recurring-social-flag-fix";
+const ADMIN_DASHBOARD_BUILD = "2026.05.25-recurring-default-enabled-fix";
 if (typeof window !== "undefined") {
   window.PARTYRADAR_ADMIN_BUILD = ADMIN_DASHBOARD_BUILD;
   console.log("[admin-build]", ADMIN_DASHBOARD_BUILD);
@@ -169,6 +169,7 @@ const ADMIN_EVENT_SAVE_COLUMN_WHITELIST = new Set([
   "recurrence_day_of_month",
   "is_recurring",
   "recurring_social_enabled",
+  "recurring_social_opt_out",
   "recurring_group_id",
   "original_event_id",
   "archived_at"
@@ -865,8 +866,19 @@ async function adminEditorSaveEventPayload(form, eventData, { regenerateSocial }
   const savedRow = await updateEventWithFallback(eventId, payload);
   adminAssertLocalizedDescriptionsSaved(payload, savedRow);
 
-  const statePatch = adminBuildPostSaveStatePatch(payload, savedRow, eventData);
-  patchAdminEventInState(eventId, statePatch);
+  writeRecurringSocialOptOut(eventId, payload.recurring_social_opt_out === true);
+  const statePatch = {
+    ...adminBuildPostSaveStatePatch(payload, savedRow, eventData),
+    is_recurring: payload.is_recurring === true,
+    recurrence_type: payload.recurrence_type || "none",
+    recurrence_start_date: payload.recurrence_start_date ?? null,
+    recurrence_end_date: payload.recurrence_end_date ?? null,
+    recurrence_weekday: payload.recurrence_weekday ?? null,
+    recurrence_day_of_month: payload.recurrence_day_of_month ?? null,
+    recurring_social_enabled: payload.recurring_social_enabled === true,
+    recurring_social_opt_out: payload.recurring_social_opt_out === true
+  };
+  patchAdminEventInState(eventId, applyRecurringSocialDefaults({ ...eventData, ...statePatch }));
   const stateRow = adminResolveEventFromState(eventId);
   if (state.adminEditorEventId && String(state.adminEditorEventId) === String(eventId)) {
     state.adminEditorEvent = stateRow ? { ...stateRow } : { ...(state.adminEditorEvent || eventData), ...statePatch };
@@ -1033,7 +1045,67 @@ function adminNormalizeRecurrenceState(event) {
     recurrence_weekday: coerced.recurrence_weekday ?? null,
     recurrence_day_of_month: coerced.recurrence_day_of_month ?? null
   });
-  return coerced;
+  return applyRecurringSocialDefaults(coerced);
+}
+
+const RECURRING_SOCIAL_OPT_OUT_STORAGE_KEY = "marcha_recurring_social_opt_out_ids";
+
+function readRecurringSocialOptOutIds() {
+  if (typeof window === "undefined" || !window.localStorage) return new Set();
+  try {
+    const raw = window.localStorage.getItem(RECURRING_SOCIAL_OPT_OUT_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(parsed) ? parsed.map((id) => String(id)) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function writeRecurringSocialOptOut(eventId, optOut) {
+  if (typeof window === "undefined" || !window.localStorage) return;
+  const id = String(eventId || "").trim();
+  if (!id) return;
+  const set = readRecurringSocialOptOutIds();
+  if (optOut) set.add(id);
+  else set.delete(id);
+  window.localStorage.setItem(RECURRING_SOCIAL_OPT_OUT_STORAGE_KEY, JSON.stringify([...set]));
+}
+
+function isRecurringSocialExplicitOptOut(event) {
+  if (event?.recurring_social_opt_out === true) return true;
+  const id = String(event?.id || "").trim();
+  if (id && readRecurringSocialOptOutIds().has(id)) return true;
+  return event?._recurringSocialExplicitOptOut === true;
+}
+
+/** Recurring series row (not a one-off child) for social default policy. */
+function eventIsRecurringForSocialDefaults(event) {
+  if (!event || typeof event !== "object") return false;
+  if (adminIsRecurringChildEvent(event)) return false;
+  const stored = normalizeAdminRecurrenceType(event.recurrence_type);
+  if (event.is_recurring === true && (stored === "weekly" || stored === "monthly")) {
+    return adminHasValidRecurrencePattern({ ...event, is_recurring: true, recurrence_type: stored });
+  }
+  if (stored === "weekly" || stored === "monthly") return true;
+  return adminIsRecurringMasterEvent(event);
+}
+
+/**
+ * New recurring → social on. Legacy DB false → on unless explicit opt-out.
+ * One-time events → social off.
+ */
+function applyRecurringSocialDefaults(event) {
+  if (!event || typeof event !== "object") return event;
+  if (!eventIsRecurringForSocialDefaults(event)) {
+    return { ...event, recurring_social_enabled: false, recurring_social_opt_out: false };
+  }
+  if (isRecurringSocialExplicitOptOut(event)) {
+    return { ...event, recurring_social_enabled: false, recurring_social_opt_out: true };
+  }
+  if (event.recurring_social_enabled === true) {
+    return { ...event, recurring_social_enabled: true, recurring_social_opt_out: false };
+  }
+  return { ...event, recurring_social_enabled: true, recurring_social_opt_out: false };
 }
 
 /** Explicit DB flag; missing/false keeps legacy one-time behaviour unchanged. */
@@ -1046,9 +1118,8 @@ function isRecurringSocialMaster(event) {
   return eventIsRecurringSocialFlag(event) && isAdminRecurringEvent(adminCoerceRecurrenceFields(event));
 }
 
-/** Only explicit boolean false disables recurring social automation (null/undefined/"" → enabled). */
 function isRecurringSocialEnabled(series) {
-  return series?.recurring_social_enabled !== false;
+  return applyRecurringSocialDefaults(series).recurring_social_enabled === true;
 }
 
 function isRecurringSocialAutomationEnabled(event) {
@@ -1057,11 +1128,14 @@ function isRecurringSocialAutomationEnabled(event) {
 
 function logRecurringSocialFlag(event) {
   const raw = event && typeof event === "object" ? event : {};
+  const normalized = applyRecurringSocialDefaults(raw);
   console.log("RECURRING SOCIAL FLAG", {
     eventId: raw?.id ?? null,
     title: String(raw?.name || raw?.title || "").trim() || null,
     rawValue: raw?.recurring_social_enabled,
-    enabled: isRecurringSocialEnabled(raw)
+    explicitOptOut: isRecurringSocialExplicitOptOut(raw),
+    enabled: isRecurringSocialEnabled(raw),
+    effectiveValue: normalized.recurring_social_enabled
   });
 }
 
@@ -1446,7 +1520,7 @@ function buildCanonicalRecurringSeriesMap(allEvents, now = new Date()) {
   const series = [];
   for (const group of groups.values()) {
     const picked = pickCanonicalSeriesMaster(group.members);
-    const master = enrichCanonicalSeriesMaster(picked, group.members);
+    const master = applyRecurringSocialDefaults(enrichCanonicalSeriesMaster(picked, group.members));
     master.canonical_series_id = group.canonicalSeriesId;
     logRecurringSocialFlag(master);
     const evaluation = evaluateCanonicalRecurringSeries({ ...group, master }, now);
@@ -1527,7 +1601,7 @@ function evaluateRecurringMasterEligibility(event, now = new Date()) {
     entry.reason = "status_not_approved";
     return entry;
   }
-  if (!isRecurringSocialEnabled(raw)) {
+  if (!isRecurringSocialEnabled(applyRecurringSocialDefaults(raw))) {
     entry.reason = "recurring_social_explicitly_disabled";
     return entry;
   }
@@ -5742,19 +5816,27 @@ function normalizeEvent(event) {
     archived_at: event.archived_at ?? null,
     original_event_id: event.original_event_id ?? null,
     is_recurring: event.is_recurring === true,
-    recurring_social_enabled: event.recurring_social_enabled === true
+    recurring_social_enabled: event.recurring_social_enabled === true,
+    recurring_social_opt_out:
+      event.recurring_social_opt_out === true || readRecurringSocialOptOutIds().has(String(event.id || ""))
   };
   const normalized = adminNormalizeRecurrenceState(base);
+  const withSocial = applyRecurringSocialDefaults({
+    ...base,
+    ...normalized,
+    recurring_social_opt_out: base.recurring_social_opt_out
+  });
   return {
     ...base,
-    is_recurring: normalized.is_recurring === true,
-    recurrence_type: normalized.recurrence_type || "none",
-    recurrence_start_date: normalized.recurrence_start_date || "",
-    recurrence_end_date: normalized.recurrence_end_date || "",
-    recurrence_weekday: normalized.recurrence_weekday ?? null,
-    recurrence_day_of_month: normalized.recurrence_day_of_month ?? null,
-    recurring_social_enabled: normalized.recurring_social_enabled === true,
-    recurring_group_id: normalized.recurring_group_id ?? base.recurring_group_id ?? null
+    is_recurring: withSocial.is_recurring === true,
+    recurrence_type: withSocial.recurrence_type || "none",
+    recurrence_start_date: withSocial.recurrence_start_date || "",
+    recurrence_end_date: withSocial.recurrence_end_date || "",
+    recurrence_weekday: withSocial.recurrence_weekday ?? null,
+    recurrence_day_of_month: withSocial.recurrence_day_of_month ?? null,
+    recurring_social_enabled: withSocial.recurring_social_enabled === true,
+    recurring_social_opt_out: withSocial.recurring_social_opt_out === true,
+    recurring_group_id: withSocial.recurring_group_id ?? base.recurring_group_id ?? null
   };
 }
 
@@ -8494,7 +8576,10 @@ function applyRecurringEditorFieldsToPayload(payload, form) {
   payload.recurrence_type = type;
   payload.recurrence_start_date = String(form.querySelector('[name="recurrence_start_date"]')?.value || "").trim() || null;
   payload.recurrence_end_date = String(form.querySelector('[name="recurrence_end_date"]')?.value || "").trim() || null;
-  payload.recurring_social_enabled = Boolean(form.querySelector('[name="recurring_social_enabled"]')?.checked);
+  const socialCheckbox = form.querySelector('[name="recurring_social_enabled"]');
+  const socialChecked = socialCheckbox ? socialCheckbox.checked : true;
+  payload.recurring_social_enabled = socialChecked;
+  payload.recurring_social_opt_out = !socialChecked;
   if (type === "weekly") {
     const wd = form.querySelector('[name="recurrence_weekday"]')?.value;
     payload.recurrence_weekday = wd === "" || wd === null || wd === undefined ? null : Number(wd);
@@ -8517,8 +8602,9 @@ function applyRecurringEditorFieldsToPayload(payload, form) {
 }
 
 function renderAdminEditorRecurringFields(eventData) {
-  const normalized = adminNormalizeRecurrenceState(eventData || {});
+  const normalized = applyRecurringSocialDefaults(adminNormalizeRecurrenceState(eventData || {}));
   const isRecurring = normalized.is_recurring === true;
+  const socialChecked = isRecurringSocialEnabled(normalized);
   const type = getAdminEffectiveRecurrenceType(normalized);
   const weekday = normalized.recurrence_weekday;
   const dom = normalized.recurrence_day_of_month;
@@ -8556,29 +8642,46 @@ function renderAdminEditorRecurringFields(eventData) {
           <input type="number" name="recurrence_day_of_month" min="1" max="31" value="${escapeHtml(String(dom ?? ""))}" />
         </label>
         <label class="field admin-editor-span-2 admin-editor-recurring__social-flag">
-          <input type="checkbox" name="recurring_social_enabled" value="1"${normalized.recurring_social_enabled === true ? " checked" : ""} />
+          <input type="checkbox" name="recurring_social_enabled" value="1"${socialChecked ? " checked" : ""} />
           <span>Social Automation (Serie) — wöchentliche Auto-Vorbereitung ${RECURRING_SOCIAL_AUTO_PREP_HORIZON_DAYS} Tage voraus · Slots: −3 Tage 18:00, −1 Tag 18:00, −90 min</span>
         </label>
       </div>
     </fieldset>`;
 }
 
-function wireAdminEditorRecurringPanel(form) {
+function wireAdminEditorRecurringPanel(form, eventData = null) {
   if (!form) return;
   const toggle = form.querySelector("[data-editor-is-recurring]");
   const detail = form.querySelector("[data-editor-recurring-detail]");
   const typeSelect = form.querySelector("[data-editor-recurrence-type]");
   const weekly = form.querySelector("[data-editor-recurrence-weekly]");
   const monthly = form.querySelector("[data-editor-recurrence-monthly]");
+  const socialCheckbox = form.querySelector('[name="recurring_social_enabled"]');
+  const explicitOptOut = eventData && isRecurringSocialExplicitOptOut(eventData);
+  if (explicitOptOut) form.dataset.recurringSocialExplicitOptOut = "1";
+  else delete form.dataset.recurringSocialExplicitOptOut;
   const syncVisibility = () => {
     const on = Boolean(toggle?.checked);
     detail?.toggleAttribute("hidden", !on);
     const t = normalizeAdminRecurrenceType(typeSelect?.value);
     weekly?.toggleAttribute("hidden", t !== "weekly");
     monthly?.toggleAttribute("hidden", t !== "monthly");
+    if (on && socialCheckbox && form.dataset.recurringSocialExplicitOptOut !== "1") {
+      socialCheckbox.checked = true;
+    }
   };
-  toggle?.addEventListener("change", syncVisibility);
+  const onToggle = () => {
+    syncVisibility();
+    if (toggle?.checked && socialCheckbox && form.dataset.recurringSocialExplicitOptOut !== "1") {
+      socialCheckbox.checked = true;
+    }
+  };
+  toggle?.addEventListener("change", onToggle);
   typeSelect?.addEventListener("change", syncVisibility);
+  socialCheckbox?.addEventListener("change", () => {
+    if (!socialCheckbox.checked) form.dataset.recurringSocialExplicitOptOut = "1";
+    else delete form.dataset.recurringSocialExplicitOptOut;
+  });
   syncVisibility();
 }
 
@@ -9776,7 +9879,7 @@ function openEventEditorModal(eventDataInput) {
   const tabs = overlay.querySelectorAll("[data-editor-tab]");
   const panels = overlay.querySelectorAll("[data-editor-panel]");
   const prepareRecurringBtn = overlay.querySelector("[data-editor-prepare-recurring]");
-  wireAdminEditorRecurringPanel(form);
+  wireAdminEditorRecurringPanel(form, eventData);
   const syncPrepareRecurringBtn = () => {
     if (!prepareRecurringBtn || !form) return;
     let draft = eventData;

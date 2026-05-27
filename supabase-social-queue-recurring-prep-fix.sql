@@ -61,6 +61,9 @@ exception
   when others then null;
 end $$;
 
+-- Recurring social defaults (opt-out persists explicit disable)
+alter table public.events add column if not exists recurring_social_opt_out boolean not null default false;
+
 -- Child events for recurring series
 alter table public.events add column if not exists original_event_id uuid;
 

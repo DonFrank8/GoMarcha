@@ -20,7 +20,8 @@ const {
 } = require("../social-post-image.js");
 const {
   buildCanonicalRecurringSeriesList,
-  recurringDedupeKey
+  recurringDedupeKey,
+  applyRecurringSocialDefaults
 } = require("./recurring-series-policy.js");
 const MAX_RETRY_DEFAULT = 5;
 
@@ -182,11 +183,11 @@ async function main() {
     allEvents = await restGet(
       baseUrl,
       key,
-      "events?select=id,status,image_url,image_urls,name,title,artist_name,location_name,city,genre,original_event_id,is_recurring,recurring_social_enabled,recurrence_type,recurrence_weekday,recurrence_day_of_month,recurrence_day_of_week,recurrence_start_date,recurrence_end_date,event_date,event_time,archived_at&limit=2000"
+      "events?select=id,status,image_url,image_urls,name,title,artist_name,location_name,city,genre,original_event_id,is_recurring,recurring_social_enabled,recurring_social_opt_out,recurrence_type,recurrence_weekday,recurrence_day_of_month,recurrence_day_of_week,recurrence_start_date,recurrence_end_date,event_date,event_time,archived_at&limit=2000"
     );
     if (!Array.isArray(allEvents)) allEvents = [];
     for (const e of allEvents) {
-      if (e?.id) eventsMap.set(e.id, e);
+      if (e?.id) eventsMap.set(e.id, applyRecurringSocialDefaults(e));
     }
 
     const eventIds = [...new Set(queue.map((r) => r.event_id).filter(Boolean))];
@@ -196,7 +197,7 @@ async function main() {
       const evs = await restGet(
         baseUrl,
         key,
-        `events?id=in.(${inList})&select=id,status,image_url,image_urls,name,title,artist_name,location_name,city,genre,original_event_id,is_recurring,recurring_social_enabled,recurrence_type,recurrence_weekday,recurrence_day_of_month,recurrence_day_of_week,recurrence_start_date,recurrence_end_date,event_date,event_time,archived_at`
+        `events?id=in.(${inList})&select=id,status,image_url,image_urls,name,title,artist_name,location_name,city,genre,original_event_id,is_recurring,recurring_social_enabled,recurring_social_opt_out,recurrence_type,recurrence_weekday,recurrence_day_of_month,recurrence_day_of_week,recurrence_start_date,recurrence_end_date,event_date,event_time,archived_at`
       );
       if (Array.isArray(evs)) {
         for (const e of evs) {
