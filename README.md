@@ -107,6 +107,12 @@ A separate moderation dashboard is now available at:
 3. Ensure moderator users have `app_metadata.role = 'admin'`
 4. If your table is older and missing columns like `status`, run the same script: it now bootstraps required columns before creating policies
 
+### Complete migration reference
+
+Supabase migration and disaster recovery order is documented in [SQL_MIGRATIONS.md](SQL_MIGRATIONS.md). Use this file as the source of truth before recreating or modifying the database schema.
+
+For backup procedures, manual data export, secret inventory, and full restore steps, see [SUPABASE_BACKUP_RECOVERY.md](SUPABASE_BACKUP_RECOVERY.md).
+
 ### Description column typo migration (`descrption_*` -> `description_*`)
 
 If your `events` table still uses legacy typo columns (`descrption_de`, `descrption_en`, `descrption_es`), run:
