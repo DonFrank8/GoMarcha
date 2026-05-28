@@ -109,6 +109,43 @@ const URGENT_EVENT_HOURS = 24;
 const IMMEDIATE_LAST_CALL_DELAY_MS = 60 * 1000;
 const EVENT_START_SAFETY_MS = 15 * 1000;
 
+// ── Weekly Social Schedule – Genre Priority & Slot Plan ──────────────────────
+
+/**
+ * Keyword → priority rank (1 = highest). Lower = posted first / more prominent.
+ * Genre string is lower-cased and checked via .includes().
+ */
+const GENRE_PRIORITY_MAP = Object.freeze([
+  ["salsa", 1], ["bachata", 1], ["latin", 1], ["latina", 1],
+  ["cumbia", 1], ["merengue", 1], ["reggaeton", 1], ["reggaetón", 1],
+  ["jazz", 2], ["soul", 2], ["live music", 2], ["live band", 2],
+  ["blues", 2], ["r&b", 2], ["funk", 2], ["swing", 2],
+  ["beach", 3], ["sunset", 3], ["beach party", 3], ["rooftop", 3], ["chill", 3],
+  ["rock", 4], ["pop", 4], ["indie", 4], ["folk", 4],
+  ["dj set", 5], ["dj", 5], ["electronic", 5], ["techno", 5], ["house", 5], ["edm", 5],
+]);
+const GENRE_PRIORITY_DEFAULT = 6;
+
+/**
+ * Weekly slot plan — deterministic day/time grid for social posts.
+ * weekday:    JS getDay() (0=Sun, 1=Mon … 6=Sat) of the POST date.
+ * type:       "collection" | "single"
+ * scope:      "week" | "weekend"  (collection only)
+ * dayFilter:  JS getDay() of the EVENT date included  (single only)
+ * eventIndex: 0-based rank in genre-sorted event list (default 0)
+ * minEvents:  minimum events required to emit this slot (default 1)
+ */
+const WEEKLY_SCHEDULE_PLAN = Object.freeze([
+  { id: "tue_collection", weekday: 2, hour: 14, minute: 0, type: "collection", scope: "week"    },
+  { id: "wed_single",     weekday: 3, hour: 14, minute: 0, type: "single",  dayFilter: 3        },
+  { id: "thu_single",     weekday: 4, hour: 14, minute: 0, type: "single",  dayFilter: 4        },
+  { id: "fri_collection", weekday: 5, hour: 11, minute: 0, type: "collection", scope: "weekend" },
+  { id: "fri_single",     weekday: 5, hour: 18, minute: 0, type: "single",  dayFilter: 5        },
+  { id: "sat_single_1",   weekday: 6, hour: 10, minute: 0, type: "single",  dayFilter: 6, eventIndex: 0              },
+  { id: "sat_single_2",   weekday: 6, hour: 15, minute: 0, type: "single",  dayFilter: 6, eventIndex: 1, minEvents: 2 },
+  { id: "sun_single",     weekday: 0, hour: 11, minute: 0, type: "single",  dayFilter: 0        },
+]);
+
 const EVENT_ANALYTICS_TABLE = "event_analytics";
 
 const VALID_STATUS = new Set(["pending", "approved", "rejected"]);
@@ -2458,6 +2495,7 @@ function sanitizeHumanCaptionText(text) {
 function normalizeSocialPostStage(stage) {
   const key = String(stage || "").trim().toLowerCase();
   if (!key) return "";
+  if (key === "collection") return "collection";
   if (key === "event_day") return "event_day";
   if (key === "short_notice_last_call" || key === "final_call") return "last_call";
   if (key === "week" || key === "three_days") return "early_reminder";
@@ -2691,6 +2729,9 @@ function buildSpanishCaptionByStage(ctx, stage, platformKey) {
         ? "Mañana"
         : dateLine || "Próximamente";
     caption = `Última llamada: ${headline || genreLive}${place ? ` @ ${place}` : ""}. ${urgency}${timeLine ? ` · ${timeLine}` : ""}.`;
+  } else if (stageKey === "collection") {
+    // Caption is built externally by buildCollectionPostCaption; use a neutral placeholder.
+    caption = headline || genreLive;
   } else if (stageKey === "event_day") {
     caption = `Hoy: ${headline || genreLive}${place ? ` en ${place}` : ""}${genre ? ` · ${genreLive}` : ""}${timeLine ? ` · ${timeLine}` : ""}.`;
   } else {
@@ -4260,6 +4301,244 @@ function immediateLastCallDateForEvent(event, now = new Date()) {
   if (preferred.getTime() < eventStartMs) return preferred;
   const safeLatest = new Date(eventStartMs - EVENT_START_SAFETY_MS);
   return safeLatest > now ? safeLatest : null;
+}
+
+// ── Weekly Social Schedule – Helper Functions ─────────────────────────────────
+
+/** ISO 8601 week number (1–53) for a given local Date. */
+function getIsoWeekNumber(date) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7; // Sun → 7
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
+}
+
+/** Monday (local 00:00:00) of the ISO week that contains `date`. */
+function getWeekMondayDate(date) {
+  const d = new Date(date instanceof Date ? date.getTime() : new Date(String(date)));
+  d.setHours(0, 0, 0, 0);
+  const day = d.getDay();
+  d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
+  return d;
+}
+
+/** Genre priority rank for one event — lower = higher priority (1 = Latin/Salsa). */
+function genreRankForEvent(event) {
+  const g = String(event?.genre || event?.category || "").toLowerCase();
+  for (const [kw, rank] of GENRE_PRIORITY_MAP) {
+    if (g.includes(kw)) return rank;
+  }
+  return GENRE_PRIORITY_DEFAULT;
+}
+
+/** Sort events by genre rank (asc), then by event_time (asc). Returns a new array. */
+function sortEventsByGenrePriority(events) {
+  return [...(events || [])].sort((a, b) => {
+    const ra = genreRankForEvent(a);
+    const rb = genreRankForEvent(b);
+    if (ra !== rb) return ra - rb;
+    return String(a?.event_time || "").localeCompare(String(b?.event_time || ""));
+  });
+}
+
+/**
+ * Infer post_stage from slot post time vs. event start time.
+ * ≤30 h gap → last_call, ≤36 h → tomorrow, else → early_reminder.
+ */
+function slotStageFromTiming(slotDate, eventStart) {
+  if (!(slotDate instanceof Date) || !(eventStart instanceof Date)) return "early_reminder";
+  const diffHours = (eventStart.getTime() - slotDate.getTime()) / 3600000;
+  if (diffHours <= 30) return "last_call";
+  if (diffHours <= 36) return "tomorrow";
+  return "early_reminder";
+}
+
+/** Short Spanish day-of-week label (e.g. "Vie") from a YYYY-MM-DD string. */
+function formatCollectionEventDate(dateStr) {
+  const DAYS_ES = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+  try {
+    const [y, m, d] = String(dateStr || "").split("-").map(Number);
+    if (!y || !m || !d) return "";
+    return DAYS_ES[new Date(y, m - 1, d).getDay()] || "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Build the Sammelpost caption lines.
+ * scope "weekend" → "Este finde en la Costa del Sol:"
+ * scope "week"    → "Esta semana en la Costa del Sol:"
+ */
+function buildCollectionPostCaption(events, scope) {
+  const header = scope === "weekend"
+    ? "🔥 Este finde en la Costa del Sol:"
+    : "🔥 Esta semana en la Costa del Sol:";
+  const sorted = sortEventsByGenrePriority(events);
+  const lines = sorted.map((ev) => {
+    const name = String(ev?.name || ev?.title || "").trim();
+    const city = String(ev?.city || ev?.location_name || "").trim();
+    const day  = formatCollectionEventDate(ev?.event_date);
+    const time = String(ev?.event_time || "").trim().slice(0, 5);
+    const meta = [city, day, time].filter(Boolean).join(" ");
+    return `🎶 ${name}${meta ? " – " + meta : ""}`;
+  });
+  return [header, ...lines].join("\n");
+}
+
+/**
+ * Pick the image URL for a collection post.
+ * Rotates genre tier by ISO week % 4; never reuses lastCollectionImageUrl
+ * (avoids the same image two Sammelpost in a row).
+ */
+function resolveCollectionPostImage(events, lastCollectionImageUrl, isoWeek) {
+  const targetRank = (isoWeek % 4) + 1; // 0→1 (Latin), 1→2 (Jazz), 2→3 (Beach), 3→4 (Rock)
+  const lastUrl = String(lastCollectionImageUrl || "").trim();
+  const sorted = sortEventsByGenrePriority(events);
+  const tierMatch = sorted.filter((ev) => genreRankForEvent(ev) === targetRank);
+  const pool = tierMatch.length ? [...tierMatch, ...sorted] : sorted;
+  const seen = new Set();
+  for (const ev of pool) {
+    const img = String(ev?.image_url || ev?.resolved_image_url || "").trim();
+    if (!img || seen.has(img) || !/^https:\/\//i.test(img)) continue;
+    seen.add(img);
+    if (img !== lastUrl) return img;
+  }
+  // All candidates equal lastUrl — still prefer best image over empty
+  for (const ev of sorted) {
+    const img = String(ev?.image_url || ev?.resolved_image_url || "").trim();
+    if (img && /^https:\/\//i.test(img)) return img;
+  }
+  return "";
+}
+
+/**
+ * Query the image_url of the most recent collection post in the queue.
+ * Used so image rotation never repeats the same image twice in a row.
+ */
+async function getLastCollectionImageFromQueue(client) {
+  try {
+    const { data } = await client
+      .from("social_queue")
+      .select("image_url,scheduled_at")
+      .eq("post_stage", "collection")
+      .in("status", ["posted", "sent_to_postiz", "pending", "ready_for_postiz"])
+      .order("scheduled_at", { ascending: false })
+      .limit(1);
+    return String(data?.[0]?.image_url || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+/** Build hashtag string (8–12 tags) for a collection post. */
+function buildCollectionPostHashtags(bestEvent, _allEvents) {
+  const genre    = String(bestEvent?.genre || bestEvent?.category || "").trim();
+  const city     = String(bestEvent?.city || "").trim();
+  const genreSlug = genre.toLowerCase().replace(/[^a-záéíóúüña-z0-9]/gi, "");
+  const citySlug  = city.toLowerCase().replace(/[^a-záéíóúüña-z0-9]/gi, "");
+  const tags = [
+    "#gomarcha",
+    "#músicaenvivo",
+    "#livemusic",
+    "#CostaDelSol",
+    "#Marbella",
+    "#Málaga",
+    genreSlug ? `#${genreSlug}` : "",
+    citySlug  ? `#${citySlug}`  : "",
+    "#finde",
+    "#planazo",
+    "#Andalucía",
+    "#España",
+  ].filter((t, i, a) => Boolean(t) && t.length > 1 && a.indexOf(t) === i);
+  return tags.slice(0, 12).join(" ");
+}
+
+/**
+ * Build all social_queue candidate rows for one ISO week.
+ *
+ * @param {Array}  weekEvents            Approved non-recurring events for the week.
+ * @param {Date}   monday                Monday of the week (local 00:00:00).
+ * @param {Date}   now                   Current time — past slots are skipped.
+ * @param {string} lastCollectionImageUrl Last collection post image URL (rotation guard).
+ * @param {number} isoWeek               ISO week number (drives genre-tier rotation).
+ * @returns {Array} Candidate queue rows — unsaved; may contain _-prefixed metadata.
+ */
+function buildWeeklyScheduleRows(weekEvents, monday, now, lastCollectionImageUrl, isoWeek) {
+  if (!Array.isArray(weekEvents) || !weekEvents.length) return [];
+  const rows = [];
+
+  for (const slotDef of WEEKLY_SCHEDULE_PLAN) {
+    // Absolute datetime for this slot
+    const daysFromMon = slotDef.weekday === 0 ? 6 : slotDef.weekday - 1;
+    const slotDate = new Date(monday);
+    slotDate.setDate(slotDate.getDate() + daysFromMon);
+    slotDate.setHours(slotDef.hour, slotDef.minute, 0, 0);
+    if (slotDate <= now) continue; // Skip past slots
+
+    if (slotDef.type === "collection") {
+      // ── Sammelpost ──────────────────────────────────────────────────────────
+      const eligible = slotDef.scope === "weekend"
+        ? weekEvents.filter((ev) => {
+            const d = ev?.event_date ? new Date(ev.event_date + "T00:00:00") : null;
+            if (!d || Number.isNaN(d.getTime())) return false;
+            return d.getDay() === 5 || d.getDay() === 6 || d.getDay() === 0; // Fri/Sat/Sun
+          })
+        : weekEvents; // scope "week" → all events this week
+      if (eligible.length < 3) continue; // Sammelpost requires ≥3 events
+
+      const sorted    = sortEventsByGenrePriority(eligible);
+      const bestEvent = sorted[0];
+      const otherIds  = sorted.slice(1).map((ev) => ev.id).filter(Boolean);
+      const caption   = buildCollectionPostCaption(eligible, slotDef.scope);
+      const image     = resolveCollectionPostImage(eligible, lastCollectionImageUrl, isoWeek);
+      const hashtags  = buildCollectionPostHashtags(bestEvent, eligible);
+
+      const payload = buildSocialQueuePayload(bestEvent, slotDate, DEFAULT_SOCIAL_QUEUE_PLATFORMS, {
+        postStage: "collection"
+      });
+      payload.caption            = caption;
+      payload.image_url          = image || payload.image_url;
+      payload.resolved_image_url = image || payload.resolved_image_url;
+      payload.hashtags           = hashtags;
+      payload.post_stage         = "collection";
+      payload.postiz_response    = mergeSocialQueuePostizResponse(
+        payload.postiz_response, hashtags, null, { post_stage: "collection" }
+      );
+      payload.postiz_response._marcha_collection_event_ids = otherIds;
+      payload._slot_id = slotDef.id;
+      rows.push(payload);
+
+    } else {
+      // ── Einzelpost ──────────────────────────────────────────────────────────
+      let eligible = weekEvents.filter((ev) => {
+        const d = ev?.event_date ? new Date(ev.event_date + "T00:00:00") : null;
+        if (!d || Number.isNaN(d.getTime())) return false;
+        return d.getDay() === slotDef.dayFilter;
+      });
+      eligible = sortEventsByGenrePriority(eligible);
+
+      const minEvents  = slotDef.minEvents  ?? 1;
+      const eventIndex = slotDef.eventIndex ?? 0;
+      if (eligible.length < minEvents) continue;
+      if (eventIndex >= eligible.length)  continue;
+
+      const ev         = eligible[eventIndex];
+      const eventStart = dateFromAdminEventWallTime(ev);
+      const stage      = slotStageFromTiming(
+        slotDate,
+        eventStart instanceof Date && !Number.isNaN(eventStart.getTime()) ? eventStart : slotDate
+      );
+
+      const payload = buildSocialQueuePayload(ev, slotDate, DEFAULT_SOCIAL_QUEUE_PLATFORMS, {
+        postStage: stage
+      });
+      payload._slot_id = slotDef.id;
+      rows.push(payload);
+    }
+  }
+  return rows;
 }
 
 function buildSocialReviewQueueRows(event) {
@@ -7142,35 +7421,103 @@ async function loadSocialQueueRows() {
 }
 
 async function ensureSocialReviewQueueForEvent(event) {
-  const candidates = buildSocialReviewQueueRows(event);
-  if (!candidates.length) return 0;
+  // ── Recurring events: use the legacy per-event slot system (unchanged) ──────
+  if (event?.is_recurring === true || String(event?.original_event_id || "").trim()) {
+    const candidates = buildSocialReviewQueueRows(event);
+    if (!candidates.length) return 0;
+    const client = supabaseClient();
+    const { data: existing, error: existingError } = await client
+      .from("social_queue")
+      .select("platform,platforms,scheduled_at,status")
+      .eq("event_id", event.id);
+    if (existingError) throw new Error(existingError.message || "Social Queue konnte nicht geprüft werden.");
+    const existingKeys = new Set(
+      (existing || []).map((row) => new Date(row.scheduled_at).toISOString())
+    );
+    const eventStart = dateFromAdminEventWallTime(event);
+    const now = new Date();
+    const hasRecentLastCall = (candidate) => {
+      if (candidate._slot_id !== "short_notice_last_call" || !eventStart) return false;
+      return (existing || []).some((row) => {
+        if (String(row.status || "").toLowerCase() === "skipped") return false;
+        const scheduled = new Date(row.scheduled_at);
+        if (Number.isNaN(scheduled.getTime())) return false;
+        return scheduled >= new Date(now.getTime() - 6 * 3600000) && scheduled < eventStart;
+      });
+    };
+    const missing = candidates.filter((row) => {
+      if (hasRecentLastCall(row)) return false;
+      return !existingKeys.has(row.scheduled_at);
+    });
+    if (!missing.length) return 0;
+    return insertSocialQueueRows(missing);
+  }
+
+  // ── One-time event: rebuild the full weekly schedule for its ISO week ────────
+  const eventDateStr = String(event?.event_date || "").trim();
+  if (!eventDateStr) return 0;
+  const [ey, em, ed] = eventDateStr.split("-").map(Number);
+  if (!ey || !em || !ed) return 0;
+
+  const monday = getWeekMondayDate(new Date(ey, em - 1, ed));
+  const nextMonday = new Date(monday);
+  nextMonday.setDate(nextMonday.getDate() + 7);
+  const pad = (n) => String(n).padStart(2, "0");
+  const mondayStr    = `${monday.getFullYear()}-${pad(monday.getMonth() + 1)}-${pad(monday.getDate())}`;
+  const nextMondayStr = `${nextMonday.getFullYear()}-${pad(nextMonday.getMonth() + 1)}-${pad(nextMonday.getDate())}`;
+
   const client = supabaseClient();
+  const now = new Date();
+
+  // All approved events that fall within this ISO week
+  const { data: weekEventsRaw, error: weekError } = await client
+    .from("events")
+    .select("*")
+    .eq("status", "approved")
+    .gte("event_date", mondayStr)
+    .lt("event_date", nextMondayStr);
+  if (weekError) throw new Error(weekError.message || "Events für die Woche konnten nicht geladen werden.");
+
+  // Keep only non-recurring future events
+  const weekEvents = (weekEventsRaw || []).filter((ev) => {
+    if (ev?.is_recurring === true) return false;
+    if (String(ev?.original_event_id || "").trim()) return false;
+    const start = dateFromAdminEventWallTime(ev);
+    return start instanceof Date && !Number.isNaN(start.getTime()) && start > now;
+  });
+  if (!weekEvents.length) return 0;
+
+  const lastCollectionImageUrl = await getLastCollectionImageFromQueue(client);
+  const isoWeek    = getIsoWeekNumber(monday);
+  const candidates = buildWeeklyScheduleRows(weekEvents, monday, now, lastCollectionImageUrl, isoWeek);
+  if (!candidates.length) return 0;
+
+  // Fetch existing queue rows for dedup — never touch posted / sent_to_postiz
+  const weekEventIds = weekEvents.map((ev) => ev.id).filter(Boolean);
   const { data: existing, error: existingError } = await client
     .from("social_queue")
-    .select("platform,platforms,scheduled_at,status")
-    .eq("event_id", event.id);
+    .select("event_id,scheduled_at,post_stage")
+    .in("event_id", weekEventIds);
   if (existingError) throw new Error(existingError.message || "Social Queue konnte nicht geprüft werden.");
 
-  const existingKeys = new Set(
-    (existing || []).map((row) => new Date(row.scheduled_at).toISOString())
+  // One collection post per timeslot (regardless of event_id);
+  // one single post per event_id + timeslot.
+  const existingCollectionTimes = new Set(
+    (existing || [])
+      .filter((r) => r.post_stage === "collection")
+      .map((r) => new Date(r.scheduled_at).toISOString())
   );
-  const eventStart = dateFromAdminEventWallTime(event);
-  const now = new Date();
-  const hasRecentLastCall = (candidate) => {
-    if (candidate._slot_id !== "short_notice_last_call" || !eventStart) return false;
-    return (existing || []).some((row) => {
-      if (String(row.status || "").toLowerCase() === "skipped") return false;
-      const scheduled = new Date(row.scheduled_at);
-      if (Number.isNaN(scheduled.getTime())) return false;
-      return scheduled >= new Date(now.getTime() - 6 * 3600000) && scheduled < eventStart;
-    });
-  };
+  const existingSingleKeys = new Set(
+    (existing || []).map((r) => `${r.event_id}::${new Date(r.scheduled_at).toISOString()}`)
+  );
+
   const missing = candidates.filter((row) => {
-    if (hasRecentLastCall(row)) return false;
-    return !existingKeys.has(row.scheduled_at);
+    if (row.post_stage === "collection") {
+      return !existingCollectionTimes.has(row.scheduled_at);
+    }
+    return !existingSingleKeys.has(`${row.event_id}::${row.scheduled_at}`);
   });
   if (!missing.length) return 0;
-
   return insertSocialQueueRows(missing);
 }
 
