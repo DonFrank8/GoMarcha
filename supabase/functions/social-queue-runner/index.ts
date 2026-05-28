@@ -1013,11 +1013,15 @@ function integrationTargetsForRow(
   return targets;
 }
 
-function postizSettings(platform: SocialPlatform): Record<string, unknown> {
+function postizSettings(platform: SocialPlatform, eventId?: string | null): Record<string, unknown> {
   if (platform === "instagram") {
     return { __type: "instagram", post_type: "post", is_trial_reel: false, collaborators: [] };
   }
-  return { __type: "facebook", url: "https://gomarcha.com" };
+  // Use event-specific URL so Facebook crawls the event's OG image, not the site's generic social preview.
+  const fbUrl = eventId
+    ? `https://www.gomarcha.com/?event_id=${encodeURIComponent(eventId)}`
+    : "https://www.gomarcha.com";
+  return { __type: "facebook", url: fbUrl };
 }
 
 /** Postiz API validates `tags` as an array of `{ value, label }`; empty `[]` can break create/list visibility (see postiz-app#717). */
@@ -1124,6 +1128,7 @@ async function createPostizPost(args: {
   image: PostizMedia;
   queueId: string;
   postType: PostizRootType;
+  eventId?: string | null;
 }): Promise<{ ok: boolean; status: number; body: unknown; requestPayload: Record<string, unknown> }> {
   const url = `${args.base.replace(/\/$/, "")}/posts`;
   const group = crypto.randomUUID();
@@ -1138,7 +1143,7 @@ async function createPostizPost(args: {
         group,
         integration: { id: args.integrationId },
         value: [{ content: args.caption, image: [args.image] }],
-        settings: postizSettings(args.platform)
+        settings: postizSettings(args.platform, args.eventId)
       }
     ]
   };
@@ -1176,6 +1181,7 @@ async function createPostizPostMulti(args: {
   image: PostizMedia;
   queueId: string;
   postType: PostizRootType;
+  eventId?: string | null;
 }): Promise<{ ok: boolean; status: number; body: unknown; requestPayload: Record<string, unknown> }> {
   const url = `${args.base.replace(/\/$/, "")}/posts`;
   const group = crypto.randomUUID();
@@ -1189,7 +1195,7 @@ async function createPostizPostMulti(args: {
       group,
       integration: { id: target.integrationId },
       value: [{ content: args.caption, image: [args.image] }],
-      settings: postizSettings(target.platform)
+      settings: postizSettings(target.platform, args.eventId)
     }))
   };
 
@@ -1792,7 +1798,9 @@ Deno.serve(async (req) => {
       selectedImage: imageResolution.selectedImage,
       source: imageResolution.source,
       fallbackUsed: imageResolution.fallbackUsed,
-      candidates: imageResolution.candidates
+      candidates: imageResolution.candidates,
+      retryAttempts: imageResolution.retryAttempts,
+      originalImageUrl: ev.image_url ?? null
     });
 
     const finalImage = imageResolution.selectedImage;
@@ -1804,7 +1812,9 @@ Deno.serve(async (req) => {
       selected_source_image_url: finalImage,
       selection_source: imageLoggedSource,
       using_generic_fallback: imageResolution.fallbackUsed,
-      reachable: imageResolution.reachable ?? null
+      reachable: imageResolution.reachable ?? null,
+      retry_attempts: imageResolution.retryAttempts ?? null,
+      original_event_image_url: ev.image_url ?? null
     });
 
     if (!isPostizUploadsHost(finalImage)) {
@@ -1950,7 +1960,8 @@ Deno.serve(async (req) => {
             postType: postizPlan.postType,
             caption,
             image: publishMedia,
-            queueId: claimed.id
+            queueId: claimed.id,
+            eventId: ev.id
           })
         : await createPostizPostMulti({
             base: postizBase,
@@ -1960,7 +1971,8 @@ Deno.serve(async (req) => {
             postType: postizPlan.postType,
             caption,
             image: publishMedia,
-            queueId: claimed.id
+            queueId: claimed.id,
+            eventId: ev.id
           });
 
     slog("postiz_create_response_body", {

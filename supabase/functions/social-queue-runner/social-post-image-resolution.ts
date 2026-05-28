@@ -33,6 +33,8 @@ export type SocialImageResolution = {
   fallbackUsed: boolean;
   candidates: Array<{ url: string; source: string; priority: number }>;
   reachable?: boolean;
+  /** Total HTTP attempts across all retry loops (for logging). */
+  retryAttempts?: number;
 };
 
 export function isHttpsImageUrl(raw: string | null | undefined): boolean {
@@ -198,6 +200,39 @@ export async function validateImageReachable(url: string, fetchImpl: typeof fetc
   }
 }
 
+/**
+ * Retrying wrapper for validateImageReachable.
+ * Supabase Storage CDN propagation can take a few seconds after upload —
+ * a single-shot check fails during that window and incorrectly falls back
+ * to the generic fallback image.
+ *
+ * Strategy: up to `maxAttempts` tries with `delayMs` between each.
+ * Returns on first success; returns { ok: false } only after all retries exhausted.
+ */
+export async function validateImageReachableWithRetry(
+  url: string,
+  fetchImpl: typeof fetch,
+  opts: { maxAttempts?: number; delayMs?: number } = {}
+): Promise<{ ok: boolean; attempts: number }> {
+  const maxAttempts = opts.maxAttempts ?? 3;
+  const delayMs = opts.delayMs ?? 1500;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const result = await validateImageReachable(url, fetchImpl);
+    if (result.ok) {
+      if (attempt > 1) {
+        console.log(`[image-retry] ok url=${url.slice(0, 120)} attempt=${attempt}/${maxAttempts}`);
+      }
+      return { ok: true, attempts: attempt };
+    }
+    console.log(`[image-retry] fail url=${url.slice(0, 120)} attempt=${attempt}/${maxAttempts}`);
+    if (attempt < maxAttempts) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  return { ok: false, attempts: maxAttempts };
+}
+
 export async function resolveSocialPostImageReachable(
   eventOrQueueRow: Record<string, unknown> | null | undefined,
   options: {
@@ -215,33 +250,52 @@ export async function resolveSocialPostImageReachable(
       : base.candidates;
 
   const seen = new Set<string>();
+  let totalAttempts = 0;
+
   for (const candidate of tryOrder) {
     if (seen.has(candidate.url)) continue;
     seen.add(candidate.url);
-    const check = await validateImageReachable(candidate.url, fetchImpl);
+
+    // Real event images: retry up to 3×/1.5 s to survive CDN propagation delay.
+    // Generic/fallback candidates: single shot is enough (static CDN, always reachable).
+    const isGeneric = candidate.priority >= 99;
+    let check: { ok: boolean; attempts: number };
+    if (isGeneric) {
+      const r = await validateImageReachable(candidate.url, fetchImpl);
+      check = { ok: r.ok, attempts: 1 };
+    } else {
+      check = await validateImageReachableWithRetry(candidate.url, fetchImpl);
+    }
+    totalAttempts += check.attempts;
+
     if (check.ok) {
       return {
         selectedImage: candidate.url,
         source: candidate.source,
-        fallbackUsed: candidate.priority >= 99,
+        fallbackUsed: isGeneric,
         candidates: base.candidates,
-        reachable: true
+        reachable: true,
+        retryAttempts: totalAttempts
       };
     }
   }
 
+  // All candidates failed — last resort: ensure the configured fallback itself is reachable.
   const fb = normalizeFallbackUrl(options.fallbackUrl);
-  if (await validateImageReachable(fb, fetchImpl)) {
+  const fbCheck = await validateImageReachable(fb, fetchImpl);
+  totalAttempts += 1;
+  if (fbCheck.ok) {
     return {
       selectedImage: fb,
       source: "fallback_generic",
       fallbackUsed: true,
       candidates: base.candidates,
-      reachable: true
+      reachable: true,
+      retryAttempts: totalAttempts
     };
   }
 
-  return { ...base, reachable: false };
+  return { ...base, reachable: false, retryAttempts: totalAttempts };
 }
 
 export function logSocialImageResolution(
@@ -253,6 +307,8 @@ export function logSocialImageResolution(
     source?: string;
     fallbackUsed?: boolean;
     candidates?: Array<{ url: string; source: string; priority: number }>;
+    retryAttempts?: number;
+    originalImageUrl?: string | null;
   }
 ): void {
   const payload = {
@@ -261,7 +317,9 @@ export function logSocialImageResolution(
     selectedImage: context.selectedImage ?? "",
     source: context.source ?? "",
     fallbackUsed: Boolean(context.fallbackUsed),
-    candidates: context.candidates ?? []
+    candidates: context.candidates ?? [],
+    retryAttempts: context.retryAttempts ?? null,
+    originalImageUrl: context.originalImageUrl ?? null
   };
   logFn("SOCIAL IMAGE RESOLUTION", payload);
   if (payload.fallbackUsed) logFn("SOCIAL IMAGE FALLBACK USED", payload);
