@@ -39,6 +39,70 @@
 
 ---
 
+## A.1) Automatisches Backup-Script (`npm run backup`)
+
+Das Projekt enthält ein lokales Backup-Script, das alle Tabellen und den Storage-Bucket exportiert.
+
+### Einmalige Einrichtung
+
+```bash
+# 1. Umgebungsdatei anlegen (wird nicht ins Git committed)
+cp .env.backup.example .env.backup.local
+
+# 2. .env.backup.local öffnen und ausfüllen:
+#    SUPABASE_URL              → Supabase-Projekt-URL
+#    SUPABASE_SERVICE_ROLE_KEY → aus Passwort-Manager / Supabase Dashboard → Settings → API
+#    BACKUP_OUTPUT_DIR         → ./backups (Standard)
+#    BACKUP_CREATE_ZIP         → true
+```
+
+### Backup ausführen
+
+```bash
+# Vollständiges Backup (Tabellen + Storage + optional ZIP)
+npm run backup
+
+# Dry-Run — prüft Verbindung, schreibt keine Dateien
+node scripts/backup-marcha.js --dry-run
+```
+
+### Ausgabe-Struktur
+
+```
+backups/
+└── 2026-05-27_14-30-00/
+    ├── events.json
+    ├── social_queue.json
+    ├── social_caption_usage.json
+    ├── event_analytics.json
+    ├── qr_tracking.json
+    ├── storage/
+    │   └── event-images/   ← alle Bilder aus dem Bucket
+    └── backup-manifest.json
+# falls BACKUP_CREATE_ZIP=true:
+└── backup_2026-05-27_14-30-00.zip
+```
+
+### Wöchentliches automatisches Backup (macOS)
+
+```bash
+# Installiert launchd-Agent: jeden Montag 02:00 Uhr
+bash scripts/install-weekly-backup-macos.sh
+
+# Logs:
+#   ~/Library/Logs/gomarcha-backup.log
+#   ~/Library/Logs/gomarcha-backup-error.log
+
+# Deinstallieren:
+launchctl unload ~/Library/LaunchAgents/com.gomarcha.weekly-backup.plist
+rm ~/Library/LaunchAgents/com.gomarcha.weekly-backup.plist
+```
+
+> **Sicherheit:** Der Service Role Key wird ausschließlich aus `.env.backup.local` gelesen.
+> Er steht weder im Skript noch in der launchd-plist. `.env.backup.local` ist gitignored.
+
+---
+
 ## B) Manueller Export über das Supabase Dashboard
 
 ### Tabellen als CSV exportieren
