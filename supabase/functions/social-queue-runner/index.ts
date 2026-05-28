@@ -25,6 +25,7 @@ type QueueRow = {
   hashtags?: string | null;
   cta_text?: string | null;
   postiz_response?: Record<string, unknown> | null;
+  post_stage?: string | null;
   admin_confirmed_at?: string | null;
   postiz_post_id?: string | null;
   postiz_synced_at?: string | null;
@@ -1305,6 +1306,18 @@ function readAdminExtrasFromRow(row: QueueRow): { hashtags: string; cta_text: st
   return fromCols;
 }
 
+/**
+ * Extract the list of secondary event IDs stored in a collection post row.
+ * Returns an empty array for non-collection rows or when the field is absent.
+ */
+function readCollectionEventIds(row: QueueRow): string[] {
+  const pr = row.postiz_response;
+  if (!pr || typeof pr !== "object") return [];
+  const ids = pr._marcha_collection_event_ids;
+  if (!Array.isArray(ids)) return [];
+  return ids.filter((id): id is string => typeof id === "string" && Boolean(id));
+}
+
 /** Prefer admin-edited caption from Marcha when present. */
 function buildCaptionForQueueRow(
   row: QueueRow,
@@ -1574,6 +1587,9 @@ Deno.serve(async (req) => {
       results.push({ queue_id: row.id, skipped: true, reason: "claim_failed_or_race" });
       continue;
     }
+    // Collection-post detection — used for logging and image fallback warning below.
+    const isCollectionPost = String(claimed.post_stage || "").trim() === "collection";
+    const collectionEventIds = isCollectionPost ? readCollectionEventIds(claimed) : [];
 
     const integrationTargets = integrationTargetsForRow(claimed, intIg, intFb);
     if (!integrationTargets.length) {
@@ -1817,6 +1833,17 @@ Deno.serve(async (req) => {
       original_event_image_url: ev.image_url ?? null
     });
 
+    // For collection posts: warn if the dedicated collection image is missing.
+    // The existing resolution chain will still fall back to the best-event's image.
+    if (isCollectionPost && !String(claimed.image_url || "").trim()) {
+      slog("collection_image_url_missing", {
+        queue_id: claimed.id,
+        event_id: ev.id,
+        collection_event_ids: collectionEventIds,
+        fallback_active: true
+      });
+    }
+
     if (!isPostizUploadsHost(finalImage)) {
       await supabase
         .from("social_queue")
@@ -1927,6 +1954,9 @@ Deno.serve(async (req) => {
       queue_id: claimed.id,
       event_id: claimed.event_id,
       event_title: ev.name ?? "",
+      post_stage: claimed.post_stage ?? null,
+      is_collection_post: isCollectionPost,
+      collection_event_count: isCollectionPost ? collectionEventIds.length + 1 : null,
       platforms: claimedPlatforms,
       queue_scheduled_at: claimed.scheduled_at,
       review_window_hours: reviewWindowHours,
@@ -2099,6 +2129,8 @@ Deno.serve(async (req) => {
     slog("postiz_create_ok", {
       queue_id: claimed.id,
       event_id: ev.id,
+      post_stage: claimed.post_stage ?? null,
+      collection_event_count: isCollectionPost ? collectionEventIds.length + 1 : null,
       queue_scheduled_at: claimed.scheduled_at,
       review_window_hours: reviewWindowHours,
       eligible_for_review: eligibleForReview,
