@@ -1307,6 +1307,23 @@ function readAdminExtrasFromRow(row: QueueRow): { hashtags: string; cta_text: st
 }
 
 /**
+ * Convert a relative Supabase Storage path to a full public HTTPS URL.
+ * Some events have image_url stored as a bare path (e.g. "2026/05/28/uuid.jpg")
+ * instead of the full URL. isHttpsImageUrl() rejects relative paths, so they
+ * would be silently skipped and the generic fallback used instead.
+ *
+ * Only rewrites non-HTTP strings; full HTTPS URLs and empty values pass through
+ * unchanged. Strips a leading "event-images/" prefix if present.
+ */
+function normalizeSupabaseStorageImageUrl(raw: string | null | undefined): string {
+  const t = String(raw || "").trim();
+  if (!t || /^(https?|data):\/\//i.test(t)) return t;
+  const base = (Deno.env.get("SUPABASE_URL") || "https://dwyhpirtbjfmohcnhdak.supabase.co").replace(/\/$/, "");
+  const clean = t.replace(/^\/+/, "").replace(/^event-images\//, "");
+  return `${base}/storage/v1/object/public/event-images/${clean}`;
+}
+
+/**
  * Extract the list of secondary event IDs stored in a collection post row.
  * Returns an empty array for non-collection rows or when the field is absent.
  */
@@ -1803,20 +1820,40 @@ Deno.serve(async (req) => {
       timezone: eventTimeZone
     });
 
+    // Normalise relative Supabase Storage paths to full public URLs before
+    // resolution — some event rows store a bare path (e.g. "2026/05/28/uuid.jpg")
+    // instead of the full HTTPS URL, which isHttpsImageUrl() silently rejects.
+    const evNormImageUrl = normalizeSupabaseStorageImageUrl(ev.image_url);
+    const claimNormImageUrl = normalizeSupabaseStorageImageUrl(claimed.image_url);
+    const claimNormResolvedUrl = normalizeSupabaseStorageImageUrl(claimed.resolved_image_url);
+
     const imageResolution = await resolveSocialPostImageReachable(
-      { ...(claimed as unknown as Record<string, unknown>) },
-      { event: ev as unknown as Record<string, unknown>, fallbackUrl: fallbackImage, fetchImpl: fetch }
+      {
+        ...(claimed as unknown as Record<string, unknown>),
+        image_url: claimNormImageUrl,
+        resolved_image_url: claimNormResolvedUrl
+      },
+      {
+        event: {
+          ...(ev as unknown as Record<string, unknown>),
+          image_url: evNormImageUrl
+        },
+        fallbackUrl: fallbackImage,
+        fetchImpl: fetch
+      }
     );
 
     logSocialImageResolution(slog, {
       eventId: ev.id,
       queueId: claimed.id,
+      title: ev.name ?? null,
       selectedImage: imageResolution.selectedImage,
       source: imageResolution.source,
       fallbackUsed: imageResolution.fallbackUsed,
       candidates: imageResolution.candidates,
       retryAttempts: imageResolution.retryAttempts,
-      originalImageUrl: ev.image_url ?? null
+      originalImageUrl: ev.image_url ?? null,
+      rawImageUrls: ev.image_urls
     });
 
     const finalImage = imageResolution.selectedImage;

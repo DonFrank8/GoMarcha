@@ -70,7 +70,9 @@ export function isGenericMarchaAssetUrl(url: string, configuredFallback?: string
     const u = new URL(t);
     const host = u.hostname.replace(/^www\./, "").toLowerCase();
     const p = u.pathname.toLowerCase();
-    if (GENERIC_PATH_HINTS.some((h) => p.includes(h))) return true;
+    // Path-hint check is intentionally scoped to Marcha's own domains only.
+    // Applying it to all hosts would wrongly reject event images whose URL paths
+    // happen to contain words like "promo", "logo", "qr", etc.
     if (MARCHA_SITE_HOSTS.has(host) && GENERIC_PATH_HINTS.some((h) => p.includes(h))) return true;
   } catch {
     return true;
@@ -303,23 +305,29 @@ export function logSocialImageResolution(
   context: {
     eventId?: string | null;
     queueId?: string | null;
+    /** Event title for human-readable log triage. */
+    title?: string | null;
     selectedImage?: string;
     source?: string;
     fallbackUsed?: boolean;
     candidates?: Array<{ url: string; source: string; priority: number }>;
     retryAttempts?: number;
     originalImageUrl?: string | null;
+    /** Raw image_urls gallery from the events table (aids diagnosis). */
+    rawImageUrls?: unknown;
   }
 ): void {
   const payload = {
     eventId: context.eventId ?? null,
     queueId: context.queueId ?? null,
+    title: context.title ?? null,
     selectedImage: context.selectedImage ?? "",
     source: context.source ?? "",
     fallbackUsed: Boolean(context.fallbackUsed),
     candidates: context.candidates ?? [],
     retryAttempts: context.retryAttempts ?? null,
-    originalImageUrl: context.originalImageUrl ?? null
+    originalImageUrl: context.originalImageUrl ?? null,
+    rawImageUrls: context.rawImageUrls ?? null
   };
   logFn("SOCIAL IMAGE RESOLUTION", payload);
   if (payload.fallbackUsed) logFn("SOCIAL IMAGE FALLBACK USED", payload);
