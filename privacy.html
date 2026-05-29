@@ -1,0 +1,1463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#020617">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="robots" content="index, follow">
+  <title>Privacy Policy – Marcha</title>
+  <meta name="description" content="Privacy Policy for Marcha – the event discovery platform for Marbella and Costa del Sol. Learn how we collect, use and protect your data.">
+  <link rel="canonical" href="https://gomarcha.com/privacy.html">
+  <link rel="icon" type="image/png" href="./assets/favicon-v4.png">
+  <link rel="apple-touch-icon" href="./assets/apple-touch-icon-v4.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    /* ── Design Tokens ── */
+    :root {
+      color-scheme: dark;
+      --bg:               #020617;
+      --bg-elevated:      #0f172a;
+      --surface:          #0f172a;
+      --surface-soft:     #1e293b;
+      --surface-glass:    rgba(15, 23, 42, 0.82);
+      --surface-border:   rgba(124, 58, 237, 0.28);
+      --text:             #f8fafc;
+      --text-muted:       #94a3b8;
+      --text-subtle:      #64748b;
+      --neon-purple:      #7c3aed;
+      --electric-pink:    #ec4899;
+      --sunset:           #f472b6;
+      --white:            #ffffff;
+      --success:          #34d399;
+      --warning:          #ffbe66;
+      --radius-xs:        10px;
+      --radius-sm:        14px;
+      --radius-md:        18px;
+      --radius-lg:        24px;
+      --motion-base:      0.24s cubic-bezier(0.22, 1, 0.36, 1);
+      --ease-out:         cubic-bezier(0.22, 1, 0.36, 1);
+      --glow-purple:      0 0 0 1px rgba(124, 58, 237, 0.38), 0 10px 26px rgba(124, 58, 237, 0.3);
+      --shadow:           0 24px 60px rgba(2, 6, 23, 0.62);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: "Inter", sans-serif;
+      font-size: 1rem;
+      line-height: 1.65;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 12% 0%,   rgba(236, 72, 153, 0.12), transparent 34%),
+        radial-gradient(circle at 82% 0%,   rgba(124, 58, 237, 0.18), transparent 36%),
+        radial-gradient(circle at 68% 15%,  rgba(236, 72, 153, 0.10), transparent 29%),
+        linear-gradient(180deg, #020617 0%, #0f172a 46%, #020617 100%);
+      min-height: 100vh;
+      padding-top: env(safe-area-inset-top);
+    }
+
+    /* Aurora glow layers */
+    body::before {
+      content: "";
+      position: fixed;
+      inset: -14% -8% auto;
+      height: 42vh;
+      pointer-events: none;
+      z-index: 0;
+      opacity: 0.5;
+      background:
+        radial-gradient(circle at 18% 20%, rgba(236, 72, 153, 0.14), transparent 52%),
+        radial-gradient(circle at 78%  8%, rgba(124, 58, 237, 0.20), transparent 56%),
+        radial-gradient(circle at 58% 68%, rgba(236, 72, 153, 0.12), transparent 60%);
+      filter: blur(28px) saturate(1.08);
+      animation: auroraDrift 16s ease-in-out infinite alternate;
+    }
+    body::after {
+      content: "";
+      position: fixed;
+      inset: auto -10% -22% -10%;
+      height: 38vh;
+      pointer-events: none;
+      z-index: 0;
+      opacity: 0.34;
+      background:
+        radial-gradient(circle at 24% 42%, rgba(124, 58, 237, 0.18), transparent 58%),
+        radial-gradient(circle at 74% 58%, rgba(236, 72, 153, 0.14), transparent 60%);
+      filter: blur(34px);
+      animation: auroraDrift 20s ease-in-out infinite alternate-reverse;
+    }
+    @keyframes auroraDrift {
+      from { transform: translate(0, 0) scale(1); }
+      to   { transform: translate(2%, 3%) scale(1.04); }
+    }
+
+    body > * { position: relative; z-index: 1; }
+
+    /* ── Top Nav ── */
+    .topnav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(2, 6, 23, 0.88);
+      backdrop-filter: blur(20px) saturate(1.4);
+      -webkit-backdrop-filter: blur(20px) saturate(1.4);
+      border-bottom: 1px solid rgba(124, 58, 237, 0.18);
+      padding: 0.85rem 1.5rem;
+      padding-top: calc(0.85rem + env(safe-area-inset-top));
+    }
+    .topnav__inner {
+      max-width: 860px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+    .topnav__back {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--text-muted);
+      text-decoration: none;
+      transition: color var(--motion-base);
+      white-space: nowrap;
+    }
+    .topnav__back:hover { color: var(--text); }
+    .topnav__back svg { flex-shrink: 0; }
+    .topnav__logo img {
+      height: 30px;
+      width: auto;
+      display: block;
+    }
+    .topnav__label {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--text-subtle);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      white-space: nowrap;
+    }
+
+    /* ── Page Layout ── */
+    .page {
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 3rem 1.5rem 5rem;
+    }
+
+    /* ── Page Header ── */
+    .page-header {
+      margin-bottom: 2.5rem;
+      text-align: center;
+    }
+    .page-header__eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.78rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--electric-pink);
+      background: rgba(236, 72, 153, 0.1);
+      border: 1px solid rgba(236, 72, 153, 0.22);
+      border-radius: 99px;
+      padding: 0.28rem 0.85rem;
+      margin-bottom: 1.1rem;
+    }
+    .page-header__title {
+      font-family: "Poppins", sans-serif;
+      font-size: clamp(2rem, 5vw, 2.75rem);
+      font-weight: 700;
+      line-height: 1.18;
+      background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 40%, var(--sunset) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 0.75rem;
+    }
+    .page-header__meta {
+      font-size: 0.875rem;
+      color: var(--text-subtle);
+    }
+    .page-header__meta strong { color: var(--text-muted); }
+
+    /* ── Key Promises Card ── */
+    .promises {
+      background: linear-gradient(135deg, rgba(124, 58, 237, 0.14), rgba(236, 72, 153, 0.10));
+      border: 1px solid rgba(124, 58, 237, 0.32);
+      border-radius: var(--radius-lg);
+      padding: 1.6rem 1.8rem;
+      margin-bottom: 2.5rem;
+    }
+    .promises__title {
+      font-family: "Poppins", sans-serif;
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .promises__list {
+      list-style: none;
+      display: grid;
+      gap: 0.55rem;
+    }
+    .promises__list li {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.65rem;
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+    .promises__list li::before {
+      content: "";
+      display: block;
+      width: 18px;
+      height: 18px;
+      flex-shrink: 0;
+      margin-top: 0.05em;
+      background: radial-gradient(circle, var(--success) 0%, rgba(52, 211, 153, 0.5) 100%);
+      border-radius: 50%;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 18 18'%3E%3Ccircle cx='9' cy='9' r='9' fill='%2334d399' fill-opacity='0.18'/%3E%3Cpath d='M5.5 9l2.5 2.5 4.5-4.5' stroke='%2334d399' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3C/svg%3E");
+      background-size: cover;
+    }
+
+    /* ── TOC ── */
+    .toc {
+      background: var(--surface-glass);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-md);
+      padding: 1.4rem 1.6rem;
+      margin-bottom: 2.5rem;
+    }
+    .toc__title {
+      font-size: 0.8rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-subtle);
+      margin-bottom: 1rem;
+    }
+    .toc__list {
+      list-style: none;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.3rem 1.5rem;
+    }
+    .toc__list li a {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      text-decoration: none;
+      display: flex;
+      align-items: baseline;
+      gap: 0.45rem;
+      transition: color var(--motion-base);
+      line-height: 1.4;
+    }
+    .toc__list li a:hover { color: var(--sunset); }
+    .toc__list li a .toc__num {
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: var(--neon-purple);
+      flex-shrink: 0;
+      min-width: 1.2em;
+    }
+    @media (max-width: 520px) {
+      .toc__list { grid-template-columns: 1fr; }
+    }
+
+    /* ── Data Glance Table ── */
+    .data-glance {
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      margin: 1.4rem 0;
+    }
+    .data-glance table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.875rem;
+    }
+    .data-glance thead tr {
+      background: rgba(124, 58, 237, 0.16);
+    }
+    .data-glance thead th {
+      padding: 0.7rem 1rem;
+      text-align: left;
+      font-weight: 600;
+      color: var(--text-muted);
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .data-glance tbody tr {
+      border-top: 1px solid rgba(124, 58, 237, 0.12);
+      transition: background var(--motion-base);
+    }
+    .data-glance tbody tr:hover { background: rgba(124, 58, 237, 0.06); }
+    .data-glance tbody td {
+      padding: 0.7rem 1rem;
+      color: var(--text-muted);
+      vertical-align: top;
+      line-height: 1.5;
+    }
+    .data-glance tbody td:first-child {
+      font-weight: 500;
+      color: var(--text);
+      white-space: nowrap;
+    }
+    .badge {
+      display: inline-block;
+      padding: 0.18rem 0.55rem;
+      border-radius: 99px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      line-height: 1.4;
+    }
+    .badge--purple { background: rgba(124, 58, 237, 0.2); color: #a78bfa; border: 1px solid rgba(124, 58, 237, 0.28); }
+    .badge--pink   { background: rgba(236, 72, 153, 0.15); color: #f9a8d4; border: 1px solid rgba(236, 72, 153, 0.25); }
+    .badge--green  { background: rgba(52, 211, 153, 0.12); color: #6ee7b7; border: 1px solid rgba(52, 211, 153, 0.22); }
+    .badge--amber  { background: rgba(255, 190, 102, 0.12); color: #fcd34d; border: 1px solid rgba(255, 190, 102, 0.22); }
+
+    /* ── Sections ── */
+    .section {
+      background: var(--surface-glass);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(124, 58, 237, 0.14);
+      border-radius: var(--radius-lg);
+      padding: 1.8rem 2rem;
+      margin-bottom: 1.25rem;
+      scroll-margin-top: 80px;
+      transition: border-color var(--motion-base);
+    }
+    .section:hover { border-color: rgba(124, 58, 237, 0.28); }
+    .section:target { border-color: rgba(124, 58, 237, 0.45); box-shadow: var(--glow-purple); }
+
+    .section__header {
+      display: flex;
+      align-items: flex-start;
+      gap: 1rem;
+      margin-bottom: 1.1rem;
+    }
+    .section__num {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 36px;
+      flex-shrink: 0;
+      border-radius: 50%;
+      background: linear-gradient(135deg, rgba(124, 58, 237, 0.35), rgba(236, 72, 153, 0.25));
+      border: 1px solid rgba(124, 58, 237, 0.38);
+      font-family: "Poppins", sans-serif;
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .section__title {
+      font-family: "Poppins", sans-serif;
+      font-size: 1.15rem;
+      font-weight: 600;
+      color: var(--text);
+      padding-top: 0.3rem;
+      line-height: 1.3;
+    }
+
+    /* ── Prose ── */
+    .prose { color: var(--text-muted); font-size: 0.93rem; line-height: 1.72; }
+    .prose p { margin-bottom: 0.9rem; }
+    .prose p:last-child { margin-bottom: 0; }
+    .prose ul, .prose ol { padding-left: 1.4rem; margin-bottom: 0.9rem; }
+    .prose li { margin-bottom: 0.35rem; }
+    .prose strong { color: var(--text); font-weight: 600; }
+    .prose a { color: var(--sunset); text-decoration: underline; text-underline-offset: 3px; transition: opacity var(--motion-base); }
+    .prose a:hover { opacity: 0.8; }
+    .prose h3 {
+      font-family: "Poppins", sans-serif;
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--text);
+      margin: 1.3rem 0 0.55rem;
+    }
+    .prose h3:first-child { margin-top: 0; }
+
+    /* ── Callout / Highlight ── */
+    .callout {
+      background: rgba(124, 58, 237, 0.1);
+      border-left: 3px solid var(--neon-purple);
+      border-radius: 0 var(--radius-xs) var(--radius-xs) 0;
+      padding: 0.9rem 1.1rem;
+      margin: 1rem 0;
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+    .callout strong { color: var(--text); }
+    .callout--pink {
+      background: rgba(236, 72, 153, 0.08);
+      border-left-color: var(--electric-pink);
+    }
+    .callout--green {
+      background: rgba(52, 211, 153, 0.08);
+      border-left-color: var(--success);
+    }
+
+    /* ── Rights Grid ── */
+    .rights-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 0.9rem;
+      margin: 1.1rem 0;
+    }
+    .right-card {
+      background: rgba(124, 58, 237, 0.08);
+      border: 1px solid rgba(124, 58, 237, 0.2);
+      border-radius: var(--radius-sm);
+      padding: 1rem 1.1rem;
+    }
+    .right-card__title {
+      font-family: "Poppins", sans-serif;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 0.35rem;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .right-card__article {
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: var(--neon-purple);
+      background: rgba(124, 58, 237, 0.15);
+      padding: 0.1rem 0.4rem;
+      border-radius: 4px;
+    }
+    .right-card__desc {
+      font-size: 0.8rem;
+      color: var(--text-subtle);
+      line-height: 1.5;
+    }
+
+    /* ── Third-Party Cards ── */
+    .third-party-list {
+      display: grid;
+      gap: 0.75rem;
+      margin: 1rem 0;
+    }
+    .third-party-card {
+      background: rgba(30, 41, 59, 0.55);
+      border: 1px solid rgba(124, 58, 237, 0.15);
+      border-radius: var(--radius-sm);
+      padding: 1rem 1.2rem;
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 0.5rem 1rem;
+      align-items: start;
+    }
+    .third-party-card__name {
+      font-weight: 600;
+      font-size: 0.88rem;
+      color: var(--text);
+      grid-column: 1;
+      padding-top: 0.05em;
+    }
+    .third-party-card__desc {
+      font-size: 0.82rem;
+      color: var(--text-subtle);
+      line-height: 1.55;
+      grid-column: 2;
+      grid-row: 1 / 3;
+    }
+    .third-party-card__link {
+      font-size: 0.75rem;
+      color: var(--sunset);
+      text-decoration: underline;
+      text-underline-offset: 2px;
+      grid-column: 1;
+    }
+
+    /* ── Contact Card ── */
+    .contact-card {
+      background: linear-gradient(135deg, rgba(124, 58, 237, 0.16), rgba(236, 72, 153, 0.10));
+      border: 1px solid rgba(124, 58, 237, 0.35);
+      border-radius: var(--radius-md);
+      padding: 1.6rem 1.8rem;
+      margin-top: 1rem;
+    }
+    .contact-card__row {
+      display: flex;
+      align-items: baseline;
+      gap: 0.6rem;
+      margin-bottom: 0.55rem;
+      font-size: 0.9rem;
+    }
+    .contact-card__row:last-child { margin-bottom: 0; }
+    .contact-card__label {
+      font-weight: 600;
+      color: var(--text-muted);
+      min-width: 110px;
+      flex-shrink: 0;
+    }
+    .contact-card__value { color: var(--text); }
+    .contact-card__value a {
+      color: var(--sunset);
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+    @media (max-width: 480px) {
+      .contact-card__row { flex-direction: column; gap: 0.15rem; }
+      .contact-card__label { min-width: unset; }
+    }
+
+    /* ── Footer ── */
+    .page-footer {
+      text-align: center;
+      margin-top: 3.5rem;
+      padding-bottom: calc(1rem + env(safe-area-inset-bottom));
+    }
+    .page-footer__back {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--text-muted);
+      background: rgba(124, 58, 237, 0.12);
+      border: 1px solid rgba(124, 58, 237, 0.28);
+      border-radius: 99px;
+      padding: 0.6rem 1.3rem;
+      text-decoration: none;
+      transition: background var(--motion-base), border-color var(--motion-base), color var(--motion-base);
+    }
+    .page-footer__back:hover {
+      background: rgba(124, 58, 237, 0.22);
+      border-color: rgba(124, 58, 237, 0.5);
+      color: var(--text);
+    }
+    .page-footer__copy {
+      margin-top: 1.2rem;
+      font-size: 0.78rem;
+      color: var(--text-subtle);
+    }
+
+    /* ── Responsive ── */
+    @media (max-width: 600px) {
+      .page { padding: 2rem 1rem 4rem; }
+      .section { padding: 1.4rem 1.2rem; }
+      .promises { padding: 1.2rem 1.3rem; }
+      .toc { padding: 1.1rem 1.2rem; }
+      .data-glance { overflow-x: auto; }
+      .data-glance table { min-width: 480px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ── Top Navigation ── -->
+  <nav class="topnav" aria-label="Page navigation">
+    <div class="topnav__inner">
+      <a href="/" class="topnav__back" aria-label="Back to Marcha homepage">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M10 12L6 8l4-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Back to Marcha
+      </a>
+      <a href="/" class="topnav__logo" aria-label="Marcha">
+        <img src="/assets/logo-schrift.png" alt="Marcha" height="30" decoding="async">
+      </a>
+      <span class="topnav__label">Privacy</span>
+    </div>
+  </nav>
+
+  <!-- ── Main Content ── -->
+  <main class="page" id="main">
+
+    <!-- Page Header -->
+    <header class="page-header">
+      <div class="page-header__eyebrow">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+          <circle cx="6" cy="6" r="5" stroke="currentColor" stroke-width="1.4"/>
+          <path d="M6 4v2.5l1.5 1.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+        </svg>
+        Legal Document
+      </div>
+      <h1 class="page-header__title">Privacy Policy</h1>
+      <p class="page-header__meta">
+        <strong>Effective date:</strong> 29 May 2026 &nbsp;·&nbsp;
+        <strong>Last updated:</strong> 29 May 2026
+      </p>
+    </header>
+
+    <!-- Key Promises -->
+    <div class="promises" role="region" aria-label="Privacy commitments">
+      <p class="promises__title">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M8 1.5L10 5.5H14.5L11 8.5L12.5 13L8 10.5L3.5 13L5 8.5L1.5 5.5H6L8 1.5Z" fill="rgba(124,58,237,0.4)" stroke="#7c3aed" stroke-width="1.2" stroke-linejoin="round"/>
+        </svg>
+        Our Privacy Commitments
+      </p>
+      <ul class="promises__list">
+        <li>We do <strong>not sell</strong> your personal data to third parties — ever.</li>
+        <li>You can request <strong>deletion of your personal data</strong> at any time.</li>
+        <li>Location data is used <strong>only to improve event discovery</strong> and is not stored server-side after your session.</li>
+        <li>Uploaded event images may be <strong>publicly displayed</strong> — only submit images you have the right to share.</li>
+        <li>Event information you submit may be <strong>publicly visible</strong> on the Marcha platform.</li>
+        <li>All data processing follows <strong>EU GDPR requirements</strong>.</li>
+      </ul>
+    </div>
+
+    <!-- Table of Contents -->
+    <nav class="toc" aria-label="Table of contents">
+      <p class="toc__title">Contents</p>
+      <ol class="toc__list">
+        <li><a href="#s1"><span class="toc__num">1.</span> Introduction</a></li>
+        <li><a href="#s2"><span class="toc__num">2.</span> Who We Are</a></li>
+        <li><a href="#s3"><span class="toc__num">3.</span> Information We Collect</a></li>
+        <li><a href="#s4"><span class="toc__num">4.</span> Event Submissions</a></li>
+        <li><a href="#s5"><span class="toc__num">5.</span> Uploaded Images</a></li>
+        <li><a href="#s6"><span class="toc__num">6.</span> Location Data</a></li>
+        <li><a href="#s7"><span class="toc__num">7.</span> Analytics and Cookies</a></li>
+        <li><a href="#s8"><span class="toc__num">8.</span> Supabase Data Processing</a></li>
+        <li><a href="#s9"><span class="toc__num">9.</span> Cloudflare Services</a></li>
+        <li><a href="#s10"><span class="toc__num">10.</span> Data Retention</a></li>
+        <li><a href="#s11"><span class="toc__num">11.</span> Your Rights (GDPR)</a></li>
+        <li><a href="#s12"><span class="toc__num">12.</span> Data Security</a></li>
+        <li><a href="#s13"><span class="toc__num">13.</span> Third-Party Services</a></li>
+        <li><a href="#s14"><span class="toc__num">14.</span> Children's Privacy</a></li>
+        <li><a href="#s15"><span class="toc__num">15.</span> Changes to this Policy</a></li>
+        <li><a href="#s16"><span class="toc__num">16.</span> Contact Information</a></li>
+      </ol>
+    </nav>
+
+    <!-- ──────────────────────────────────────────────── -->
+    <!-- Section 1 — Introduction                        -->
+    <!-- ──────────────────────────────────────────────── -->
+    <section class="section" id="s1">
+      <div class="section__header">
+        <span class="section__num" aria-hidden="true">1</span>
+        <h2 class="section__title">Introduction</h2>
+      </div>
+      <div class="prose">
+        <p>
+          Welcome to Marcha ("Marcha", "we", "us", or "our"). Marcha is a lifestyle event
+          discovery platform focused on Marbella, the Costa del Sol, and other destinations.
+          Our platform is available at <a href="https://gomarcha.com">gomarcha.com</a> as a
+          Progressive Web App (PWA) and as native mobile applications for Android and iOS.
+        </p>
+        <p>
+          This Privacy Policy explains what personal data we collect, why we collect it,
+          how we use it, and what rights you have under the
+          <strong>General Data Protection Regulation (GDPR)</strong> and other applicable
+          data protection laws.
+        </p>
+        <p>
+          By using Marcha, you acknowledge that you have read and understood this Privacy Policy.
+          If you do not agree with this policy, please discontinue use of the platform.
+        </p>
+        <div class="callout--green callout">
+          This policy applies to all users regardless of where they are located, including users
+          in the European Union, European Economic Area, United Kingdom, and the United States.
+          EU/EEA users receive all rights granted by the GDPR.
+        </div>
+      </div>
+    </section>
+
+    <!-- ──────────────────────────────────────────────── -->
+    <!-- Section 2 — Who We Are                          -->
+    <!-- ──────────────────────────────────────────────── -->
+    <section class="section" id="s2">
+      <div class="section__header">
+        <span class="section__num" aria-hidden="true">2</span>
+        <h2 class="section__title">Who We Are</h2>
+      </div>
+      <div class="prose">
+        <p>
+          Marcha is operated by <strong>Heinz Frank Hilgers</strong>, a private individual based
+          in Spain, trading under the brand <strong>Marcha / GoMarcha</strong>. Under the GDPR,
+          Heinz Frank Hilgers acts as the <strong>data controller</strong> for all personal data
+          collected through the platform and determines the purposes and means of processing.
+        </p>
+        <p>
+          Our platform is built on the following infrastructure:
+        </p>
+        <ul>
+          <li><strong>Supabase</strong> — database, authentication, and file storage (acting as a data processor on our behalf)</li>
+          <li><strong>Cloudflare</strong> — content delivery network (CDN), security, and DDoS protection</li>
+          <li><strong>Google Fonts / Google Maps Platform</strong> — typography and venue search</li>
+        </ul>
+        <p>
+          For full contact details and data subject requests, see <a href="#s16">Section 16 – Contact Information</a>.
+        </p>
+      </div>
+    </section>
+
+    <!-- ──────────────────────────────────────────────── -->
+    <!-- Section 3 — Information We Collect              -->
+    <!-- ──────────────────────────────────────────────── -->
+    <section class="section" id="s3">
+      <div class="section__header">
+        <span class="section__num" aria-hidden="true">3</span>
+        <h2 class="section__title">Information We Collect</h2>
+      </div>
+      <div class="prose">
+        <p>
+          Marcha is designed to be <strong>low on data collection</strong>. We do not require account
+          registration to discover events. The data we collect falls into the following categories:
+        </p>
+
+        <div class="data-glance">
+          <table>
+            <thead>
+              <tr>
+                <th>Data Category</th>
+                <th>What We Collect</th>
+                <th>Legal Basis</th>
+                <th>Linked to You?</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Usage Data</td>
+                <td>Pages visited, events viewed, searches performed, device type, browser</td>
+                <td><span class="badge badge--purple">Legitimate Interest</span></td>
+                <td><span class="badge badge--green">No</span></td>
+              </tr>
+              <tr>
+                <td>Technical Data</td>
+                <td>IP address (via Cloudflare), user agent, timestamps, referrer URL</td>
+                <td><span class="badge badge--purple">Legitimate Interest</span></td>
+                <td><span class="badge badge--amber">Indirect</span></td>
+              </tr>
+              <tr>
+                <td>Location Data</td>
+                <td>GPS coordinates or IP-based location (only when you enable "Near me")</td>
+                <td><span class="badge badge--pink">Consent</span></td>
+                <td><span class="badge badge--green">No (session only)</span></td>
+              </tr>
+              <tr>
+                <td>Event Submission Data</td>
+                <td>Event details, submitter name, contact email, optional website / social links</td>
+                <td><span class="badge badge--amber">Contract</span></td>
+                <td><span class="badge badge--pink">Yes</span></td>
+              </tr>
+              <tr>
+                <td>Uploaded Images</td>
+                <td>Event photos you upload (stored in Supabase Storage)</td>
+                <td><span class="badge badge--amber">Contract</span></td>
+                <td><span class="badge badge--pink">Yes (public)</span></td>
+              </tr>
+              <tr>
+                <td>Support Communications</td>
+                <td>Email address and message content when you contact us</td>
+                <td><span class="badge badge--pink">Consent</span></td>
+                <td><span class="badge badge--pink">Yes</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Data We Do Not Collect</h3>
+        <ul>
+          <li>We do <strong>not</strong> collect payment or financial information.</li>
+          <li>We do <strong>not</strong> collect government-issued identification.</li>
+          <li>We do <strong>not</strong> build advertising profiles or sell data to advertisers.</li>
+          <li>We do <strong>not</strong> use tracking pixels or cross-site tracking cookies.</li>
+          <li>We do <strong>not</strong> require account registration to use core features.</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ──────────────────────────────────────────────── -->
+    <!-- Section 4 — Event Submissions                   -->
+    <!-- ──────────────────────────────────────────────── -->
+    <section class="section" id="s4">
+      <div class="section__header">
+        <span class="section__num" aria-hidden="true">4</span>
+        <h2 class="section__title">Event Submissions</h2>
+      </div>
+      <div class="prose">
+        <p>
+          When you submit an event through the "Add Event" form, we collect the following information:
+        </p>
+        <ul>
+          <li><strong>Event details:</strong> Title, date and time, venue, address, description, genre / category, ticket link, website</li>
+          <li><strong>Submitter details:</strong> Your name and contact email address</li>
+          <li><strong>Optional media:</strong> Event images (see Section 5)</li>
+        </ul>
+        <h3>How Submitted Events Are Used</h3>
+        <p>
+          Event information is reviewed by our team before publication. Once approved,
+          <strong>event details are displayed publicly</strong> on the Marcha platform and may be
+          shared via our social media channels. Your personal contact details (name and email) are
+          stored for administrative purposes and are <strong>not displayed publicly</strong>.
+        </p>
+        <div class="callout">
+          <strong>Public visibility:</strong> Event title, date, venue, description, and images are
+          publicly accessible. Only submit event information you consent to be publicly displayed.
+        </div>
+        <h3>Legal Basis</h3>
+        <p>
+          Processing of event submission data is necessary for the <strong>performance of the service</strong>
+          you have requested (Article 6(1)(b) GDPR) — namely, listing your event on the Marcha platform.
+          Submitter contact details are processed on the basis of our <strong>legitimate interest</strong>
+          (Article 6(1)(f) GDPR) in being able to follow up regarding your submission.
+        </p>
+      </div>
+    </section>
+
+    <!-- ──────────────────────────────────────────────── -->
+    <!-- Section 5 — Uploaded Images                     -->
+    <!-- ──────────────────────────────────────────────── -->
+    <section class="section" id="s5">
+      <div class="section__header">
+        <span class="section__num" aria-hidden="true">5</span>
+        <h2 class="section__title">Uploaded Images</h2>
+      </div>
+      <div class="prose">
+        <p>
+          When you upload an event image through the submission form, that image is stored in
+          <strong>Supabase Storage</strong> (a cloud storage service). Once the associated event
+          is approved and published, the image is <strong>publicly accessible</strong> via a
+          permanent URL and is displayed alongside the event listing.
+        </p>
+        <h3>Your Responsibilities</h3>
+        <p>By uploading an image, you confirm that:</p>
+        <ul>
+          <li>You hold the rights to that image, or have obtained permission from the rights holder.</li>
+          <li>The image does not depict minors without appropriate parental consent.</li>
+          <li>The image does not violate any applicable laws or third-party rights.</li>
+        </ul>
+        <h3>Image Deletion</h3>
+        <p>
+          You may request deletion of an uploaded image at any time by contacting us at
+          <a href="mailto:support@gomarcha.com">support@gomarcha.com</a>. Please include the
+          event name and a description of the image. We will process deletion requests within
+          <strong>30 days</strong>.
+        </p>
+        <div class="callout--pink callout">
+          <strong>Note:</strong> Images may be cached by Cloudflare's CDN and cached on users'
+          devices after deletion from our origin storage. Full propagation of deletions may take
+          up to 7 days.
+        </div>
+      </div>
+    </section>
+
+    <!-- ──────────────────────────────────────────────── -->
+    <!-- Section 6 — Location Data                       -->
+    <!-- ──────────────────────────────────────────────── -->
+    <section class="section" id="s6">
+      <div class="section__header">
+        <span class="section__num" aria-hidden="true">6</span>
+        <h2 class="section__title">Location Data</h2>
+      </div>
+      <div class="prose">
+        <p>
+          Marcha offers location-based event discovery to show you events happening near your
+          current position. Location access is <strong>strictly optional</strong>.
+        </p>
+        <h3>How Location is Used</h3>
+        <ul>
+          <li>When you tap "Near me" or enable location, your device's browser or OS will
+              request your permission before any location data is shared with us.</li>
+          <li>Location coordinates are used <strong>only within your active session</strong>
+              to sort and filter events by proximity.</li>
+          <li>We do <strong>not</strong> store your location coordinates on our servers.</li>
+          <li>We do <strong>not</strong> track your location history or movement patterns.</li>
+          <li>We do <strong>not</strong> share location data with advertising networks.</li>
+        </ul>
+        <h3>IP-Based Location</h3>
+        <p>
+          Cloudflare may infer a coarse geographic region from your IP address for the purpose of
+          routing your request to the nearest data centre. This is a technical necessity of CDN
+          operation and does not constitute location tracking.
+        </p>
+        <h3>Legal Basis</h3>
+        <p>
+          Precise location processing is based on your explicit <strong>consent</strong>
+          (Article 6(1)(a) GDPR), granted via the browser or OS permission dialog.
+          You may revoke this consent at any time by changing your browser or device settings.
+          Revoking consent does not affect the lawfulness of processing carried out before revocation.
+        </p>
+        <div class="callout--green callout">
+          <strong>Your control:</strong> You can use Marcha fully without ever granting location
+          permission. Simply browse by city or search for specific venues and events.
+        </div>
+      </div>
+    </section>
+
+    <!-- ──────────────────────────────────────────────── -->
+    <!-- Section 7 — Analytics and Cookies               -->
+    <!-- ──────────────────────────────────────────────── -->
+    <section class="section" id="s7">
+      <div class="section__header">
+        <span class="section__num" aria-hidden="true">7</span>
+        <h2 class="section__title">Analytics and Cookies</h2>
+      </div>
+      <div class="prose">
+        <h3>Cookies and Local Storage</h3>
+        <p>
+          Marcha uses browser <strong>localStorage</strong> and <strong>sessionStorage</strong>
+          to remember your preferences (such as language selection and the email address you
+          optionally save when submitting events). These are stored on your device and are
+          <strong>not</strong> transmitted to third parties.
+        </p>
+        <p>
+          We do <strong>not</strong> use advertising cookies, third-party tracking cookies,
+          or cookie-based behavioural analytics.
+        </p>
+
+        <h3>Service Worker Cache</h3>
+        <p>
+          As a Progressive Web App (PWA), Marcha uses a <strong>Service Worker</strong> to cache
+          static assets locally on your device. This allows the app to load faster and function
+          offline. No personal data is stored in the Service Worker cache.
+        </p>
+
+        <h3>Analytics</h3>
+        <p>
+          We may use <strong>Cloudflare Web Analytics</strong>, a privacy-first, cookieless
+          analytics solution. Cloudflare Web Analytics does not use cookies, does not track
+          individual users across sessions, and does not build user profiles.
+          Data collected includes aggregate page views, visitor counts, and technical metrics.
+        </p>
+        <p>
+          We do not use Google Analytics, Meta Pixel, or other cookie-based analytics platforms.
+        </p>
+        <div class="callout">
+          <strong>EU Cookie Law:</strong> Since Marcha does not use tracking or advertising cookies,
+          no cookie consent banner is required for our core functionality. Analytical storage is
+          processed on the basis of our legitimate interest in understanding overall platform usage.
+        </div>
+      </div>
+    </section>
+
+    <!-- ──────────────────────────────────────────────── -->
+    <!-- Section 8 — Supabase Data Processing            -->
+    <!-- ──────────────────────────────────────────────── -->
+    <section class="section" id="s8">
+      <div class="section__header">
+        <span class="section__num" aria-hidden="true">8</span>
+        <h2 class="section__title">Supabase Data Processing</h2>
+      </div>
+      <div class="prose">
+        <p>
+          Marcha uses <strong>Supabase</strong> as its primary data infrastructure for database,
+          authentication services, file storage, and serverless edge functions.
+          Supabase acts as a <strong>data processor</strong> on our behalf under a
+          Data Processing Agreement (DPA).
+        </p>
+        <h3>What is Stored in Supabase</h3>
+        <ul>
+          <li>Event records submitted by users (including title, date, venue, description)</li>
+          <li>Submitter name and contact email associated with event submissions</li>
+          <li>Uploaded event images (stored in Supabase Storage)</li>
+          <li>Application logs generated by Edge Functions (social posting, queue processing)</li>
+        </ul>
+        <h3>Data Location and Transfers</h3>
+        <p>
+          Supabase stores data in <strong>Frankfurt, Germany (EU West — eu-west-1)</strong>
+          by default. This means your data remains within the European Economic Area (EEA),
+          which complies with GDPR's requirements for data transfers without additional
+          safeguards.
+        </p>
+        <p>
+          Supabase's infrastructure is provided by Amazon Web Services (AWS). AWS operates
+          as a sub-processor. For more information, see
+          <a href="https://supabase.com/privacy" target="_blank" rel="noopener noreferrer">supabase.com/privacy</a>.
+        </p>
+        <h3>Row-Level Security</h3>
+        <p>
+          Supabase's Row-Level Security (RLS) policies are applied to all tables containing
+          user-identifiable information, ensuring that data is only accessible to
+          authorised parties.
+        </p>
+      </div>
+    </section>
+
+    <!-- ──────────────────────────────────────────────── -->
+    <!-- Section 9 — Cloudflare Services                 -->
+    <!-- ──────────────────────────────────────────────── -->
+    <section class="section" id="s9">
+      <div class="section__header">
+        <span class="section__num" aria-hidden="true">9</span>
+        <h2 class="section__title">Cloudflare Services</h2>
+      </div>
+      <div class="prose">
+        <p>
+          Marcha's web infrastructure is protected and accelerated by <strong>Cloudflare, Inc.</strong>
+          All traffic to <a href="https://gomarcha.com">gomarcha.com</a> and our APIs passes
+          through Cloudflare's global network.
+        </p>
+        <h3>Services Used</h3>
+        <ul>
+          <li><strong>CDN (Content Delivery Network):</strong> Static assets (HTML, CSS, images) are
+              cached at Cloudflare edge nodes close to your location for faster delivery.</li>
+          <li><strong>DDoS Protection and Web Application Firewall (WAF):</strong> Cloudflare
+              automatically inspects incoming requests to protect against malicious traffic.
+              This involves processing IP addresses and request metadata.</li>
+          <li><strong>Cloudflare Web Analytics:</strong> Privacy-preserving, cookieless analytics
+              (see Section 7).</li>
+          <li><strong>Workers / Pages:</strong> Edge compute may be used to serve the PWA and
+              handle API routing.</li>
+        </ul>
+        <h3>Data Processed by Cloudflare</h3>
+        <p>
+          Cloudflare processes <strong>IP addresses, HTTP request headers, and user agent strings</strong>
+          as part of normal CDN and security operations. This is a legitimate interest processing
+          basis (Article 6(1)(f) GDPR) required to deliver the service securely.
+        </p>
+        <p>
+          Cloudflare is certified under the EU–US Data Privacy Framework and processes data in
+          accordance with Standard Contractual Clauses. For more information, see
+          <a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener noreferrer">cloudflare.com/privacypolicy</a>.
+        </p>
+      </div>
+    </section>
+
+    <!-- ──────────────────────────────────────────────── -->
+    <!-- Section 10 — Data Retention                     -->
+    <!-- ──────────────────────────────────────────────── -->
+    <section class="section" id="s10">
+      <div class="section__header">
+        <span class="section__num" aria-hidden="true">10</span>
+        <h2 class="section__title">Data Retention</h2>
+      </div>
+      <div class="prose">
+        <p>
+          We retain personal data only for as long as necessary to fulfil the purposes for which
+          it was collected, or as required by applicable law.
+        </p>
+
+        <div class="data-glance">
+          <table>
+            <thead>
+              <tr>
+                <th>Data Type</th>
+                <th>Retention Period</th>
+                <th>Reason</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Published event records</td>
+                <td>Duration of platform operation or until deletion requested</td>
+                <td>Core platform functionality</td>
+              </tr>
+              <tr>
+                <td>Submitter name &amp; email</td>
+                <td>3 years from submission date</td>
+                <td>Administrative follow-up; fraud prevention</td>
+              </tr>
+              <tr>
+                <td>Uploaded event images</td>
+                <td>Duration of event listing or until deletion requested</td>
+                <td>Event display; CDN caching</td>
+              </tr>
+              <tr>
+                <td>Location data</td>
+                <td>Session only — not persisted server-side</td>
+                <td>Real-time event proximity sorting</td>
+              </tr>
+              <tr>
+                <td>Cloudflare access logs</td>
+                <td>Up to 30 days (Cloudflare policy)</td>
+                <td>Security and abuse prevention</td>
+              </tr>
+              <tr>
+                <td>Edge Function logs (Supabase)</td>
+                <td>Up to 7 days (Supabase policy)</td>
+                <td>Operational debugging</td>
+              </tr>
+              <tr>
+                <td>Support communications</td>
+                <td>2 years from last contact</td>
+                <td>Resolution of ongoing issues; legal obligations</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p>
+          At the end of the applicable retention period, personal data is securely deleted or
+          anonymised. You may request earlier deletion of your data — see
+          <a href="#s11">Section 11</a>.
+        </p>
+      </div>
+    </section>
+
+    <!-- ──────────────────────────────────────────────── -->
+    <!-- Section 11 — User Rights (GDPR)                 -->
+    <!-- ──────────────────────────────────────────────── -->
+    <section class="section" id="s11">
+      <div class="section__header">
+        <span class="section__num" aria-hidden="true">11</span>
+        <h2 class="section__title">Your Rights (GDPR)</h2>
+      </div>
+      <div class="prose">
+        <p>
+          If you are located in the European Union or European Economic Area, you have the
+          following rights under the GDPR regarding your personal data:
+        </p>
+
+        <div class="rights-grid">
+          <div class="right-card">
+            <p class="right-card__title">
+              <span class="right-card__article">Art. 15</span>
+              Right of Access
+            </p>
+            <p class="right-card__desc">Request a copy of the personal data we hold about you.</p>
+          </div>
+          <div class="right-card">
+            <p class="right-card__title">
+              <span class="right-card__article">Art. 16</span>
+              Right to Rectification
+            </p>
+            <p class="right-card__desc">Request correction of inaccurate or incomplete personal data.</p>
+          </div>
+          <div class="right-card">
+            <p class="right-card__title">
+              <span class="right-card__article">Art. 17</span>
+              Right to Erasure
+            </p>
+            <p class="right-card__desc">Request deletion of your personal data ("right to be forgotten").</p>
+          </div>
+          <div class="right-card">
+            <p class="right-card__title">
+              <span class="right-card__article">Art. 18</span>
+              Right to Restriction
+            </p>
+            <p class="right-card__desc">Request that we limit how we process your data in certain circumstances.</p>
+          </div>
+          <div class="right-card">
+            <p class="right-card__title">
+              <span class="right-card__article">Art. 20</span>
+              Right to Portability
+            </p>
+            <p class="right-card__desc">Receive your data in a structured, machine-readable format.</p>
+          </div>
+          <div class="right-card">
+            <p class="right-card__title">
+              <span class="right-card__article">Art. 21</span>
+              Right to Object
+            </p>
+            <p class="right-card__desc">Object to processing based on legitimate interests.</p>
+          </div>
+          <div class="right-card">
+            <p class="right-card__title">
+              <span class="right-card__article">Art. 7(3)</span>
+              Withdraw Consent
+            </p>
+            <p class="right-card__desc">Withdraw any consent you have given at any time, without affecting past processing.</p>
+          </div>
+          <div class="right-card">
+            <p class="right-card__title">
+              <span class="right-card__article">Art. 77</span>
+              Lodge a Complaint
+            </p>
+            <p class="right-card__desc">File a complaint with your national data protection supervisory authority.</p>
+          </div>
+        </div>
+
+        <h3>How to Exercise Your Rights</h3>
+        <p>
+          To exercise any of the above rights, please contact us at
+          <a href="mailto:support@gomarcha.com">support@gomarcha.com</a>
+          with the subject line <em>"GDPR Data Request"</em>. Include a brief description of your
+          request and, where relevant, the email address used when submitting content.
+          We will respond within <strong>30 days</strong>. Complex requests may require up to
+          90 days, and we will notify you within the first 30 days if an extension is needed.
+        </p>
+        <p>
+          We do not charge a fee for exercising your rights unless requests are manifestly unfounded
+          or excessive.
+        </p>
+
+        <h3>Supervisory Authority — Spain (AEPD)</h3>
+        <p>
+          If you are not satisfied with our response, you have the right to lodge a complaint with
+          the Spanish data protection authority:
+        </p>
+        <div class="callout">
+          <strong>Agencia Española de Protección de Datos (AEPD)</strong><br>
+          C/ Jorge Juan, 6 · 28001 Madrid, Spain<br>
+          Website: <a href="https://www.aepd.es" target="_blank" rel="noopener noreferrer">www.aepd.es</a>
+        </div>
+        <p>
+          EU/EEA residents may also contact the data protection authority in their own country
+          of residence.
+        </p>
+
+        <h3>Data Deletion for App Users</h3>
+        <p>
+          In compliance with <strong>Google Play Store</strong> and <strong>Apple App Store</strong>
+          requirements, you may request deletion of your account and all associated personal data
+          at any time. To submit a deletion request, email
+          <a href="mailto:support@gomarcha.com">support@gomarcha.com</a> with the subject
+          <em>"Delete My Data"</em>. We will confirm and complete the deletion within 30 days.
+        </p>
+      </div>
+    </section>
+
+    <!-- ──────────────────────────────────────────────── -->
+    <!-- Section 12 — Data Security                      -->
+    <!-- ──────────────────────────────────────────────── -->
+    <section class="section" id="s12">
+      <div class="section__header">
+        <span class="section__num" aria-hidden="true">12</span>
+        <h2 class="section__title">Data Security</h2>
+      </div>
+      <div class="prose">
+        <p>
+          We implement appropriate technical and organisational measures to protect your personal
+          data against unauthorised access, accidental loss, destruction, or disclosure.
+        </p>
+        <h3>Technical Measures</h3>
+        <ul>
+          <li><strong>Encryption in transit:</strong> All data is transmitted over HTTPS (TLS 1.2 or higher). Cloudflare enforces HTTPS on all connections.</li>
+          <li><strong>Encryption at rest:</strong> Data stored in Supabase is encrypted at rest using AES-256 encryption.</li>
+          <li><strong>Row-Level Security (RLS):</strong> Supabase RLS policies prevent unauthorised database access at the row level.</li>
+          <li><strong>Access control:</strong> Administrative access to the database is restricted to authorised personnel via Supabase's role-based access control.</li>
+          <li><strong>DDoS and WAF protection:</strong> Cloudflare protects the platform against malicious requests and automated attacks.</li>
+          <li><strong>Environment isolation:</strong> Secret keys and API credentials are stored as environment variables and are never committed to source code.</li>
+        </ul>
+        <h3>Organisational Measures</h3>
+        <ul>
+          <li>Access to personal data is limited to personnel who require it to perform their duties.</li>
+          <li>We review our security practices and update them in response to new threats.</li>
+        </ul>
+        <h3>Data Breach Notification</h3>
+        <p>
+          In the event of a personal data breach that is likely to result in a risk to your rights
+          and freedoms, we will notify the relevant supervisory authority within 72 hours of becoming
+          aware of the breach, as required by Article 33 GDPR. Where the breach is likely to result in
+          a <em>high</em> risk to you personally, we will also notify you directly without undue delay
+          (Article 34 GDPR).
+        </p>
+      </div>
+    </section>
+
+    <!-- ──────────────────────────────────────────────── -->
+    <!-- Section 13 — Third-Party Services               -->
+    <!-- ──────────────────────────────────────────────── -->
+    <section class="section" id="s13">
+      <div class="section__header">
+        <span class="section__num" aria-hidden="true">13</span>
+        <h2 class="section__title">Third-Party Services</h2>
+      </div>
+      <div class="prose">
+        <p>
+          Marcha integrates with the following third-party services. Each acts as a data processor
+          or independent data controller as described below:
+        </p>
+
+        <div class="third-party-list">
+          <div class="third-party-card">
+            <span class="third-party-card__name">Supabase</span>
+            <a href="https://supabase.com/privacy" target="_blank" rel="noopener noreferrer" class="third-party-card__link">Privacy Policy →</a>
+            <span class="third-party-card__desc">Database, file storage, authentication, and Edge Functions. Acts as a data processor under a DPA. Data stored in Frankfurt, Germany (EEA).</span>
+          </div>
+          <div class="third-party-card">
+            <span class="third-party-card__name">Cloudflare</span>
+            <a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener noreferrer" class="third-party-card__link">Privacy Policy →</a>
+            <span class="third-party-card__desc">CDN, DDoS protection, WAF, and cookieless analytics. Processes IP addresses and request metadata as an independent data controller for security purposes.</span>
+          </div>
+          <div class="third-party-card">
+            <span class="third-party-card__name">Google Fonts</span>
+            <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer" class="third-party-card__link">Privacy Policy →</a>
+            <span class="third-party-card__desc">Web fonts (Poppins, Inter) loaded from Google's servers. Google may log IP addresses when fonts are requested. No personal data beyond technical metadata is transmitted.</span>
+          </div>
+          <div class="third-party-card">
+            <span class="third-party-card__name">Google Maps Platform</span>
+            <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer" class="third-party-card__link">Privacy Policy →</a>
+            <span class="third-party-card__desc">Used for venue address autocomplete and map display. Google processes search queries and may associate them with your IP address according to their own privacy policy.</span>
+          </div>
+          <div class="third-party-card">
+            <span class="third-party-card__name">Social Media Platforms</span>
+            <a href="#s13" class="third-party-card__link">See below →</a>
+            <span class="third-party-card__desc">Approved events may be published to Marcha's official accounts on Instagram and Facebook. Only public event information (title, date, venue, image) is published. No user data is shared with social platforms without your explicit consent.</span>
+          </div>
+        </div>
+
+        <div class="callout">
+          <strong>No data sales:</strong> We do not sell, rent, or trade personal data to any
+          third party for commercial purposes. Third-party integrations listed above are used
+          solely to operate and improve the Marcha platform.
+        </div>
+      </div>
+    </section>
+
+    <!-- ──────────────────────────────────────────────── -->
+    <!-- Section 14 — Children's Privacy                 -->
+    <!-- ──────────────────────────────────────────────── -->
+    <section class="section" id="s14">
+      <div class="section__header">
+        <span class="section__num" aria-hidden="true">14</span>
+        <h2 class="section__title">Children's Privacy</h2>
+      </div>
+      <div class="prose">
+        <p>
+          Marcha is intended for users who are <strong>16 years of age or older</strong>.
+          In accordance with Article 8 of the GDPR, we do not knowingly collect or process
+          personal data from children under the age of 16 without verifiable parental consent.
+        </p>
+        <p>
+          Many events listed on Marcha (live music, nightlife, bars) are intended for adult
+          audiences only. The platform does not verify the age of visitors, but event organisers
+          are responsible for ensuring their events comply with applicable age restrictions.
+        </p>
+        <p>
+          If you are a parent or guardian and believe that your child under the age of 16
+          has provided us with personal data, please contact us immediately at
+          <a href="mailto:support@gomarcha.com">support@gomarcha.com</a>.
+          We will investigate and delete the relevant data within 14 days.
+        </p>
+        <div class="callout--pink callout">
+          <strong>For US users (COPPA):</strong> Marcha does not knowingly collect personal
+          information from children under 13 years of age. If you are under 13, please do not
+          use this platform.
+        </div>
+      </div>
+    </section>
+
+    <!-- ──────────────────────────────────────────────── -->
+    <!-- Section 15 — Changes to this Policy             -->
+    <!-- ──────────────────────────────────────────────── -->
+    <section class="section" id="s15">
+      <div class="section__header">
+        <span class="section__num" aria-hidden="true">15</span>
+        <h2 class="section__title">Changes to this Policy</h2>
+      </div>
+      <div class="prose">
+        <p>
+          We may update this Privacy Policy from time to time to reflect changes in our practices,
+          technology, legal requirements, or for other operational reasons.
+        </p>
+        <p>
+          When we make significant changes, we will:
+        </p>
+        <ul>
+          <li>Update the <strong>"Last updated"</strong> date at the top of this page.</li>
+          <li>Post a notice on the Marcha homepage or within the app where reasonably practicable.</li>
+          <li>Where required by law or where changes materially affect how we use your data,
+              provide more prominent notice or seek renewed consent.</li>
+        </ul>
+        <p>
+          We encourage you to review this Privacy Policy periodically. Your continued use of
+          Marcha after changes take effect constitutes acceptance of the updated policy.
+        </p>
+        <p>
+          Previous versions of this policy are available on request — please contact us at
+          <a href="mailto:support@gomarcha.com">support@gomarcha.com</a>.
+        </p>
+      </div>
+    </section>
+
+    <!-- ──────────────────────────────────────────────── -->
+    <!-- Section 16 — Contact Information                -->
+    <!-- ──────────────────────────────────────────────── -->
+    <section class="section" id="s16">
+      <div class="section__header">
+        <span class="section__num" aria-hidden="true">16</span>
+        <h2 class="section__title">Contact Information</h2>
+      </div>
+      <div class="prose">
+        <p>
+          For any questions about this Privacy Policy, to exercise your data subject rights, or
+          to report a privacy concern, please contact the data controller directly:
+        </p>
+        <div class="contact-card">
+          <div class="contact-card__row">
+            <span class="contact-card__label">Data Controller</span>
+            <span class="contact-card__value">Heinz Frank Hilgers</span>
+          </div>
+          <div class="contact-card__row">
+            <span class="contact-card__label">Brand</span>
+            <span class="contact-card__value">Marcha / GoMarcha</span>
+          </div>
+          <div class="contact-card__row">
+            <span class="contact-card__label">Country</span>
+            <span class="contact-card__value">Spain</span>
+          </div>
+          <div class="contact-card__row">
+            <span class="contact-card__label">Website</span>
+            <span class="contact-card__value"><a href="https://gomarcha.com">gomarcha.com</a></span>
+          </div>
+          <div class="contact-card__row">
+            <span class="contact-card__label">Email</span>
+            <span class="contact-card__value">
+              <a href="mailto:support@gomarcha.com">support@gomarcha.com</a>
+            </span>
+          </div>
+          <div class="contact-card__row">
+            <span class="contact-card__label">Response time</span>
+            <span class="contact-card__value">Within 30 days (GDPR Art. 12)</span>
+          </div>
+        </div>
+
+        <h3>How to Request Data Access, Correction or Deletion</h3>
+        <p>
+          You have the right to request access to, correction of, or deletion of any personal data
+          we hold about you. To exercise any of these rights, send an email to
+          <a href="mailto:support@gomarcha.com">support@gomarcha.com</a> with one of the following
+          subject lines depending on your request:
+        </p>
+        <ul>
+          <li><strong>"GDPR Data Request"</strong> — to receive a copy of your personal data (Art. 15)</li>
+          <li><strong>"Correct My Data"</strong> — to request a correction or update (Art. 16)</li>
+          <li><strong>"Delete My Data"</strong> — to request full erasure of your personal data (Art. 17)</li>
+        </ul>
+        <p>
+          Please include a brief description of what data you are referring to (e.g. the email
+          address used when submitting an event). We will confirm receipt and complete your
+          request within <strong>30 days</strong>. No fee is charged for these requests unless
+          they are manifestly unfounded or excessive.
+        </p>
+
+        <p style="margin-top: 1rem;">
+          For complaints about our data processing that we have been unable to resolve, you may
+          contact the Spanish data protection authority (AEPD) at
+          <a href="https://www.aepd.es" target="_blank" rel="noopener noreferrer">www.aepd.es</a>,
+          or the data protection authority in your country of residence within the EU/EEA.
+        </p>
+      </div>
+    </section>
+
+    <!-- ── Footer ── -->
+    <footer class="page-footer">
+      <a href="/" class="page-footer__back">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+          <path d="M8.75 10.5L5.25 7l3.5-3.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Back to Marcha
+      </a>
+      <p class="page-footer__copy">
+        &copy; <span id="year"></span> Heinz Frank Hilgers &nbsp;·&nbsp; Marcha / GoMarcha &nbsp;·&nbsp;
+        <a href="https://gomarcha.com" style="color: inherit; text-decoration: underline; text-underline-offset: 3px;">gomarcha.com</a>
+        &nbsp;·&nbsp; Privacy Policy v1.0
+      </p>
+    </footer>
+
+  </main>
+
+  <script>
+    // Auto-update copyright year
+    document.getElementById("year").textContent = new Date().getFullYear();
+  </script>
+</body>
+</html>
