@@ -3208,6 +3208,7 @@ function buildInsertPayload(payload) {
     country: normalizedPayload.country || null,
     event_date: eventDate,
     event_time: normalizedPayload.event_time || null,
+    is_recurring: isRecurring,
     recurrence_type: recurrenceType,
     recurrence_start_date: recurrenceStartDate,
     recurrence_end_date: recurrenceEndDate,
