@@ -4458,7 +4458,7 @@ function buildCollectionPostHashtags(bestEvent, _allEvents) {
 /**
  * Build all social_queue candidate rows for one ISO week.
  *
- * @param {Array}  weekEvents            Approved non-recurring events for the week.
+ * @param {Array}  weekEvents            Approved events for the week (one-time + recurring marked with _collection_only).
  * @param {Date}   monday                Monday of the week (local 00:00:00).
  * @param {Date}   now                   Current time — past slots are skipped.
  * @param {string} lastCollectionImageUrl Last collection post image URL (rotation guard).
@@ -4513,6 +4513,7 @@ function buildWeeklyScheduleRows(weekEvents, monday, now, lastCollectionImageUrl
     } else {
       // ── Einzelpost ──────────────────────────────────────────────────────────
       let eligible = weekEvents.filter((ev) => {
+        if (ev?._collection_only) return false;   // recurring events → collection posts only
         const d = ev?.event_date ? new Date(ev.event_date + "T00:00:00") : null;
         if (!d || Number.isNaN(d.getTime())) return false;
         return d.getDay() === slotDef.dayFilter;
@@ -7485,14 +7486,67 @@ async function ensureSocialReviewQueueForEvent(event) {
     const start = dateFromAdminEventWallTime(ev);
     return start instanceof Date && !Number.isNaN(start.getTime()) && start > now;
   });
-  if (!weekEvents.length) return 0;
+
+  // ── Recurring master events that have an occurrence this week → collection posts only ──
+  const { data: recurringRaw, error: recurringError } = await client
+    .from("events")
+    .select("*")
+    .eq("status", "approved")
+    .eq("is_recurring", true);
+  if (recurringError) throw new Error(recurringError.message || "Wiederkehrende Events konnten nicht geladen werden.");
+
+  const recurringWeekEvents = [];
+  for (const rec of (recurringRaw || [])) {
+    if (String(rec?.original_event_id || "").trim()) continue;   // skip child rows
+    if (rec?.recurring_social_opt_out === true) continue;         // skip opted-out
+    const recType     = normalizeAdminRecurrenceType(rec.recurrence_type);
+    const fallbackYmd = String(rec.recurrence_start_date || rec.event_date || "").trim();
+    let occurrenceDate = null;
+
+    if (recType === "weekly") {
+      const targetWeekday = normalizeAdminRecurrenceWeekday(rec.recurrence_weekday, fallbackYmd);
+      if (targetWeekday === null) continue;
+      occurrenceDate = adminResolveWeeklyOccurrence(monday, targetWeekday);
+    } else if (recType === "monthly") {
+      const dayOfMonth = normalizeAdminRecurrenceDayOfMonth(rec.recurrence_day_of_month, fallbackYmd);
+      if (dayOfMonth === null) continue;
+      for (let d = new Date(monday); d < nextMonday; d.setDate(d.getDate() + 1)) {
+        if (d.getDate() === dayOfMonth) { occurrenceDate = new Date(d); break; }
+      }
+    } else {
+      continue;
+    }
+
+    if (!occurrenceDate || occurrenceDate < monday || occurrenceDate >= nextMonday) continue;
+    // Respect recurrence start/end bounds
+    if (fallbackYmd) {
+      const sp = parseAdminYmd(fallbackYmd);
+      if (sp && occurrenceDate < new Date(sp.year, sp.month - 1, sp.day)) continue;
+    }
+    const endStr = String(rec.recurrence_end_date || "").trim();
+    if (endStr) {
+      const ep = parseAdminYmd(endStr);
+      if (ep && occurrenceDate > new Date(ep.year, ep.month - 1, ep.day, 23, 59, 59, 999)) continue;
+    }
+    // Skip if occurrence (with event time) is already in the past
+    const withTime = applyAdminEventWallTime(occurrenceDate, rec);
+    if (withTime <= now) continue;
+
+    const occurrenceYmd = `${occurrenceDate.getFullYear()}-${pad(occurrenceDate.getMonth() + 1)}-${pad(occurrenceDate.getDate())}`;
+    recurringWeekEvents.push({ ...rec, event_date: occurrenceYmd, _collection_only: true });
+  }
+
+  const allWeekEvents = [...weekEvents, ...recurringWeekEvents];
+  if (!allWeekEvents.length) return 0;
 
   const lastCollectionImageUrl = await getLastCollectionImageFromQueue(client);
   const isoWeek    = getIsoWeekNumber(monday);
-  const candidates = buildWeeklyScheduleRows(weekEvents, monday, now, lastCollectionImageUrl, isoWeek);
+  const candidates = buildWeeklyScheduleRows(allWeekEvents, monday, now, lastCollectionImageUrl, isoWeek);
   if (!candidates.length) return 0;
 
   // Fetch existing queue rows for dedup — never touch posted / sent_to_postiz
+  // Collection posts are deduped by scheduled_at time; single posts by event_id.
+  // Recurring events appear in collection posts only, so only one-time IDs are needed here.
   const weekEventIds = weekEvents.map((ev) => ev.id).filter(Boolean);
   const { data: existing, error: existingError } = await client
     .from("social_queue")
