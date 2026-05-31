@@ -141,12 +141,22 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
 
   // ── 2. Optional webhook secret verification ───────────────────────────────
+  // Supabase Database Webhooks send the secret as a custom header.
+  // We check x-marcha-webhook-secret first (the header configured in the
+  // Supabase Dashboard), then fall back to Authorization: Bearer for
+  // compatibility with other callers.
   const webhookSecret = Deno.env.get("NOTIFY_WEBHOOK_SECRET");
   if (webhookSecret) {
-    const authHeader = req.headers.get("authorization") || "";
-    const token = authHeader.replace(/^Bearer\s+/i, "").trim();
+    const customHeader = req.headers.get("x-marcha-webhook-secret") || "";
+    const authHeader   = req.headers.get("authorization") || "";
+    const bearerToken  = authHeader.replace(/^Bearer\s+/i, "").trim();
+    const token        = customHeader || bearerToken;
     if (token !== webhookSecret) {
-      slog("auth_failed", { reason: "invalid_webhook_secret" });
+      slog("auth_failed", {
+        reason: "invalid_webhook_secret",
+        hasCustomHeader: customHeader.length > 0,
+        hasAuthHeader:   authHeader.length > 0,
+      });
       // Return 200 to avoid Supabase retrying indefinitely on a mis-config.
       return new Response("Unauthorized", { status: 200 });
     }
