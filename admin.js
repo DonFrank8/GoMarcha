@@ -10687,7 +10687,7 @@ async function handleCardAction(clickEvent) {
 
     if (action === "regenerate-drafts") {
       console.log("regenerate-drafts button clicked", eventData?.id);
-      if (blockAdminEventApprovalIfIncomplete(adminCoerceEventForValidation(eventData), "regenerate-drafts")) return;
+      console.log("validation check", getAdminEventApprovalMissingFields(adminCoerceEventForValidation(eventData)));
       setGlobalFeedback("");
       await withAdminButtonBusy(button, "Social…", async () => {
         console.log("admin action regenerate-drafts start", { eventId: eventData?.id });
