@@ -7394,7 +7394,7 @@ async function updateEventWithFallback(eventId, updates) {
       .from("events")
       .update(payload)
       .eq("id", idKey)
-      .select("id,status,description,description_es,description_de,description_en")
+      .select("id,status,description")
       .limit(1);
     if (!error) {
       if (!Array.isArray(data) || !data.length) {
