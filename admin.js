@@ -7524,8 +7524,8 @@ async function ensureSocialReviewQueueForEvent(event) {
   const weekEvents = (weekEventsRaw || []).filter((ev) => {
     if (ev?.is_recurring === true) return false;
     if (String(ev?.original_event_id || "").trim()) return false;
-    const start = dateFromAdminEventWallTime(ev);
-    return start instanceof Date && !Number.isNaN(start.getTime()) && start > now;
+    const eventDay = new Date(ev.event_date + "T23:59:59");
+    return eventDay > now;
   });
 
   // ── Recurring master events that have an occurrence this week → collection posts only ──
