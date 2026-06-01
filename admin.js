@@ -7612,6 +7612,28 @@ async function ensureSocialReviewQueueForEvent(event) {
     }
     return !existingSingleKeys.has(`${row.event_id}::${row.scheduled_at}`);
   });
+  console.log("[ensureSocialReviewQueue] debug", {
+    weekEventsCount:    weekEvents.length,
+    recurringCount:     recurringWeekEvents.length,
+    allWeekEventsCount: allWeekEvents.length,
+    candidatesCount:    candidates.length,
+    candidates: candidates.map((r) => ({
+      slot_id:    r._slot_id,
+      post_stage: r.post_stage,
+      scheduled:  r.scheduled_at,
+      event_id:   r.event_id,
+      title:      r.title,
+    })),
+    existingCollectionTimesCount: existingCollectionTimes.size,
+    existingSingleKeysCount:      existingSingleKeys.size,
+    missingCount: missing.length,
+    missing: missing.map((r) => ({
+      slot_id:    r._slot_id,
+      post_stage: r.post_stage,
+      scheduled:  r.scheduled_at,
+      event_id:   r.event_id,
+    })),
+  });
   if (!missing.length) return 0;
   return insertSocialQueueRows(missing);
 }
