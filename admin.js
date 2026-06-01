@@ -458,7 +458,8 @@ const ADMIN_EVENT_SAVE_COLUMNS_DISALLOWED = new Set([
   "tags",
   "title",
   "category",
-  "is_featured"
+  "is_featured",
+  "end_time"    // column does not exist in DB
 ]);
 
 function pickAdminEventSavePayload(payload) {
