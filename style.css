@@ -4630,16 +4630,11 @@ body::after {
   font-size: 1.05em;
   margin-right: 0.3em;
 }
-/* Mobile ≤420px: Icon only, text hidden */
+/* Mobile: keep text visible, slightly compact */
 @media (max-width: 420px) {
   #openSubmitModalHero {
-    font-size: 0;
-    min-width: 34px;
-    padding-left: 0.45rem;
-    padding-right: 0.45rem;
-  }
-  #openSubmitModalHero::before {
-    font-size: 1.1rem;
-    margin-right: 0;
+    font-size: 0.8rem;
+    padding-left: 0.6rem;
+    padding-right: 0.6rem;
   }
 }
