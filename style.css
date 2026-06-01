@@ -4562,3 +4562,28 @@ body::after {
     transform: none !important;
   }
 }
+/* ── Site Footer (index.html) ────────────────────────────────────────────── */
+.site-footer {
+  text-align: center;
+  padding: 24px 16px calc(66px + env(safe-area-inset-bottom, 0px) + 16px);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  margin-top: 2rem;
+}
+.site-footer__links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px 18px;
+  margin-bottom: 10px;
+}
+.site-footer__links a {
+  font-size: 0.78rem;
+  color: #64748b;
+  text-decoration: none;
+  transition: color 0.2s;
+}
+.site-footer__links a:hover { color: #94a3b8; }
+.site-footer__copy {
+  font-size: 0.75rem;
+  color: #475569;
+}

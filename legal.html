@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#020617">
+  <meta name="robots" content="index, follow">
+  <title>Aviso Legal – Marcha</title>
+  <meta name="description" content="Aviso Legal de Marcha (GoMarcha). Información sobre el titular del sitio web, propiedad intelectual y legislación aplicable.">
+  <link rel="canonical" href="https://gomarcha.com/legal.html">
+  <link rel="icon" type="image/png" href="./assets/favicon-v4.png">
+  <link rel="apple-touch-icon" href="./assets/apple-touch-icon-v4.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    /* ── Design Tokens ── */
+    :root {
+      color-scheme: dark;
+      --bg:               #020617;
+      --bg-elevated:      #0f172a;
+      --surface:          #0f172a;
+      --surface-soft:     #1e293b;
+      --surface-glass:    rgba(15, 23, 42, 0.82);
+      --surface-border:   rgba(124, 58, 237, 0.28);
+      --text:             #f8fafc;
+      --text-muted:       #94a3b8;
+      --text-subtle:      #64748b;
+      --neon-purple:      #7c3aed;
+      --electric-pink:    #ec4899;
+      --sunset:           #f472b6;
+      --white:            #ffffff;
+      --radius-xs:        10px;
+      --radius-sm:        14px;
+      --radius-md:        18px;
+      --radius-lg:        24px;
+      --motion-base:      0.24s cubic-bezier(0.22, 1, 0.36, 1);
+      --glow-purple:      0 0 0 1px rgba(124, 58, 237, 0.38), 0 10px 26px rgba(124, 58, 237, 0.3);
+      --shadow:           0 24px 60px rgba(2, 6, 23, 0.62);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: "Inter", sans-serif;
+      font-size: 1rem;
+      line-height: 1.65;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 12% 0%,   rgba(236, 72, 153, 0.12), transparent 34%),
+        radial-gradient(circle at 82% 0%,   rgba(124, 58, 237, 0.18), transparent 36%),
+        radial-gradient(circle at 68% 15%,  rgba(236, 72, 153, 0.10), transparent 29%),
+        linear-gradient(180deg, #020617 0%, #0f172a 46%, #020617 100%);
+      min-height: 100vh;
+      padding-top: env(safe-area-inset-top);
+    }
+
+    /* Aurora glow layers */
+    body::before {
+      content: "";
+      position: fixed;
+      inset: -14% -8% auto;
+      height: 42vh;
+      pointer-events: none;
+      z-index: 0;
+      opacity: 0.5;
+      background:
+        radial-gradient(circle at 18% 20%, rgba(236, 72, 153, 0.14), transparent 52%),
+        radial-gradient(circle at 78%  8%, rgba(124, 58, 237, 0.20), transparent 56%),
+        radial-gradient(circle at 58% 68%, rgba(236, 72, 153, 0.12), transparent 60%);
+      filter: blur(28px) saturate(1.08);
+      animation: auroraDrift 16s ease-in-out infinite alternate;
+    }
+    body::after {
+      content: "";
+      position: fixed;
+      inset: auto -10% -22% -10%;
+      height: 38vh;
+      pointer-events: none;
+      z-index: 0;
+      opacity: 0.34;
+      background:
+        radial-gradient(circle at 24% 42%, rgba(124, 58, 237, 0.18), transparent 58%),
+        radial-gradient(circle at 74% 58%, rgba(236, 72, 153, 0.14), transparent 60%);
+      filter: blur(34px);
+      animation: auroraDrift 20s ease-in-out infinite alternate-reverse;
+    }
+    @keyframes auroraDrift {
+      from { transform: translate(0, 0) scale(1); }
+      to   { transform: translate(2%, 3%) scale(1.04); }
+    }
+
+    body > * { position: relative; z-index: 1; }
+
+    /* ── Top Nav ── */
+    .topnav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(2, 6, 23, 0.88);
+      backdrop-filter: blur(20px) saturate(1.4);
+      -webkit-backdrop-filter: blur(20px) saturate(1.4);
+      border-bottom: 1px solid rgba(124, 58, 237, 0.18);
+      padding: 0.85rem 1.5rem;
+      padding-top: calc(0.85rem + env(safe-area-inset-top));
+    }
+    .topnav__inner {
+      max-width: 860px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+    .topnav__back {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--text-muted);
+      text-decoration: none;
+      transition: color var(--motion-base);
+      white-space: nowrap;
+    }
+    .topnav__back:hover { color: var(--text); }
+    .topnav__back svg { flex-shrink: 0; }
+    .topnav__logo img {
+      height: 30px;
+      width: auto;
+      display: block;
+    }
+    .topnav__label {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--text-subtle);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      white-space: nowrap;
+    }
+
+    /* ── Page Layout ── */
+    .page {
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 3rem 1.5rem 5rem;
+    }
+
+    /* ── Page Header ── */
+    .page-header {
+      margin-bottom: 2.5rem;
+      text-align: center;
+    }
+    .page-header__eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.78rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--electric-pink);
+      background: rgba(236, 72, 153, 0.1);
+      border: 1px solid rgba(236, 72, 153, 0.22);
+      border-radius: 99px;
+      padding: 0.28rem 0.85rem;
+      margin-bottom: 1.1rem;
+    }
+    .page-header__title {
+      font-family: "Poppins", sans-serif;
+      font-size: clamp(2rem, 5vw, 2.75rem);
+      font-weight: 700;
+      line-height: 1.18;
+      background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 40%, var(--sunset) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 0.75rem;
+    }
+    .page-header__meta {
+      font-size: 0.875rem;
+      color: var(--text-subtle);
+    }
+    .page-header__meta strong { color: var(--text-muted); }
+
+    /* ── Contact Card ── */
+    .contact-card {
+      background: var(--surface);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-lg);
+      padding: 1.6rem 1.8rem;
+      margin-bottom: 2.5rem;
+    }
+    .contact-card__title {
+      font-family: "Poppins", sans-serif;
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 1.1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .contact-card__row {
+      display: flex;
+      gap: 0.75rem;
+      padding: 0.55rem 0;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      font-size: 0.9rem;
+    }
+    .contact-card__row:last-child { border-bottom: none; }
+    .contact-card__label {
+      color: var(--text-subtle);
+      flex-shrink: 0;
+      min-width: 100px;
+    }
+    .contact-card__value { color: var(--text-muted); }
+    .contact-card__value a { color: var(--sunset); text-decoration: none; }
+    .contact-card__value a:hover { text-decoration: underline; }
+
+    /* ── Sections ── */
+    .section {
+      background: var(--surface);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: var(--radius-lg);
+      padding: 1.6rem 1.8rem;
+      margin-bottom: 1.5rem;
+    }
+    .section__header {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+      padding-bottom: 0.85rem;
+      border-bottom: 1px solid rgba(124, 58, 237, 0.16);
+    }
+    .section__num {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      background: rgba(124, 58, 237, 0.18);
+      border: 1px solid rgba(124, 58, 237, 0.32);
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: #a78bfa;
+      flex-shrink: 0;
+    }
+    .section__title {
+      font-family: "Poppins", sans-serif;
+      font-size: 1.05rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    /* ── Prose ── */
+    .prose { color: var(--text-muted); font-size: 0.935rem; }
+    .prose p + p { margin-top: 0.85rem; }
+    .prose a { color: var(--sunset); text-decoration: none; }
+    .prose a:hover { text-decoration: underline; }
+    .prose address {
+      font-style: normal;
+      background: rgba(124, 58, 237, 0.08);
+      border: 1px solid rgba(124, 58, 237, 0.18);
+      border-radius: var(--radius-sm);
+      padding: 1rem 1.25rem;
+      margin-top: 0.75rem;
+      line-height: 1.9;
+      font-size: 0.91rem;
+    }
+
+    /* ── Page Footer ── */
+    .page-footer {
+      margin-top: 3rem;
+      padding-top: 2rem;
+      border-top: 1px solid rgba(255,255,255,0.07);
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    .page-footer__back {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--text-subtle);
+      text-decoration: none;
+      transition: color var(--motion-base);
+    }
+    .page-footer__back:hover { color: var(--text-muted); }
+    .page-footer__copy {
+      font-size: 0.8rem;
+      color: var(--text-subtle);
+    }
+    .page-footer__links {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 6px 18px;
+      font-size: 0.8rem;
+    }
+    .page-footer__links a {
+      color: var(--text-subtle);
+      text-decoration: none;
+    }
+    .page-footer__links a:hover { color: var(--text-muted); }
+
+    /* ── Responsive ── */
+    @media (max-width: 600px) {
+      .page { padding: 2rem 1rem 4rem; }
+      .section { padding: 1.4rem 1.2rem; }
+      .contact-card { padding: 1.2rem 1.3rem; }
+      .contact-card__label { min-width: 80px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ── Top Navigation ── -->
+  <nav class="topnav" aria-label="Navegación de página">
+    <div class="topnav__inner">
+      <a href="/" class="topnav__back" aria-label="Volver a la página de inicio de Marcha">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M10 12L6 8l4-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Volver a Marcha
+      </a>
+      <a href="/" class="topnav__logo" aria-label="Marcha">
+        <img src="/assets/logo-schrift.png" alt="Marcha" height="30" decoding="async">
+      </a>
+      <span class="topnav__label">Legal</span>
+    </div>
+  </nav>
+
+  <!-- ── Main Content ── -->
+  <main class="page" id="main">
+
+    <!-- Page Header -->
+    <header class="page-header">
+      <div class="page-header__eyebrow">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+          <path d="M6 1v6M6 9.5v1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        Documento Legal
+      </div>
+      <h1 class="page-header__title">Aviso Legal</h1>
+      <p class="page-header__meta">
+        <strong>Titular:</strong> Frank Hilgers &nbsp;·&nbsp;
+        <strong>Sitio:</strong> gomarcha.com
+      </p>
+    </header>
+
+    <!-- Contact Card -->
+    <div class="contact-card" role="region" aria-label="Datos del titular">
+      <p class="contact-card__title">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <rect x="1.5" y="3.5" width="13" height="9" rx="2" stroke="#7c3aed" stroke-width="1.3"/>
+          <path d="M1.5 6l6.5 4 6.5-4" stroke="#7c3aed" stroke-width="1.3" stroke-linecap="round"/>
+        </svg>
+        Datos del Titular
+      </p>
+      <div class="contact-card__row">
+        <span class="contact-card__label">Titular</span>
+        <span class="contact-card__value">Frank Hilgers</span>
+      </div>
+      <div class="contact-card__row">
+        <span class="contact-card__label">Dirección</span>
+        <span class="contact-card__value">
+          Calle Severiano Ballesteros 12, Urb. Green Hills<br>
+          29649 Riviera del Sol (Málaga), España
+        </span>
+      </div>
+      <div class="contact-card__row">
+        <span class="contact-card__label">Email</span>
+        <span class="contact-card__value">
+          <a href="mailto:info@gomarcha.com">info@gomarcha.com</a>
+        </span>
+      </div>
+      <div class="contact-card__row">
+        <span class="contact-card__label">Web</span>
+        <span class="contact-card__value">
+          <a href="https://gomarcha.com" target="_blank" rel="noopener noreferrer">gomarcha.com</a>
+        </span>
+      </div>
+    </div>
+
+    <!-- Section 1 — Objeto -->
+    <section class="section" id="s1">
+      <div class="section__header">
+        <span class="section__num" aria-hidden="true">1</span>
+        <h2 class="section__title">Objeto</h2>
+      </div>
+      <div class="prose">
+        <p>
+          El presente Aviso Legal regula el uso del sitio web <strong>gomarcha.com</strong> y de la
+          aplicación móvil <strong>Marcha</strong>, de los cuales Frank Hilgers es titular.
+        </p>
+        <p>
+          El acceso y uso del sitio web implica la aceptación plena y sin reservas de las presentes
+          condiciones.
+        </p>
+      </div>
+    </section>
+
+    <!-- Section 2 — Propiedad Intelectual -->
+    <section class="section" id="s2">
+      <div class="section__header">
+        <span class="section__num" aria-hidden="true">2</span>
+        <h2 class="section__title">Propiedad Intelectual</h2>
+      </div>
+      <div class="prose">
+        <p>
+          Los contenidos del sitio web y de la aplicación, incluyendo textos, imágenes, diseño y
+          código, son propiedad de Frank Hilgers o de sus respectivos autores, y están protegidos
+          por la legislación vigente en materia de propiedad intelectual e industrial.
+        </p>
+        <p>
+          Queda prohibida la reproducción, distribución, comunicación pública o transformación de
+          dichos contenidos sin autorización expresa del titular, salvo en los casos previstos por
+          la ley.
+        </p>
+      </div>
+    </section>
+
+    <!-- Section 3 — Protección de Datos -->
+    <section class="section" id="s3">
+      <div class="section__header">
+        <span class="section__num" aria-hidden="true">3</span>
+        <h2 class="section__title">Protección de Datos</h2>
+      </div>
+      <div class="prose">
+        <p>
+          El tratamiento de datos personales derivado del uso de este sitio web y aplicación se
+          rige por la <a href="/privacy.html">Política de Privacidad</a> disponible en
+          <a href="https://gomarcha.com/privacy.html">gomarcha.com/privacy.html</a>.
+        </p>
+        <p>
+          De conformidad con el Reglamento (UE) 2016/679 (RGPD) y la Ley Orgánica 3/2018
+          (LOPDGDD), los usuarios pueden ejercer sus derechos de acceso, rectificación, supresión
+          y demás derechos contactando a través de <a href="mailto:info@gomarcha.com">info@gomarcha.com</a>.
+        </p>
+      </div>
+    </section>
+
+    <!-- Section 4 — Responsabilidad -->
+    <section class="section" id="s4">
+      <div class="section__header">
+        <span class="section__num" aria-hidden="true">4</span>
+        <h2 class="section__title">Limitación de Responsabilidad</h2>
+      </div>
+      <div class="prose">
+        <p>
+          Frank Hilgers no se responsabiliza de los daños derivados del uso del sitio web o de la
+          aplicación, de posibles errores en los contenidos, ni de la disponibilidad del servicio.
+        </p>
+        <p>
+          Los eventos publicados en la plataforma son aportados por terceros. Marcha actúa como
+          intermediario de difusión y no asume responsabilidad sobre la veracidad, exactitud o
+          licitud de los eventos publicados por los usuarios.
+        </p>
+      </div>
+    </section>
+
+    <!-- Section 5 — Legislación Aplicable -->
+    <section class="section" id="s5">
+      <div class="section__header">
+        <span class="section__num" aria-hidden="true">5</span>
+        <h2 class="section__title">Legislación Aplicable y Jurisdicción</h2>
+      </div>
+      <div class="prose">
+        <p>
+          Este Aviso Legal se rige por la legislación española. Para cualquier controversia
+          derivada del acceso o uso del sitio web y de la aplicación, las partes se someten,
+          con renuncia expresa a cualquier otro fuero, a los juzgados y tribunales de
+          <strong>Málaga</strong>.
+        </p>
+      </div>
+    </section>
+
+    <!-- Page Footer -->
+    <footer class="page-footer">
+      <a href="/" class="page-footer__back">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+          <path d="M8.75 10.5L5.25 7l3.5-3.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Volver a Marcha
+      </a>
+      <nav class="page-footer__links" aria-label="Legal">
+        <a href="/privacy.html">Política de Privacidad</a>
+        <a href="/legal.html">Aviso Legal</a>
+        <a href="/data-deletion.html">Eliminación de datos</a>
+      </nav>
+      <p class="page-footer__copy">
+        &copy; <span id="year"></span> Frank Hilgers &nbsp;·&nbsp; Marcha / GoMarcha &nbsp;·&nbsp;
+        <a href="https://gomarcha.com" style="color: inherit; text-decoration: underline; text-underline-offset: 3px;">gomarcha.com</a>
+      </p>
+    </footer>
+
+  </main>
+
+  <script>
+    document.getElementById("year").textContent = new Date().getFullYear();
+  </script>
+</body>
+</html>

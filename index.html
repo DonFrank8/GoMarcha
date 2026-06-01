@@ -365,6 +365,15 @@
         </section>
       </div>
     </section>
+
+    <footer class="site-footer" aria-label="Legal">
+      <nav class="site-footer__links">
+        <a href="./privacy.html">Política de Privacidad</a>
+        <a href="./legal.html">Aviso Legal</a>
+        <a href="./data-deletion.html">Eliminación de datos</a>
+      </nav>
+      <p class="site-footer__copy">&copy; <span id="footerYear"></span> Marcha</p>
+    </footer>
   </main>
 
   <nav class="bottom-nav" aria-label="Primary">
@@ -607,6 +616,8 @@
       script.src = "./app.js?v=" + encodeURIComponent(window.PARTYRADAR_CACHE_BUSTER);
       document.body.appendChild(script);
     })();
+    var fy = document.getElementById("footerYear");
+    if (fy) fy.textContent = new Date().getFullYear();
   </script>
 </body>
 </html>
