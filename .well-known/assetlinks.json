@@ -1,0 +1,8 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "com.gomarcha.app",
+    "sha256_cert_fingerprints": ["93:74:5E:67:B6:27:42:2E:16:82:57:E9:B9:45:1F:B1:D8:12:72:21:C1:79:6D:A0:8A:7B:B0:E1:A1:A7:C5:CD"]
+  }
+}]
