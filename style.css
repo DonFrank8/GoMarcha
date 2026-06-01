@@ -4587,3 +4587,59 @@ body::after {
   font-size: 0.75rem;
   color: #475569;
 }
+
+/* ── Änderung 1: Fix custom-date-range hidden override ───────────────────── */
+/* CSS display:grid overrides HTML [hidden] without this rule */
+.custom-date-range[hidden] { display: none !important; }
+
+/* ── Änderung 2: Minimal reset-filters button ────────────────────────────── */
+.btn-reset-filters {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  background: transparent;
+  border: none;
+  color: #64748b;
+  font-size: 0.78rem;
+  font-family: inherit;
+  cursor: pointer;
+  padding: 4px 2px;
+  line-height: 1.3;
+  transition: color 0.2s;
+  margin-top: 0.15rem;
+}
+.btn-reset-filters::before {
+  content: "×";
+  font-size: 1.1em;
+  font-weight: 600;
+  line-height: 1;
+}
+.btn-reset-filters:hover { color: #94a3b8; }
+
+/* ── Änderung 3: Footer — weniger Abstand nach oben ──────────────────────── */
+/* Override the earlier .site-footer rule */
+.site-footer {
+  padding-top: 10px !important;
+  margin-top: 0.5rem !important;
+}
+
+/* ── Änderung 4: Submit-Button "+" Icon ──────────────────────────────────── */
+#openSubmitModalHero::before {
+  content: "+";
+  font-weight: 700;
+  font-size: 1.05em;
+  margin-right: 0.3em;
+}
+/* Mobile ≤420px: Icon only, text hidden */
+@media (max-width: 420px) {
+  #openSubmitModalHero {
+    font-size: 0;
+    min-width: 34px;
+    padding-left: 0.45rem;
+    padding-right: 0.45rem;
+  }
+  #openSubmitModalHero::before {
+    font-size: 1.1rem;
+    margin-right: 0;
+  }
+}

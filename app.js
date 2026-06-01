@@ -5924,6 +5924,18 @@ function getActiveFilters() {
   };
 }
 
+/** Show/hide the reset button based on whether any user-facing filter is active. */
+function updateResetButtonVisibility() {
+  if (!dom.resetFilters) return;
+  const active = Boolean(state.activeDatePreset)
+    || Boolean(currentSearchQuery())
+    || Boolean(dom.cityFilter?.value)
+    || state.nearbyOnly
+    || state.activeGenres.size > 0
+    || Boolean(state.dateRange?.start || state.dateRange?.end);
+  dom.resetFilters.hidden = !active;
+}
+
 function hasActiveDiscoveryFilters(filters) {
   if (!filters) return false;
   const hasDateRange = Boolean(filters.dateRange?.start && filters.dateRange?.end);
@@ -6499,6 +6511,7 @@ function applyFilters() {
   updateLocationChipLabel();
   enrichDistanceSlots();
   updateUrlFromFilters();
+  updateResetButtonVisibility();
 }
 
 function eventTimestamp(event) {
