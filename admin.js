@@ -7463,6 +7463,7 @@ async function loadSocialQueueRows() {
 }
 
 async function ensureSocialReviewQueueForEvent(event) {
+  console.log("ensureSocialReviewQueue called", event?.id);
   // ── Recurring events: use the legacy per-event slot system (unchanged) ──────
   if (event?.is_recurring === true || String(event?.original_event_id || "").trim()) {
     const candidates = buildSocialReviewQueueRows(event);
@@ -7668,6 +7669,7 @@ async function deleteInvalidSocialDrafts() {
 }
 
 async function regenerateSocialDraftsForEvent(event) {
+  console.log("regenerateSocialDrafts called", event?.id);
   if (isAdminEventIncompleteForApproval(event)) {
     throw new Error(reportAdminEventValidationFailure(event, "regenerate-social-drafts"));
   }
