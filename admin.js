@@ -4366,25 +4366,63 @@ function formatCollectionEventDate(dateStr) {
   }
 }
 
+/** Pick an emoji for one event based on its genre/category. */
+function genreEmojiForEvent(ev) {
+  const g = String(ev?.genre || ev?.category || "").toLowerCase();
+  if (/salsa|latin|bachata|merengue/.test(g)) return "🕺";
+  if (/flamenco/.test(g))                     return "💃";
+  if (/rock|pop/.test(g))                     return "🎸";
+  if (/beach|sunset|funk/.test(g))            return "🌴";
+  if (/dj|electr|techno|house/.test(g))       return "🎧";
+  if (/jazz|soul|r&b|rnb|blues|live/.test(g)) return "🎶";
+  return "🎵";
+}
+
 /**
- * Build the Sammelpost caption lines.
- * scope "weekend" → "Este finde en la Costa del Sol:"
- * scope "week"    → "Esta semana en la Costa del Sol:"
+ * Build the Sammelpost caption.
+ * Hook rotates deterministically by ISO week so the same week always gets
+ * the same hook (no randomness across re-runs).
+ *
+ * @param {Array}  events   Eligible events for this slot.
+ * @param {string} scope    "weekend" | "week"
+ * @param {number} isoWeek  ISO week number (used for hook rotation).
  */
-function buildCollectionPostCaption(events, scope) {
-  const header = scope === "weekend"
-    ? "🔥 Este finde en la Costa del Sol:"
-    : "🔥 Esta semana en la Costa del Sol:";
+function buildCollectionPostCaption(events, scope, isoWeek) {
+  // ── Deterministic hook rotation ───────────────────────────────────────────
+  const HOOKS_WEEK = [
+    "🎶 ¿Aún no tienes planes para esta semana? Descubre los mejores eventos cerca de ti.",
+    "🔥 Los mejores eventos de la semana, reunidos en un solo lugar.",
+    "🎸 Esta semana viene cargada de música en vivo y buen ambiente. ¡No te lo pierdas!",
+    "🌞 ¿Sin planes para esta semana? Descubre los eventos que no te puedes perder.",
+  ];
+  const HOOKS_WEEKEND = [
+    "🔥 ¿Todavía sin plan para este finde? ¡Aquí tienes todo lo que necesitas!",
+    "🌴 ¿Todavía no sabes qué hacer este finde? ¡Echa un vistazo!",
+    "🍹 ¿Buscas algo para hacer este finde? Aquí tienes nuestras recomendaciones.",
+    "🎤 Música en vivo, fiestas y mucho más: descubre lo mejor de este finde.",
+  ];
+
+  const isWeekend = scope === "weekend";
+  const hooks  = isWeekend ? HOOKS_WEEKEND : HOOKS_WEEK;
+  const week   = typeof isoWeek === "number" ? isoWeek : 0;
+  const hook   = hooks[week % hooks.length];
+  const footer = isWeekend
+    ? "📍 Todos los eventos en gomarcha.com\n#CostaDelSol #Marbella #finde #GoMarcha"
+    : "📍 Todos los eventos en gomarcha.com\n#CostaDelSol #Marbella #músicaenvivo #GoMarcha";
+
+  // ── Event lines ───────────────────────────────────────────────────────────
   const sorted = sortEventsByGenrePriority(events);
   const lines = sorted.map((ev) => {
-    const name = String(ev?.name || ev?.title || "").trim();
-    const city = String(ev?.city || ev?.location_name || "").trim();
-    const day  = formatCollectionEventDate(ev?.event_date);
-    const time = String(ev?.event_time || "").trim().slice(0, 5);
-    const meta = [city, day, time].filter(Boolean).join(" ");
-    return `🎶 ${name}${meta ? " – " + meta : ""}`;
+    const name  = String(ev?.name || ev?.title || "").trim();
+    const city  = String(ev?.city || ev?.location_name || "").trim();
+    const day   = formatCollectionEventDate(ev?.event_date);
+    const time  = String(ev?.event_time || "").trim().slice(0, 5);
+    const meta  = [city, day, time].filter(Boolean).join(" ");
+    const emoji = genreEmojiForEvent(ev);
+    return `${emoji} ${name}${meta ? " – " + meta : ""}`;
   });
-  return [header, ...lines].join("\n");
+
+  return [hook, "", ...lines, "", footer].join("\n");
 }
 
 /**
@@ -4491,13 +4529,16 @@ function buildWeeklyScheduleRows(weekEvents, monday, now, lastCollectionImageUrl
       const sorted    = sortEventsByGenrePriority(eligible);
       const bestEvent = sorted[0];
       const otherIds  = sorted.slice(1).map((ev) => ev.id).filter(Boolean);
-      const caption   = buildCollectionPostCaption(eligible, slotDef.scope);
+      const caption   = buildCollectionPostCaption(eligible, slotDef.scope, isoWeek);
       const image     = resolveCollectionPostImage(eligible, lastCollectionImageUrl, isoWeek);
       const hashtags  = buildCollectionPostHashtags(bestEvent, eligible);
 
       const payload = buildSocialQueuePayload(bestEvent, slotDate, DEFAULT_SOCIAL_QUEUE_PLATFORMS, {
         postStage: "collection"
       });
+      payload.title              = slotDef.scope === "weekend"
+        ? "¿Sin plan para este finde?"
+        : "Esta semana en la Costa del Sol";
       payload.caption            = caption;
       payload.image_url          = image || payload.image_url;
       payload.resolved_image_url = image || payload.resolved_image_url;
