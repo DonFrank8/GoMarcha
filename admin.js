@@ -3974,11 +3974,8 @@ async function repairSocialQueueTitle(queueId) {
 
 /**
  * Save existing social_queue row by queueId (eventId optional).
- * Step logs [save-draft] 1–7 for debugging.
  */
 async function handleSocialQueueSaveDraftClick(button) {
-  console.log("[save-draft] 1 branch start");
-
   const queueId = String(
     button?.closest?.("[data-sq-editor]")?.dataset?.queueId ||
       button?.closest?.(".admin-sq-card")?.dataset?.queueId ||
@@ -3986,9 +3983,6 @@ async function handleSocialQueueSaveDraftClick(button) {
       ""
   ).trim();
   const editorEl = resolveSocialQueueEditorEl(button, queueId);
-
-  console.log("[save-draft] 2 editorEl exists", Boolean(editorEl));
-  console.log("[save-draft] 3 queueId", queueId || null);
 
   if (!queueId) {
     const msg = "Queue-ID fehlt.";
@@ -4018,12 +4012,10 @@ async function handleSocialQueueSaveDraftClick(button) {
   }
 
   const form = readSocialQueueEditorForm(editorEl);
-  console.log("[save-draft] 4 form", form);
 
   const ev = row.event_id ? state.allEvents.find((e) => String(e.id) === String(row.event_id)) : null;
   const imageUrl = socialQueuePreviewImageUrl(row);
   const validation = validateSocialQueueDraftForm({ ...form, image_url: imageUrl });
-  console.log("[save-draft] 5 validation", validation);
   if (!validation.ok) {
     const msg = validation.errors.join(" · ");
     const display = showSocialQueueSaveError(editorEl, new Error(msg));
@@ -4040,8 +4032,6 @@ async function handleSocialQueueSaveDraftClick(button) {
     status: row.status ?? null,
     payload
   });
-  console.log("[save-draft] 6 supabase payload", payload);
-
   const client = supabaseClient();
   let body = { ...payload };
   for (let attempt = 0; attempt < 4; attempt += 1) {
@@ -4050,7 +4040,6 @@ async function handleSocialQueueSaveDraftClick(button) {
       .update(body)
       .eq("id", queueId)
       .select("id,scheduled_at,platform,platforms,status");
-    console.log("[save-draft] 7 supabase response", { attempt, data, error });
     if (!error) {
       patchSocialQueueRowInState(queueId, body);
       const savedRow = applySocialQueuePlatformsToRecord({
@@ -7464,7 +7453,6 @@ async function loadSocialQueueRows() {
 }
 
 async function ensureSocialReviewQueueForEvent(event) {
-  console.log("ensureSocialReviewQueue called", event?.id);
   // ── Recurring events: use the legacy per-event slot system (unchanged) ──────
   if (event?.is_recurring === true || String(event?.original_event_id || "").trim()) {
     const candidates = buildSocialReviewQueueRows(event);
@@ -7591,16 +7579,30 @@ async function ensureSocialReviewQueueForEvent(event) {
   // Collection posts are deduped by scheduled_at time; single posts by event_id.
   // Recurring events appear in collection posts only, so only one-time IDs are needed here.
   const weekEventIds = weekEvents.map((ev) => ev.id).filter(Boolean);
-  const { data: existing, error: existingError } = await client
+  let existing = [];
+  if (weekEventIds.length) {
+    const { data, error: existingError } = await client
+      .from("social_queue")
+      .select("event_id,scheduled_at,post_stage")
+      .in("event_id", weekEventIds);
+    if (existingError) throw new Error(existingError.message || "Social Queue konnte nicht geprüft werden.");
+    existing = data || [];
+  }
+
+  // Also fetch collection posts for this week by time range — catches cases where
+  // a recurring event was chosen as bestEvent and its ID is not in weekEventIds.
+  const { data: existingCols, error: colErr } = await client
     .from("social_queue")
-    .select("event_id,scheduled_at,post_stage")
-    .in("event_id", weekEventIds);
-  if (existingError) throw new Error(existingError.message || "Social Queue konnte nicht geprüft werden.");
+    .select("scheduled_at,post_stage")
+    .eq("post_stage", "collection")
+    .gte("scheduled_at", mondayStr + "T00:00:00.000Z")
+    .lt("scheduled_at", nextMondayStr + "T24:00:00.000Z");
+  if (colErr) throw new Error(colErr.message || "Collection Posts konnten nicht geprüft werden.");
 
   // One collection post per timeslot (regardless of event_id);
   // one single post per event_id + timeslot.
   const existingCollectionTimes = new Set(
-    (existing || [])
+    [...existing, ...(existingCols || [])]
       .filter((r) => r.post_stage === "collection")
       .map((r) => new Date(r.scheduled_at).toISOString())
   );
@@ -7613,28 +7615,6 @@ async function ensureSocialReviewQueueForEvent(event) {
       return !existingCollectionTimes.has(row.scheduled_at);
     }
     return !existingSingleKeys.has(`${row.event_id}::${row.scheduled_at}`);
-  });
-  console.log("[ensureSocialReviewQueue] debug", {
-    weekEventsCount:    weekEvents.length,
-    recurringCount:     recurringWeekEvents.length,
-    allWeekEventsCount: allWeekEvents.length,
-    candidatesCount:    candidates.length,
-    candidates: candidates.map((r) => ({
-      slot_id:    r._slot_id,
-      post_stage: r.post_stage,
-      scheduled:  r.scheduled_at,
-      event_id:   r.event_id,
-      title:      r.title,
-    })),
-    existingCollectionTimesCount: existingCollectionTimes.size,
-    existingSingleKeysCount:      existingSingleKeys.size,
-    missingCount: missing.length,
-    missing: missing.map((r) => ({
-      slot_id:    r._slot_id,
-      post_stage: r.post_stage,
-      scheduled:  r.scheduled_at,
-      event_id:   r.event_id,
-    })),
   });
   if (!missing.length) return 0;
   return insertSocialQueueRows(missing);
@@ -7670,7 +7650,6 @@ async function deleteInvalidSocialDrafts() {
 }
 
 async function regenerateSocialDraftsForEvent(event) {
-  console.log("regenerateSocialDrafts called", event?.id);
   if (isAdminEventIncompleteForApproval(event)) {
     throw new Error(reportAdminEventValidationFailure(event, "regenerate-social-drafts"));
   }
@@ -10687,8 +10666,6 @@ async function handleCardAction(clickEvent) {
     }
 
     if (action === "regenerate-drafts") {
-      console.log("regenerate-drafts button clicked", eventData?.id);
-      console.log("validation check", getAdminEventApprovalMissingFields(adminCoerceEventForValidation(eventData)));
       setGlobalFeedback("");
       await withAdminButtonBusy(button, "Social…", async () => {
         console.log("admin action regenerate-drafts start", { eventId: eventData?.id });
