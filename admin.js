@@ -2848,7 +2848,9 @@ function generateHumanSocialCaptionBundle(event, platform, eventStartOrScheduled
   const cta_text =
     options.cta_text ??
     (lang === "es"
-      ? "Más info y entradas en el enlace."
+      ? (platformKey === "facebook"
+          ? "Reserva e info en el enlace."
+          : "Entradas e info en el enlace de la bio.")
       : lang === "de"
         ? "Infos und Tickets im Link."
         : "Details and tickets in bio.");
@@ -4377,7 +4379,7 @@ function genreEmojiForEvent(ev) {
  * @param {string} scope    "weekend" | "week"
  * @param {number} isoWeek  ISO week number (used for hook rotation).
  */
-function buildCollectionPostCaption(events, scope, isoWeek) {
+function buildCollectionPostCaption(events, scope, isoWeek, platform = "instagram") {
   // ── Deterministic hook rotation ───────────────────────────────────────────
   const HOOKS_WEEK = [
     "🎶 ¿Aún no tienes planes para esta semana? Descubre los mejores eventos cerca de ti.",
@@ -4396,9 +4398,14 @@ function buildCollectionPostCaption(events, scope, isoWeek) {
   const hooks  = isWeekend ? HOOKS_WEEKEND : HOOKS_WEEK;
   const week   = typeof isoWeek === "number" ? isoWeek : 0;
   const hook   = hooks[week % hooks.length];
+  // Facebook: no URL (avoids OG-image override); Instagram: link-in-bio reference.
+  const platformKey = String(platform || "instagram").toLowerCase();
+  const footerPrefix = platformKey === "facebook"
+    ? "📍 GoMarcha · Costa del Sol"
+    : "📍 Todos los eventos → enlace en la bio";
   const footer = isWeekend
-    ? "📍 Todos los eventos en gomarcha.com\n#CostaDelSol #Marbella #finde #GoMarcha"
-    : "📍 Todos los eventos en gomarcha.com\n#CostaDelSol #Marbella #músicaenvivo #GoMarcha";
+    ? `${footerPrefix}\n#CostaDelSol #Marbella #finde #GoMarcha`
+    : `${footerPrefix}\n#CostaDelSol #Marbella #músicaenvivo #GoMarcha`;
 
   // ── Event lines ───────────────────────────────────────────────────────────
   const sorted = sortEventsByGenrePriority(events);
@@ -4519,7 +4526,9 @@ function buildWeeklyScheduleRows(weekEvents, monday, now, lastCollectionImageUrl
       const sorted    = sortEventsByGenrePriority(eligible);
       const bestEvent = sorted[0];
       const otherIds  = sorted.slice(1).map((ev) => ev.id).filter(Boolean);
-      const caption   = buildCollectionPostCaption(eligible, slotDef.scope, isoWeek);
+      // Build platform-specific captions: Instagram (primary/default) and Facebook (no URL).
+      const captionIg = buildCollectionPostCaption(eligible, slotDef.scope, isoWeek, "instagram");
+      const captionFb = buildCollectionPostCaption(eligible, slotDef.scope, isoWeek, "facebook");
       const image     = resolveCollectionPostImage(eligible, lastCollectionImageUrl, isoWeek);
       const hashtags  = buildCollectionPostHashtags(bestEvent, eligible);
 
@@ -4529,7 +4538,7 @@ function buildWeeklyScheduleRows(weekEvents, monday, now, lastCollectionImageUrl
       payload.title              = slotDef.scope === "weekend"
         ? "¿Sin plan para este finde?"
         : "Esta semana en la Costa del Sol";
-      payload.caption            = caption;
+      payload.caption            = captionIg; // Instagram version (no URL, link-in-bio)
       payload.image_url          = image || payload.image_url;
       payload.resolved_image_url = image || payload.resolved_image_url;
       payload.hashtags           = hashtags;
@@ -4538,6 +4547,7 @@ function buildWeeklyScheduleRows(weekEvents, monday, now, lastCollectionImageUrl
         payload.postiz_response, hashtags, null, { post_stage: "collection" }
       );
       payload.postiz_response._marcha_collection_event_ids = otherIds;
+      payload.postiz_response._marcha_fb_caption           = captionFb; // Facebook: no URL
       payload._slot_id = slotDef.id;
       rows.push(payload);
 
