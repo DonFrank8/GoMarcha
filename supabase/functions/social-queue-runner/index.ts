@@ -1014,15 +1014,14 @@ function integrationTargetsForRow(
   return targets;
 }
 
-function postizSettings(platform: SocialPlatform, eventId?: string | null): Record<string, unknown> {
+function postizSettings(platform: SocialPlatform, _eventId?: string | null): Record<string, unknown> {
   if (platform === "instagram") {
     return { __type: "instagram", post_type: "post", is_trial_reel: false, collaborators: [] };
   }
-  // Use event-specific URL so Facebook crawls the event's OG image, not the site's generic social preview.
-  const fbUrl = eventId
-    ? `https://www.gomarcha.com/?event_id=${encodeURIComponent(eventId)}`
-    : "https://www.gomarcha.com";
-  return { __type: "facebook", url: fbUrl };
+  // No `url` field — omitting it forces a pure image post on Facebook.
+  // Including a URL causes Facebook to crawl the page's OG tags and replace
+  // the uploaded image with the site's OG preview image.
+  return { __type: "facebook" };
 }
 
 /** Postiz API validates `tags` as an array of `{ value, label }`; empty `[]` can break create/list visibility (see postiz-app#717). */
