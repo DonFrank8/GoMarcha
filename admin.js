@@ -7463,6 +7463,30 @@ async function loadSocialQueueRows() {
 }
 
 async function ensureSocialReviewQueueForEvent(event) {
+  // ── Short-notice last_call for one-time events with no existing queue rows ─────
+  if (event?.is_recurring !== true && !String(event?.original_event_id || "").trim()) {
+    const immediateLastCall = immediateLastCallDateForEvent(event);
+    if (immediateLastCall) {
+      const client = supabaseClient();
+      const { data: existingRows, error: existingErr } = await client
+        .from("social_queue")
+        .select("id")
+        .eq("event_id", event.id)
+        .limit(1);
+      if (existingErr) throw new Error(existingErr.message || "Social Queue konnte nicht geprüft werden.");
+      if (!existingRows?.length) {
+        const eventStart = dateFromAdminEventWallTime(event);
+        if (eventStart && immediateLastCall < eventStart) {
+          const payload = buildSocialQueuePayload(event, immediateLastCall, DEFAULT_SOCIAL_QUEUE_PLATFORMS, {
+            postStage: "last_call",
+          });
+          payload._slot_id = "short_notice_last_call";
+          return insertSocialQueueRows([payload]);
+        }
+      }
+    }
+  }
+
   // ── Recurring events: use the legacy per-event slot system (unchanged) ──────
   if (event?.is_recurring === true || String(event?.original_event_id || "").trim()) {
     const candidates = buildSocialReviewQueueRows(event);
