@@ -31,10 +31,17 @@ Der Inhaber (Frank) ist **kein Programmierer**. Er gibt Aufgaben vor, prüft Erg
 | DNS/SSL | Cloudflare | — |
 | Event-Share-Vorschau | Cloudflare Worker (Route `www.gomarcha.com/e/*`) | `workers/event-share/` |
 | Backend | Supabase (Postgres, Auth per Magic Link, Storage-Bucket `event-images`) | `supabase/` |
-| Edge Functions | Deno/TypeScript | `supabase/functions/` |
-| Social Media | Postiz (Facebook, Instagram), Captions über OpenAI | `supabase/functions/social-queue-runner/`, `process-social-queue/` |
+| Edge Functions | Deno/TypeScript; aktiv laut `supabase/config.toml`: `social-queue-runner`, `event-share`, `notify-new-event` | `supabase/functions/` |
+| Social Media | Postiz (Facebook, Instagram), Captions aus festen spanischen Vorlagen (kein KI-Dienst) | `supabase/functions/social-queue-runner/` |
+| Admin-Benachrichtigung | E-Mail per Zoho SMTP bei neuem Event | `supabase/functions/notify-new-event/` |
+| Rechtliche Seiten | Statisches HTML | `legal.html`, `privacy.html`, `data-deletion.html` |
+| SQL-Migrationen | Lose Dateien im Hauptordner (nicht unter `supabase/`) | `supabase-*.sql` |
 | PWA | Service Worker | `service-worker.js` |
 | Skripte | Node ≥ 18 | `scripts/` (Backup, Social-QA, Recurring-Logik) |
+
+Hinweise:
+- `supabase/functions/process-social-queue/` ist vermutlich **veraltet** (nicht in `config.toml`, abgelöst durch `social-queue-runner`). Nicht ändern oder löschen, ohne vorher im Supabase-Dashboard zu prüfen, ob sie noch deployt ist.
+- Share-Vorschau gibt es doppelt: Cloudflare Worker (`workers/event-share/`, Route `/e/*`) und Edge Function `event-share`. Bei Änderungen an der Vorschau beide prüfen.
 
 Sprachen der Inhalte: Deutsch, Englisch, Spanisch (z. B. `description_de/en/es`).
 
@@ -45,7 +52,9 @@ Sprachen der Inhalte: Deutsch, Englisch, Spanisch (z. B. `description_de/en/es`)
 - `RECURRING_EVENTS_NOTES.md` — wiederkehrende Events (weekly/monthly)
 - `SUPABASE_BACKUP_RECOVERY.md` — Backup und Wiederherstellung
 - `IMPLEMENTATION_GUIDANCE_STEP10.md` — Frontend-Konventionen (State, Render-Reihenfolge)
-- `MOBILE_WIREFRAME_SPEC.md` — mobiles Layout
+- `MOBILE_WIREFRAME_SPEC.md` — mobiles Layout (Designvorgabe aus dem Redesign)
+
+„VIBEON“ war ein früherer Projektname. Im Code heißen noch die `localStorage`-Schlüssel in `app.js` (`vibeon_*`, `vibeon.*`) so. Nicht umbenennen, sonst verlieren Nutzer Favoriten, Sprache und gespeicherten Standort.
 
 ## Bekannte Stolperfallen
 
