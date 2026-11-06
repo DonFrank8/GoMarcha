@@ -1,4 +1,4 @@
-# VIBEON Frontend Implementation Guidance (Step 10)
+# Marcha Frontend Implementation Guidance (Step 10)
 
 This document is the final implementation and hardening guide for the current mobile-first redesign (Steps 1-9), with concrete conventions for ongoing frontend work.
 
