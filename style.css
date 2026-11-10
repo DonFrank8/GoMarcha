@@ -4644,23 +4644,19 @@ body::after {
    Dunkel, viel Luft, eine Akzentfarbe. Farben nur über diese Tokens ändern.
    ========================================================================= */
 :root {
-  --m-bg: #0b0a0f;
-  --m-surface: #16141c;
-  --m-surface-2: #201d28;
+  --m-bg: #0d0a0a;
+  --m-surface: #1a1514;
+  --m-surface-2: #241d1b;
   --m-line: rgba(255, 255, 255, 0.09);
   --m-text: #f7f3ee;
-  --m-muted: #b4adb9;
-  --m-accent: #ff5c8a;       /* Marcha-Pink (vorläufig) */
-  --m-accent-ink: #1a0710;   /* Text auf Akzentfarbe */
-  --m-accent-soft: rgba(255, 92, 138, 0.16);
+  --m-muted: #b7aca8;
+  --m-accent: #ff7a3d;       /* Sunset-Orange */
+  --m-accent-ink: #1e0b02;   /* Text auf Akzentfarbe */
+  --m-accent-soft: rgba(255, 122, 61, 0.16);
   --m-radius: 14px;
   --m-font-display: "Poppins", system-ui, sans-serif;
   --m-font-body: "Inter", system-ui, sans-serif;
 }
-/* Testvarianten, nur zum Vergleichen: <html data-variant="sunset|tropical"> */
-html[data-variant="sunset"] { --m-accent: #ff7a3d; --m-accent-ink: #1e0b02; --m-accent-soft: rgba(255, 122, 61, 0.16); --m-bg: #0d0a0a; --m-surface: #1a1514; --m-surface-2: #241d1b; }
-html[data-variant="tropical"] { --m-accent: #2ee6c5; --m-accent-ink: #03201b; --m-accent-soft: rgba(46, 230, 197, 0.14); --m-bg: #070b0f; --m-surface: #111820; --m-surface-2: #18222c; }
-
 body { background: var(--m-bg); color: var(--m-text); font-family: var(--m-font-body); }
 
 /* ---- Kopfbereich: kompakt, damit Events sofort sichtbar sind ---- */
