@@ -21,7 +21,7 @@ Erst **Plan vorlegen**, dann umsetzen. Ergebnis eines Councils (4 Prüfer) vom 1
 - **Monetarisierung:** Idee A (Eintragen gratis, Social-Media-Promotion verkaufen) = ja, aber später. Idee B (zahlen ab X Events/Monat) = nein (bestraft die fleißigsten Locations, leicht zu umgehen).
   Vorschlag: Gratis / **Boost** 15–29 € pro Event (oben + „Gesponsert“, eigener Post + Story, kleiner Bericht) / **Location Pro** 39–49 €/Monat. Start erst bei ca. 30–50 aktiven Veranstaltern und mehreren tausend lokalen Followern. Vorher Autónomo, 21 % IVA, Rechnungen (Verifactu) mit Gestoría klären; bezahlte Posts als „Publicidad“ kennzeichnen.
   Vergleich: My Guide Marbella Premium 49,99 €/Monat; Bandsintown Boost 50 $/Event; Eventbrite nur Ticketgebühr.
-- **Offene Frage an Frank:** Erst 4 Wochen **Nachfrage-Test ohne neuen Code** (10–20 Locations persönlich ansprechen, 2–3 Promotions von Hand für 10–20 € verkaufen, Zeitaufwand notieren), **bevor** die Veranstalter-Konten gebaut werden? (Empfehlung des Councils und von Claude: ja.)
+- **Entscheidung Frank (10.11.2026):** Veranstalter-Konten werden **fertig gebaut** (nach den Sicherheits-Fixes), und Frank startet **gleichzeitig** den Nachfrage-Test: Locations persönlich ansprechen, 2–3 Promotions von Hand verkaufen (z. B. 10–20 €), notieren wer mitmacht/zahlt und wie viel Zeit es kostet. Ergebnisse des Tests hier eintragen.
 - **Jetzt schon messen:** Besucher/Monat (z. B. Plausible/Umami), Klicks pro Event auf Route/Teilen/Merken/Ticket, Reichweite pro Post (Postiz/Meta), Follower-Zuwachs.
 - **Für die Veranstalter-Konten vormerken:** eigene Location-Seite, Pflichtfelder Preis + Straße, Knopf „Absagen“, Feld Ticket-/Reservierungs-Link, „Gesponsert“-Kennzeichnung, ein Status `hidden` für gesperrte Veranstalter, Felder `featured_until`/`promoted_until`; nur ein Feld statt `featured` + `is_featured`. Technische Fallstricke (Trigger auch für UPDATE, `organizer_id` erzwingen, Bilder-Ordner `org/<uid>/`, wiederkehrende Events) stehen im Council-Bericht „Technik“.
 - Betriebsaufwand mit Konten geschätzt 4–9 h/Woche für Frank allein. „Admins verwalten“ erst, wenn es eine zweite Person gibt.
@@ -29,7 +29,7 @@ Erst **Plan vorlegen**, dann umsetzen. Ergebnis eines Councils (4 Prüfer) vom 1
 
 ## 1. Veranstalter-Konten (nächstes großes Thema)
 
-Mit Frank abgestimmt:
+**Reihenfolge:** nach Punkt 0 (Sicherheits-Fixes). Plan vorlegen, dann bauen. Mit Frank abgestimmt:
 
 - Locations, Bars, Bands registrieren sich selbst (Login per E-Mail-Link) und geben einmal ihre Daten an:
   Name, Art (Location/Bar/Band/DJ), Ansprechpartner, Telefon, Adresse. **Website und Instagram freiwillig.**
