@@ -30,7 +30,8 @@ order by email;
 -- Vorher in der Zeile `admin_email` DEINE Admin-E-Mail eintragen.
 -- Ablauf:
 --   1. Prüft, dass es dieses Konto gibt – sonst Abbruch, nichts wird geändert.
---   2. Setzt bei diesem Konto die Rolle "admin" im sicheren Feld (app_metadata).
+--   2. Setzt bei diesem Konto die Rolle "admin" im sicheren Feld (app_metadata)
+--      und markiert es als Supervisor (darf später weitere Admins anlegen).
 --   3. Erst dann wird die Prüf-Funktion auf das sichere Feld umgestellt.
 -- Danach im Admin-Bereich einmal ab- und wieder anmelden.
 -- =====================================================================
@@ -47,7 +48,7 @@ begin
   end if;
 
   update auth.users
-  set raw_app_meta_data = coalesce(raw_app_meta_data, '{}'::jsonb) || jsonb_build_object('role', 'admin')
+  set raw_app_meta_data = coalesce(raw_app_meta_data, '{}'::jsonb) || jsonb_build_object('role', 'admin', 'supervisor', true)
   where lower(email) = lower(trim(admin_email));
 end $$;
 
