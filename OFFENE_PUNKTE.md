@@ -61,9 +61,14 @@ Erst **Plan vorlegen**, dann umsetzen. Ergebnis eines Councils (4 Prüfer) vom 1
 - Bis zum Deploy schützt das Secret `MARCHA_ADMIN_ALLOWED_EMAILS` (gesetzt, geprüft).
 - Deploy nur mit Franks Freigabe.
 
-## 5. Eigener Mailserver für Supabase-Auth
+## 5. Zoho-E-Mail-Konten für Marcha + Mailserver für Supabase-Auth
 
-- Supabase-Standard-Mails gehen nur begrenzt raus (meist nur an Team-Mitglieder). Für Veranstalter-Mails Zoho-SMTP in Supabase einrichten (Authentication → Emails → SMTP). Zoho-Daten liegen schon als Secrets (`SMTP_*`) für `notify-new-event`.
+- **To-do Frank (eingetragen 10.11.2026, Kalender 11.11.):** Zoho-E-Mail-Konten für Marcha einrichten bzw. ordnen. Vorschlag, mit Frank abzustimmen:
+  - `info@gomarcha.com` – öffentliche Kontaktadresse (Impressum, Veranstalter-Anfragen, Promotion-Verkauf)
+  - `noreply@gomarcha.com` (oder `hola@…`) – Absender für automatische Mails (Login-Links, Bestätigungen, Benachrichtigungen)
+  - Franks Admin-Login bleibt vorerst `derhilgersfrank@gmail.com`; ein Umzug auf eine Marcha-Adresse wäre ein eigener Schritt (dann `MARCHA_ADMIN_ALLOWED_EMAILS` und `app_metadata` anpassen).
+  - DNS bei Cloudflare prüfen: SPF, DKIM, DMARC für gomarcha.com, damit Mails nicht im Spam landen.
+- Danach: Supabase-Standard-Mails gehen nur begrenzt raus (meist nur an Team-Mitglieder). Für Veranstalter-Mails Zoho-SMTP in Supabase einrichten (Authentication → Emails → SMTP Settings) mit dem Absender-Konto oben. Zoho-Daten liegen schon als Secrets (`SMTP_*`) für `notify-new-event` – prüfen, welches Konto dort hinterlegt ist.
 
 ## 6. Kleinere Punkte
 
