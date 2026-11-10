@@ -1,7 +1,31 @@
 # Offene Punkte — Marcha
 
-Merkliste für die nächsten Sessions. Stand: 10.11.2026.
+Merkliste für die nächsten Sessions. Stand: 10.11.2026 (abends, nach Council).
 Erledigtes hier streichen bzw. nach „Erledigt“ verschieben.
+
+## 0. ALS NÄCHSTES (Frank, 10.11.2026: „machen wir gleich morgen“): Sicherheits-Fixes aus dem Council
+
+Erst **Plan vorlegen**, dann umsetzen. Ergebnis eines Councils (4 Prüfer) vom 10.11.2026, Punkt 1 selbst im Code bestätigt:
+
+1. **HOCH – Jeder kann alle Bilder löschen**: `supabase-rls.sql` Policy „Anyone can delete own event images path“ prüft nur `bucket_id`. → Löschen nur für Admins (`marcha_auth_is_admin()`); `app.js` ruft `remove` bei fehlgeschlagenem Upload auf (`deleteUploadedEventImage`) → dort Fehler still ignorieren.
+2. **MITTEL-HOCH – Beliebige Dateien hochladen**: Policy „Anyone can upload event images“ ohne Typ/Größe/Ordner. → Im Dashboard beim Bucket `event-images` Größenlimit (z. B. 8 MB) und erlaubte Typen (jpeg/png/webp) setzen; Ordner-Bedingung in der Policy.
+3. **MITTEL – Einreicher können `featured`, `promoted`, `is_featured`, `archived_at`, `original_event_id`, `recurring_social_enabled` mitsenden** (Insert-Policy prüft nur `status`). → `BEFORE INSERT`-Trigger setzt diese Felder für Nicht-Admins zurück.
+4. **Vertrauen – fehlender Preis wird als „Gratis“/„Eintritt frei“ angezeigt** (`normalizeEvent`: `price_text || t("details_free")`, und `isFreePrice` zählt leer als gratis). → „Preis auf Anfrage“ o. ä. anzeigen.
+5. **supabase-js ohne feste Version** (`@supabase/supabase-js@2` in `index.html` und `admin.html`) → auf exakte Version festlegen.
+6. `social-queue-runner` neu deployen (siehe Punkt 4 unten), `smart-action`-Code ins Repo holen, Ordner `process-social-queue` löschen.
+7. Spam/Statistik: Längengrenzen (CHECK) für Event-Texte, `qr_tracking`/`event_analytics` begrenzen; Captcha (Cloudflare Turnstile) später. `NOTIFY_WEBHOOK_SECRET` ist gesetzt (gesehen am 10.11.2026).
+8. Frank: Supabase → **Advisors → Security** öffnen und Ergebnis zeigen (Tabelle `events` wird im Repo nirgends angelegt, weitere Tabellen sind nicht prüfbar).
+
+## Council-Empfehlungen zu Strategie und Monetarisierung (10.11.2026) – noch nicht entschieden
+
+- **Monetarisierung:** Idee A (Eintragen gratis, Social-Media-Promotion verkaufen) = ja, aber später. Idee B (zahlen ab X Events/Monat) = nein (bestraft die fleißigsten Locations, leicht zu umgehen).
+  Vorschlag: Gratis / **Boost** 15–29 € pro Event (oben + „Gesponsert“, eigener Post + Story, kleiner Bericht) / **Location Pro** 39–49 €/Monat. Start erst bei ca. 30–50 aktiven Veranstaltern und mehreren tausend lokalen Followern. Vorher Autónomo, 21 % IVA, Rechnungen (Verifactu) mit Gestoría klären; bezahlte Posts als „Publicidad“ kennzeichnen.
+  Vergleich: My Guide Marbella Premium 49,99 €/Monat; Bandsintown Boost 50 $/Event; Eventbrite nur Ticketgebühr.
+- **Offene Frage an Frank:** Erst 4 Wochen **Nachfrage-Test ohne neuen Code** (10–20 Locations persönlich ansprechen, 2–3 Promotions von Hand für 10–20 € verkaufen, Zeitaufwand notieren), **bevor** die Veranstalter-Konten gebaut werden? (Empfehlung des Councils und von Claude: ja.)
+- **Jetzt schon messen:** Besucher/Monat (z. B. Plausible/Umami), Klicks pro Event auf Route/Teilen/Merken/Ticket, Reichweite pro Post (Postiz/Meta), Follower-Zuwachs.
+- **Für die Veranstalter-Konten vormerken:** eigene Location-Seite, Pflichtfelder Preis + Straße, Knopf „Absagen“, Feld Ticket-/Reservierungs-Link, „Gesponsert“-Kennzeichnung, ein Status `hidden` für gesperrte Veranstalter, Felder `featured_until`/`promoted_until`; nur ein Feld statt `featured` + `is_featured`. Technische Fallstricke (Trigger auch für UPDATE, `organizer_id` erzwingen, Bilder-Ordner `org/<uid>/`, wiederkehrende Events) stehen im Council-Bericht „Technik“.
+- Betriebsaufwand mit Konten geschätzt 4–9 h/Woche für Frank allein. „Admins verwalten“ erst, wenn es eine zweite Person gibt.
+- Produkt-Kleinigkeiten: Überschrift „Für dich entdeckt“ → ehrlicher z. B. „Heute & demnächst“; Schnellfilter „Strand/Beach“, „Gratis“, „Heute Abend“ prüfen.
 
 ## 1. Veranstalter-Konten (nächstes großes Thema)
 
