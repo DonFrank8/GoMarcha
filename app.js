@@ -7493,6 +7493,23 @@ function createEventCard(event, index = 0) {
 }
 
 // „Gemerkt“: zeigt nur Events mit Herz (gespeichert im Browser, wie bisher).
+// Hinweis „Du veranstaltest Livemusik?“: nach der 6. Karte in der Liste, sonst unter der Liste.
+const SUBMIT_TEASER_AFTER_CARDS = 6;
+let submitTeaserHome = null;
+
+function placeSubmitTeaser(listElement) {
+  const teaser = document.getElementById("submitTeaser");
+  if (!teaser) return;
+  if (!submitTeaserHome) submitTeaserHome = { parent: teaser.parentNode, next: teaser.nextSibling };
+  if (listElement) {
+    teaser.classList.add("submit-teaser--in-list");
+    listElement.append(teaser);
+  } else {
+    teaser.classList.remove("submit-teaser--in-list");
+    submitTeaserHome.parent.insertBefore(teaser, submitTeaserHome.next);
+  }
+}
+
 function renderSavedModeChrome() {
   const heading = document.querySelector("#listSection .panel__heading h3");
   if (heading) heading.textContent = state.savedOnly ? t("list_title_saved") : t("list_title");
@@ -7513,6 +7530,7 @@ function setSavedOnly(nextValue) {
 }
 
 function renderEventList() {
+  placeSubmitTeaser(null);
   dom.eventList.innerHTML = "";
   setResultCount(state.filteredEvents.length);
   renderSavedModeChrome();
@@ -7550,6 +7568,7 @@ function renderEventList() {
   }
 
   state.filteredEvents.forEach((event, index) => {
+    if (index === SUBMIT_TEASER_AFTER_CARDS) placeSubmitTeaser(dom.eventList);
     const card = createEventCard(event, index);
     card.classList.add("event-card--enter");
     card.style.setProperty("--card-index", String(index));

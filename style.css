@@ -5020,3 +5020,4 @@ body.body--detail-open { overflow: hidden; }
 }
 .is-saved-mode .submit-teaser { display: none; }
 .bottom-nav__item.is-active { color: var(--m-accent); }
+.submit-teaser--in-list { grid-column: 1 / -1; margin-top: 0.2rem; }
