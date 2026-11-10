@@ -2800,3 +2800,34 @@ body.admin-is-logged-in .admin-shell {
   font-size: 0.82rem;
   line-height: 1.35;
 }
+/* Passwort vergessen */
+.admin-forgot-link {
+  justify-self: start;
+  margin-top: 0.4rem;
+  padding: 0.3rem 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  opacity: 0.8;
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+}
+.admin-forgot-link:hover,
+.admin-forgot-link:focus-visible { opacity: 1; }
+
+/* Passwort ändern (Dialog) */
+.admin-password-dialog {
+  width: min(420px, calc(100vw - 32px));
+  border: 0;
+  border-radius: 16px;
+  padding: 1.2rem;
+  background: #16141c;
+  color: #f7f3ee;
+}
+.admin-password-dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
+.admin-password-dialog h2 { margin: 0 0 0.6rem; font-size: 1.2rem; }
+.admin-password-dialog__actions { display: flex; gap: 0.6rem; justify-content: flex-end; flex-wrap: wrap; margin-top: 0.4rem; }
+.admin-settings-account { margin-top: 1.2rem; display: grid; gap: 0.6rem; }
+.admin-settings-account h3 { margin: 0; font-size: 1rem; }
+.admin-settings-account .admin-password-dialog__actions { justify-content: flex-start; }
