@@ -9,11 +9,8 @@ stable
 security definer
 set search_path = public
 as $$
-  select coalesce(
-    nullif(trim(auth.jwt() -> 'app_metadata' ->> 'role'), ''),
-    nullif(trim(auth.jwt() -> 'user_metadata' ->> 'role'), ''),
-    ''
-  ) = 'admin';
+  -- Nur app_metadata zählt; user_metadata kann jeder Nutzer selbst ändern.
+  select coalesce(nullif(trim(auth.jwt() -> 'app_metadata' ->> 'role'), ''), '') = 'admin';
 $$;
 
 revoke all on function public.marcha_auth_is_admin() from public;

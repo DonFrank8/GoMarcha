@@ -580,9 +580,8 @@ function isEmailAllowed(email) {
 }
 
 function sessionRole(session) {
-  const appRole = String(session?.user?.app_metadata?.role || "").trim().toLowerCase();
-  const userRole = String(session?.user?.user_metadata?.role || "").trim().toLowerCase();
-  return appRole || userRole;
+  // Nur app_metadata zählt; user_metadata kann jeder Nutzer selbst ändern.
+  return String(session?.user?.app_metadata?.role || "").trim().toLowerCase();
 }
 
 function isSessionAdmin(session) {
