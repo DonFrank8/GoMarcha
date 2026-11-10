@@ -9247,6 +9247,75 @@ async function signInWithPassword(email, password) {
   if (error) throw error;
 }
 
+// Passwort vergessen: Supabase schickt einen Link, der zurück auf admin.html führt (#…type=recovery).
+const ADMIN_PASSWORD_RECOVERY_ACTIVE = /type=recovery/.test(window.location.hash || "");
+const ADMIN_MIN_PASSWORD_LENGTH = 12;
+
+async function sendAdminPasswordReset(email) {
+  const client = supabaseClient();
+  const redirectTo = `${window.location.origin}/admin.html`;
+  const { error } = await client.auth.resetPasswordForEmail(email, { redirectTo });
+  if (error) throw error;
+}
+
+function showAdminNewPasswordForm() {
+  const loginForm = document.getElementById("adminLoginForm");
+  const newPasswordForm = document.getElementById("adminNewPasswordForm");
+  if (loginForm) loginForm.hidden = true;
+  if (newPasswordForm) newPasswordForm.hidden = false;
+  if (dom.authCard) dom.authCard.hidden = false;
+  if (dom.workspace) dom.workspace.hidden = true;
+  document.getElementById("adminNewPassword")?.focus();
+}
+
+function bindAdminPasswordRecovery() {
+  // Falls Supabase den Link im neueren Code-Format schickt, meldet es den Fall über dieses Ereignis.
+  supabaseClient().auth.onAuthStateChange((authEvent) => {
+    if (authEvent === "PASSWORD_RECOVERY") showAdminNewPasswordForm();
+  });
+  document.getElementById("adminForgotPasswordButton")?.addEventListener("click", async () => {
+    const email = dom.loginEmail?.value.trim().toLowerCase() || "";
+    if (!email) {
+      setAuthFeedback("Bitte zuerst oben deine E-Mail eintragen, dann noch einmal auf „Passwort vergessen?“ tippen.", "error");
+      return;
+    }
+    try {
+      await sendAdminPasswordReset(email);
+      setAuthFeedback("Wenn es ein Konto mit dieser E-Mail gibt, kommt gleich eine Mail mit einem Link zum neuen Passwort. Bitte auch im Spam-Ordner schauen.", "success");
+    } catch (error) {
+      setAuthFeedback(`Mail konnte nicht gesendet werden: ${error.message}`, "error");
+    }
+  });
+
+  document.getElementById("adminNewPasswordForm")?.addEventListener("submit", async (submitEvent) => {
+    submitEvent.preventDefault();
+    const password = document.getElementById("adminNewPassword")?.value || "";
+    const repeat = document.getElementById("adminNewPasswordRepeat")?.value || "";
+    if (password.length < ADMIN_MIN_PASSWORD_LENGTH) {
+      setAuthFeedback(`Das Passwort braucht mindestens ${ADMIN_MIN_PASSWORD_LENGTH} Zeichen.`, "error");
+      return;
+    }
+    if (password !== repeat) {
+      setAuthFeedback("Die beiden Passwörter sind nicht gleich.", "error");
+      return;
+    }
+    try {
+      const client = supabaseClient();
+      const { error } = await client.auth.updateUser({ password });
+      if (error) throw error;
+      window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+      document.getElementById("adminNewPasswordForm").hidden = true;
+      document.getElementById("adminLoginForm").hidden = false;
+      setAuthFeedback("Neues Passwort gespeichert.", "success");
+      await checkSession();
+      renderAuthState();
+      if (isSessionAdmin(state.adminSession)) await loadEvents();
+    } catch (error) {
+      setAuthFeedback(`Passwort konnte nicht gespeichert werden: ${error.message}. Bitte den Link aus der Mail noch einmal öffnen.`, "error");
+    }
+  });
+}
+
 async function signOut() {
   const client = supabaseClient();
   await client.auth.signOut();
@@ -11532,8 +11601,18 @@ async function start() {
       return res;
     };
   }
+  bindAdminPasswordRecovery();
   try {
     await checkSession();
+    if (ADMIN_PASSWORD_RECOVERY_ACTIVE) {
+      showAdminNewPasswordForm();
+      if (!state.adminSession) {
+        setAuthFeedback("Der Link ist abgelaufen oder wurde schon benutzt. Bitte „Passwort vergessen?“ noch einmal anfordern.", "error");
+        document.getElementById("adminNewPasswordForm").hidden = true;
+        document.getElementById("adminLoginForm").hidden = false;
+      }
+      return;
+    }
     renderAuthState();
     if (isSessionAdmin(state.adminSession)) {
       await loadEvents();

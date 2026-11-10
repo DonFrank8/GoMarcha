@@ -64,6 +64,19 @@
           <input id="adminPassword" type="password" placeholder="Passwort" required>
         </label>
         <button id="adminLoginButton" type="submit" class="button button--primary">Einloggen</button>
+        <button id="adminForgotPasswordButton" type="button" class="button-link admin-forgot-link">Passwort vergessen?</button>
+      </form>
+      <form id="adminNewPasswordForm" class="auth-form" novalidate hidden>
+        <p class="card__intro">Bitte lege ein neues Passwort fest (mindestens 12 Zeichen).</p>
+        <label class="field">
+          <span>Neues Passwort</span>
+          <input id="adminNewPassword" type="password" autocomplete="new-password" minlength="12" required>
+        </label>
+        <label class="field">
+          <span>Neues Passwort wiederholen</span>
+          <input id="adminNewPasswordRepeat" type="password" autocomplete="new-password" minlength="12" required>
+        </label>
+        <button id="adminNewPasswordButton" type="submit" class="button button--primary">Passwort speichern</button>
       </form>
       <p id="adminAuthFeedback" class="message" hidden></p>
     </section>

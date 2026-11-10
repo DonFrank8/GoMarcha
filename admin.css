@@ -2800,3 +2800,18 @@ body.admin-is-logged-in .admin-shell {
   font-size: 0.82rem;
   line-height: 1.35;
 }
+/* Passwort vergessen */
+.admin-forgot-link {
+  justify-self: start;
+  margin-top: 0.4rem;
+  padding: 0.3rem 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  opacity: 0.8;
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+}
+.admin-forgot-link:hover,
+.admin-forgot-link:focus-visible { opacity: 1; }
