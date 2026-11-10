@@ -69,6 +69,7 @@
           >
         </div>
         <div class="hero__top-actions">
+          <button id="openSubmitModalTop" type="button" class="hero-submit-top" data-i18n="submit_cta_short">+ Event</button>
           <div id="languageSwitch" class="language-switch" role="group" aria-label="Language switch">
             <button type="button" class="language-switch__button is-active" data-lang-switch="de">DE</button>
             <button type="button" class="language-switch__button" data-lang-switch="en">EN</button>
@@ -326,6 +327,11 @@
           <span id="resultCount">0 Treffer</span>
         </div>
         <div id="eventList" class="event-list"></div>
+        <aside class="submit-teaser" aria-labelledby="submitTeaserTitle">
+          <h3 id="submitTeaserTitle" data-i18n="submit_teaser_title">Du veranstaltest Livemusik?</h3>
+          <p data-i18n="submit_teaser_text">Locations, Bars und Bands tragen ihre Events selbst ein – kostenlos. Wir prüfen jedes Event vor der Veröffentlichung.</p>
+          <button id="openSubmitModalTeaser" type="button" class="submit-teaser__cta" data-i18n="submit_cta">Event eintragen</button>
+        </aside>
       </section>
 
     </aside>
@@ -395,9 +401,9 @@
       <span aria-hidden="true">🗺️</span>
       <span data-i18n="nav_map">Map</span>
     </a>
-    <button id="bottomNavSubmit" class="bottom-nav__item" type="button">
-      <span aria-hidden="true">＋</span>
-      <span data-i18n="nav_submit">Submit</span>
+    <button id="bottomNavSaved" class="bottom-nav__item" type="button" aria-pressed="false">
+      <span aria-hidden="true">♥</span>
+      <span data-i18n="nav_saved">Gemerkt</span>
     </button>
   </nav>
 

@@ -4973,3 +4973,50 @@ body.body--detail-open { overflow: hidden; }
   border-color: var(--m-accent);
 }
 .map-search-area-cta { background: var(--m-accent); color: var(--m-accent-ink); border: 0; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35); }
+
+/* ---- „+ Event“ oben (nur Handy) ---- */
+.hero-submit-top { display: none; }
+@media (max-width: 760px) {
+  .hero__top-actions { display: flex; align-items: center; gap: 0.5rem; }
+  .hero-submit-top {
+    display: inline-flex;
+    align-items: center;
+    min-height: 36px;
+    padding: 0.35rem 0.8rem;
+    border-radius: 999px;
+    border: 1px solid var(--m-line);
+    background: rgba(13, 10, 10, 0.55);
+    color: var(--m-text);
+    font: 600 0.82rem/1 var(--m-font-body);
+    white-space: nowrap;
+  }
+}
+
+/* ---- Hinweis für Veranstalter am Ende der Liste ---- */
+.submit-teaser {
+  margin-top: 1.6rem;
+  padding: 1.2rem;
+  border-radius: var(--m-radius);
+  background:
+    radial-gradient(120% 120% at 100% 0%, var(--m-accent-soft), transparent 60%),
+    var(--m-surface);
+  border: 1px solid var(--m-line);
+  display: grid;
+  gap: 0.5rem;
+}
+.submit-teaser h3 { margin: 0; font: 700 1.15rem/1.2 var(--m-font-display); color: var(--m-text); }
+.submit-teaser p { margin: 0; color: var(--m-muted); font-size: 0.92rem; line-height: 1.45; max-width: 52ch; }
+.submit-teaser__cta {
+  justify-self: start;
+  margin-top: 0.3rem;
+  min-height: 44px;
+  padding: 0.5rem 1.2rem;
+  border: 0;
+  border-radius: 999px;
+  background: var(--m-accent);
+  color: var(--m-accent-ink);
+  font: 700 0.95rem/1 var(--m-font-body);
+  cursor: pointer;
+}
+.is-saved-mode .submit-teaser { display: none; }
+.bottom-nav__item.is-active { color: var(--m-accent); }

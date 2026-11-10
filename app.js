@@ -353,6 +353,13 @@ const I18N = {
     map_back_to_list: "← Liste",
     nav_map: "Karte",
     nav_submit: "Einreichen",
+    nav_saved: "Gemerkt",
+    submit_cta_short: "+ Event",
+    submit_teaser_title: "Du veranstaltest Livemusik?",
+    submit_teaser_text: "Locations, Bars und Bands tragen ihre Events selbst ein – kostenlos. Wir prüfen jedes Event vor der Veröffentlichung.",
+    list_title_saved: "Deine gemerkten Events",
+    saved_empty: "Noch nichts gemerkt. Tippe bei einem Event auf ♥, dann findest du es hier wieder.",
+    saved_show_all: "Alle Events zeigen",
     sheet_title: "Events in deiner Nahe",
     sheet_sort_nearby: "Nahe",
     sheet_sort_soonest: "Bald",
@@ -459,7 +466,7 @@ const I18N = {
     debug_note_no_data: "Keine Live-Daten gefunden",
     debug_note_error: "Live-Daten derzeit nicht erreichbar",
     button_all: "Alle",
-    submit_cta: "Event hinzufügen",
+    submit_cta: "Event eintragen",
     feedback_cta: "Feedback senden",
     feedback_email_subject: "Marcha Beta Feedback",
     feedback_email_body: "Hi Marcha Team,%0A%0Amein Feedback zur Beta:%0A",
@@ -646,6 +653,13 @@ const I18N = {
     map_back_to_list: "← List",
     nav_map: "Map",
     nav_submit: "Submit",
+    nav_saved: "Saved",
+    submit_cta_short: "+ Event",
+    submit_teaser_title: "Do you host live music?",
+    submit_teaser_text: "Venues, bars and bands add their own events – for free. We check every event before it goes live.",
+    list_title_saved: "Your saved events",
+    saved_empty: "Nothing saved yet. Tap ♥ on an event to find it here again.",
+    saved_show_all: "Show all events",
     sheet_title: "Events near you",
     sheet_sort_nearby: "Nearby",
     sheet_sort_soonest: "Soonest",
@@ -752,7 +766,7 @@ const I18N = {
     debug_note_no_data: "No live data found",
     debug_note_error: "Live data currently unavailable",
     button_all: "All",
-    submit_cta: "Add your event",
+    submit_cta: "List your event",
     feedback_cta: "Send feedback",
     feedback_email_subject: "Marcha Beta Feedback",
     feedback_email_body: "Hi Marcha Team,%0A%0Amy beta feedback:%0A",
@@ -939,6 +953,13 @@ const I18N = {
     map_back_to_list: "← Lista",
     nav_map: "Mapa",
     nav_submit: "Enviar",
+    nav_saved: "Guardados",
+    submit_cta_short: "+ Evento",
+    submit_teaser_title: "¿Organizas música en directo?",
+    submit_teaser_text: "Locales, bares y bandas publican sus eventos – gratis. Revisamos cada evento antes de publicarlo.",
+    list_title_saved: "Tus eventos guardados",
+    saved_empty: "Aún no has guardado nada. Toca ♥ en un evento para encontrarlo aquí.",
+    saved_show_all: "Ver todos los eventos",
     sheet_title: "Eventos cerca de ti",
     sheet_sort_nearby: "Cerca",
     sheet_sort_soonest: "Pronto",
@@ -1045,7 +1066,7 @@ const I18N = {
     debug_note_no_data: "No se encontraron datos en vivo",
     debug_note_error: "Datos en vivo no disponibles temporalmente",
     button_all: "Todos",
-    submit_cta: "Añade tu evento",
+    submit_cta: "Publicar evento",
     feedback_cta: "Enviar feedback",
     feedback_email_subject: "Feedback Beta Marcha",
     feedback_email_body: "Hola equipo Marcha,%0A%0Ami feedback de la beta:%0A",
@@ -1274,6 +1295,7 @@ const state = {
     hideTimer: null
   },
   favoriteEventIds: new Set(),
+  savedOnly: false,
   lang: "de",
   debug: {
     enabled: true,
@@ -6503,6 +6525,7 @@ function applyFilters() {
       if (!hasQuickMatch) return false;
     }
     if (filters.search && !haystack.includes(filters.search)) return false;
+    if (state.savedOnly && !isFavoriteEvent(event.id)) return false;
     if (filters.nearbyOnly) {
       if (!Number.isFinite(event.distance_km)) return false;
       if (event.distance_km > filters.radiusKm) return false;
@@ -7273,8 +7296,9 @@ function setViewMode(nextMode, { scroll = false } = {}) {
   }
   if (dom.viewToggleList) dom.viewToggleList.classList.toggle("is-active", resolvedMode === "list");
   if (dom.viewToggleMap) dom.viewToggleMap.classList.toggle("is-active", resolvedMode === "map");
-  if (dom.bottomNavDiscover) dom.bottomNavDiscover.classList.toggle("is-active", resolvedMode === "list");
+  if (dom.bottomNavDiscover) dom.bottomNavDiscover.classList.toggle("is-active", resolvedMode === "list" && !state.savedOnly);
   if (dom.bottomNavMap) dom.bottomNavMap.classList.toggle("is-active", resolvedMode === "map");
+  document.getElementById("bottomNavSaved")?.classList.toggle("is-active", resolvedMode === "list" && state.savedOnly);
   if (mapSheetIsAvailable()) {
     const nextSheetState = resolvedMode === "map" && mapSheetIsMobileViewport() ? "peek" : "half";
     setMapBottomSheetState(resolvedMode === "map" ? nextSheetState : "peek");
@@ -7468,9 +7492,42 @@ function createEventCard(event, index = 0) {
   return card;
 }
 
+// „Gemerkt“: zeigt nur Events mit Herz (gespeichert im Browser, wie bisher).
+function renderSavedModeChrome() {
+  const heading = document.querySelector("#listSection .panel__heading h3");
+  if (heading) heading.textContent = state.savedOnly ? t("list_title_saved") : t("list_title");
+  document.body.classList.toggle("is-saved-mode", state.savedOnly);
+  const savedButton = document.getElementById("bottomNavSaved");
+  if (savedButton) {
+    savedButton.classList.toggle("is-active", state.savedOnly);
+    savedButton.setAttribute("aria-pressed", String(state.savedOnly));
+  }
+  if (dom.bottomNavDiscover) dom.bottomNavDiscover.classList.toggle("is-active", !state.savedOnly && state.viewMode === "list");
+}
+
+function setSavedOnly(nextValue) {
+  state.savedOnly = Boolean(nextValue);
+  if (state.viewMode !== "list") setViewMode("list");
+  applyFilters();
+  dom.listSection?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 function renderEventList() {
   dom.eventList.innerHTML = "";
   setResultCount(state.filteredEvents.length);
+  renderSavedModeChrome();
+
+  if (!state.filteredEvents.length && state.savedOnly) {
+    dom.eventList.innerHTML = `
+      <div class="event-list__empty event-list__empty-state">
+        <p>${t("saved_empty")}</p>
+        <div class="event-list__empty-actions">
+          <button type="button" class="button-secondary button-secondary--primary" data-action="saved-show-all">${t("saved_show_all")}</button>
+        </div>
+      </div>
+    `;
+    return;
+  }
 
   if (!state.filteredEvents.length) {
     dom.eventList.innerHTML = `
@@ -8600,16 +8657,20 @@ function bindEvents() {
       updateInstallUiVisibility();
     });
   }
-  if (dom.bottomNavSubmit) {
-    dom.bottomNavSubmit.addEventListener("click", () => {
+  ["openSubmitModalTop", "openSubmitModalTeaser"].forEach((buttonId) => {
+    document.getElementById(buttonId)?.addEventListener("click", () => {
       setFormFeedback("");
       openSubmitModal();
     });
-  }
+  });
+  document.getElementById("bottomNavSaved")?.addEventListener("click", () => setSavedOnly(true));
   if (dom.bottomNavDiscover) {
     dom.bottomNavDiscover.addEventListener("click", (event) => {
       event.preventDefault();
+      const wasSavedOnly = state.savedOnly;
+      state.savedOnly = false;
       setViewMode("list", { scroll: true });
+      if (wasSavedOnly) applyFilters();
     });
   }
   if (dom.bottomNavMap) {
@@ -8641,6 +8702,10 @@ function bindEvents() {
       const resetButton = target.closest("button[data-action='empty-reset']");
       if (resetButton) {
         resetFilters();
+        return;
+      }
+      if (target.closest("button[data-action='saved-show-all']")) {
+        setSavedOnly(false);
         return;
       }
       const submitButton = target.closest("button[data-action='empty-open-submit']");
