@@ -349,7 +349,8 @@ const I18N = {
     view_list: "Liste",
     featured_open: "Mehr Infos",
     view_map: "Karte",
-    nav_discover: "Entdecken",
+    nav_discover: "Liste",
+    map_back_to_list: "← Liste",
     nav_map: "Karte",
     nav_submit: "Einreichen",
     sheet_title: "Events in deiner Nahe",
@@ -641,7 +642,8 @@ const I18N = {
     view_list: "List",
     featured_open: "Details",
     view_map: "Map",
-    nav_discover: "Discover",
+    nav_discover: "List",
+    map_back_to_list: "← List",
     nav_map: "Map",
     nav_submit: "Submit",
     sheet_title: "Events near you",
@@ -933,7 +935,8 @@ const I18N = {
     view_list: "Lista",
     featured_open: "Más info",
     view_map: "Mapa",
-    nav_discover: "Descubrir",
+    nav_discover: "Lista",
+    map_back_to_list: "← Lista",
     nav_map: "Mapa",
     nav_submit: "Enviar",
     sheet_title: "Eventos cerca de ti",
@@ -8463,6 +8466,10 @@ function bindEvents() {
       if (!button) return;
       applyDatePreset(button.dataset.datePreset || "");
     });
+  }
+  const mapBackToList = document.getElementById("mapBackToList");
+  if (mapBackToList) {
+    mapBackToList.addEventListener("click", () => setViewMode("list", { scroll: true }));
   }
   const heroTimeRail = document.getElementById("heroTimeRail");
   if (heroTimeRail) {

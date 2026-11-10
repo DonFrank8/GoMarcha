@@ -4930,3 +4930,46 @@ body.body--detail-open { overflow: hidden; }
   filter: none;
 }
 .hero::after { display: none; }
+
+/* ---- Karte: deutlicher Weg zurück zur Liste (Handy) ---- */
+.map-back-to-list { display: none; }
+@media (max-width: 780px) {
+  body[data-view-mode="map"] .map-back-to-list {
+    display: inline-flex;
+    align-items: center;
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    z-index: 1100;
+    min-height: 44px;
+    padding: 0.5rem 1.1rem;
+    border: 0;
+    border-radius: 999px;
+    background: var(--m-accent);
+    color: var(--m-accent-ink);
+    font: 700 0.95rem/1 var(--m-font-body);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+    cursor: pointer;
+  }
+  body[data-view-mode="map"] .map-section .leaflet-top.leaflet-left { top: 64px; }
+}
+.map-back-to-list:focus-visible { outline: 2px solid var(--m-text); outline-offset: 2px; }
+
+/* ---- Karten-Fenster unten in den neuen Farben ---- */
+.map-bottom-sheet {
+  background: var(--m-surface);
+  border-color: var(--m-line);
+  box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.45);
+}
+.map-bottom-sheet__header { background: transparent; border-color: var(--m-line); color: var(--m-text); }
+.map-bottom-sheet .event-details__preview-card {
+  background: var(--m-surface-2);
+  border-color: var(--m-line);
+  box-shadow: none;
+}
+.map-bottom-sheet .event-details__preview-cta {
+  background: var(--m-accent);
+  color: var(--m-accent-ink);
+  border-color: var(--m-accent);
+}
+.map-search-area-cta { background: var(--m-accent); color: var(--m-accent-ink); border: 0; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35); }
