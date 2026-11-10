@@ -7387,6 +7387,7 @@ function closeEventDetailOverlay(options = { fromHistory: false }) {
   if (eventDetailOverlayHome && dom.eventDetails) {
     eventDetailOverlayHome.parent.insertBefore(dom.eventDetails, eventDetailOverlayHome.next);
   }
+  if (state.viewMode === "map" && mapSheetIsAvailable()) setMapBottomSheetState("peek");
   const activeCard = document.querySelector(`.event-card[data-event-id="${CSS.escape(String(state.activeEventId || ""))}"]`);
   activeCard?.focus({ preventScroll: true });
   if (!options.fromHistory && window.history.state?.marchaDetail) {
@@ -7397,6 +7398,19 @@ function closeEventDetailOverlay(options = { fromHistory: false }) {
 function bindEventDetailOverlay() {
   const overlay = document.getElementById("eventDetailOverlay");
   if (!overlay) return;
+  // Handy-Karte: Tipp auf das Event unten öffnet dieselbe Vollbild-Ansicht wie in der Liste.
+  dom.mapBottomSheet?.addEventListener(
+    "click",
+    (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (!target?.closest("button[data-action='details-preview']")) return;
+      if (!mapSheetIsMobileViewport() || !state.activeEvent) return;
+      event.preventDefault();
+      event.stopPropagation();
+      openEventFromCard(state.activeEvent);
+    },
+    true
+  );
   overlay.addEventListener(
     "click",
     (event) => {
@@ -7597,9 +7611,9 @@ function createMarkerIcon(event, active = false) {
   return L.divIcon({
     className: "marker-pin-wrap",
     html: `<div class="marker-pin ${active ? "marker-pin--active" : ""}"><span>${iconForGenre(primaryGenre)}</span></div>`,
-    iconSize: [34, 34],
-    iconAnchor: [17, 34],
-    popupAnchor: [0, -28]
+    iconSize: [44, 44],
+    iconAnchor: [22, 44],
+    popupAnchor: [0, -36]
   });
 }
 

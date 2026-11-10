@@ -5021,3 +5021,113 @@ body.body--detail-open { overflow: hidden; }
 .is-saved-mode .submit-teaser { display: none; }
 .bottom-nav__item.is-active { color: var(--m-accent); }
 .submit-teaser--in-list { grid-column: 1 / -1; margin-top: 0.2rem; }
+
+/* =========================================================================
+   Handy: Kartenansicht über den ganzen Bildschirm
+   ========================================================================= */
+.marker-pin {
+  width: 44px;
+  height: 44px;
+  font-size: 1.15rem;
+  border: 2px solid #fff;
+  background: var(--m-accent);
+  color: var(--m-accent-ink);
+}
+.marker-pin--active {
+  background: #fff;
+  box-shadow: 0 0 0 5px var(--m-accent-soft), 0 10px 20px rgba(0, 0, 0, 0.4);
+}
+
+@media (max-width: 780px) {
+  body[data-view-mode="map"] { overflow: hidden; }
+
+  /* Karte füllt alles zwischen oberem Rand und unterer Leiste */
+  body[data-view-mode="map"] .map-column {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: calc(66px + env(safe-area-inset-bottom, 0px));
+    z-index: 50;
+    margin: 0;
+    padding: 0;
+  }
+  body[data-view-mode="map"] .map-section,
+  body[data-view-mode="map"] #map {
+    height: 100%;
+    min-height: 0;
+    border-radius: 0;
+  }
+  body[data-view-mode="map"] .map-section::before { display: none; }
+
+  /* Kopfbereich: nur „Heute / Morgen / Wochenende“ schwebt über der Karte */
+  body[data-view-mode="map"] .hero {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 60;
+    min-height: 0;
+    padding: calc(env(safe-area-inset-top, 0px) + 64px) max(12px, env(safe-area-inset-right, 0px)) 0 max(12px, env(safe-area-inset-left, 0px));
+    background: transparent;
+    pointer-events: none;
+  }
+  body[data-view-mode="map"] .hero::before,
+  body[data-view-mode="map"] .hero::after,
+  body[data-view-mode="map"] .hero__topbar,
+  body[data-view-mode="map"] .hero h1,
+  body[data-view-mode="map"] .hero-search,
+  body[data-view-mode="map"] .quick-controls,
+  body[data-view-mode="map"] .mobile-install-entry { display: none !important; }
+  body[data-view-mode="map"] .hero__content,
+  body[data-view-mode="map"] .hero__center { padding: 0; margin: 0; background: none; }
+  body[data-view-mode="map"] .hero-time-rail { pointer-events: auto; margin: 0; }
+  body[data-view-mode="map"] .hero-time-chip {
+    background: rgba(13, 10, 10, 0.86);
+    border-color: rgba(255, 255, 255, 0.16);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  }
+  body[data-view-mode="map"] .hero-time-chip.is-active { background: var(--m-accent); border-color: var(--m-accent); }
+
+  /* „← Liste“ oben links, Zoom oben rechts, beides groß genug für den Daumen */
+  body[data-view-mode="map"] .map-back-to-list { top: calc(env(safe-area-inset-top, 0px) + 12px); left: 12px; }
+  body[data-view-mode="map"] .map-section .leaflet-top.leaflet-left {
+    top: calc(env(safe-area-inset-top, 0px) + 116px);
+    left: auto;
+    right: 12px;
+  }
+  body[data-view-mode="map"] .leaflet-control-zoom a {
+    width: 44px;
+    height: 44px;
+    line-height: 44px;
+    font-size: 1.4rem;
+    background: rgba(13, 10, 10, 0.86);
+    color: var(--m-text);
+    border-color: var(--m-line);
+  }
+  body[data-view-mode="map"] .map-search-area-cta {
+    top: calc(env(safe-area-inset-top, 0px) + 116px);
+    bottom: auto;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+
+  /* Event-Fenster unten: größer und lesbarer */
+  body[data-view-mode="map"] .map-bottom-sheet {
+    left: 10px;
+    right: 10px;
+    bottom: 10px;
+    border-radius: 18px;
+  }
+  .map-bottom-sheet .event-details__preview-card {
+    grid-template-columns: 96px minmax(0, 1fr);
+    gap: 0.8rem;
+    padding: 0.7rem;
+    border-radius: 14px;
+  }
+  .map-bottom-sheet .event-details__preview-media { width: 96px; height: 96px; border-radius: 12px; }
+  .map-bottom-sheet .event-details__preview-title { font: 700 1.1rem/1.25 var(--m-font-display); color: var(--m-text); }
+  .map-bottom-sheet .event-details__preview-meta { font-size: 0.92rem; color: var(--m-text); opacity: 0.86; }
+  .map-bottom-sheet .event-details__preview-meta:last-of-type { color: var(--m-accent); opacity: 1; font-weight: 700; }
+  .map-bottom-sheet .event-details__preview-cta { min-height: 40px; padding: 0.45rem 0.9rem; font-size: 0.92rem; border-radius: 999px; }
+}
