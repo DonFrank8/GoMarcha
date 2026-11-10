@@ -9291,12 +9291,9 @@ function bindAdminPasswordRecovery() {
     submitEvent.preventDefault();
     const password = document.getElementById("adminNewPassword")?.value || "";
     const repeat = document.getElementById("adminNewPasswordRepeat")?.value || "";
-    if (password.length < ADMIN_MIN_PASSWORD_LENGTH) {
-      setAuthFeedback(`Das Passwort braucht mindestens ${ADMIN_MIN_PASSWORD_LENGTH} Zeichen.`, "error");
-      return;
-    }
-    if (password !== repeat) {
-      setAuthFeedback("Die beiden Passwörter sind nicht gleich.", "error");
+    const problem = checkNewAdminPassword(password, repeat);
+    if (problem) {
+      setAuthFeedback(problem, "error");
       return;
     }
     try {
@@ -9312,6 +9309,51 @@ function bindAdminPasswordRecovery() {
       if (isSessionAdmin(state.adminSession)) await loadEvents();
     } catch (error) {
       setAuthFeedback(`Passwort konnte nicht gespeichert werden: ${error.message}. Bitte den Link aus der Mail noch einmal öffnen.`, "error");
+    }
+  });
+}
+
+// Passwort ändern, während man angemeldet ist.
+function checkNewAdminPassword(password, repeat) {
+  if (password.length < ADMIN_MIN_PASSWORD_LENGTH) return `Das Passwort braucht mindestens ${ADMIN_MIN_PASSWORD_LENGTH} Zeichen.`;
+  if (password !== repeat) return "Die beiden Passwörter sind nicht gleich.";
+  return "";
+}
+
+function bindAdminChangePassword() {
+  const dialog = document.getElementById("adminChangePasswordDialog");
+  const form = document.getElementById("adminChangePasswordForm");
+  const feedback = document.getElementById("adminChangePasswordFeedback");
+  if (!dialog || !form) return;
+  const openDialog = () => {
+    form.reset();
+    setFeedback(feedback, "");
+    dialog.showModal();
+    document.getElementById("adminChangePassword")?.focus();
+  };
+  document.getElementById("adminChangePasswordButton")?.addEventListener("click", openDialog);
+  document.querySelectorAll("[data-open-password-dialog]").forEach((button) => button.addEventListener("click", openDialog));
+  document.querySelectorAll("[data-admin-sign-out]").forEach((button) =>
+    button.addEventListener("click", () => dom.signOutButton?.click())
+  );
+  dialog.querySelector("[data-close-password-dialog]")?.addEventListener("click", () => dialog.close());
+  form.addEventListener("submit", async (submitEvent) => {
+    submitEvent.preventDefault();
+    const password = document.getElementById("adminChangePassword")?.value || "";
+    const repeat = document.getElementById("adminChangePasswordRepeat")?.value || "";
+    const problem = checkNewAdminPassword(password, repeat);
+    if (problem) {
+      setFeedback(feedback, problem, "error");
+      return;
+    }
+    try {
+      const { error } = await supabaseClient().auth.updateUser({ password });
+      if (error) throw error;
+      form.reset();
+      setFeedback(feedback, "Neues Passwort gespeichert.", "success");
+      window.setTimeout(() => dialog.close(), 1500);
+    } catch (error) {
+      setFeedback(feedback, `Passwort konnte nicht gespeichert werden: ${error.message}`, "error");
     }
   });
 }
@@ -11602,6 +11644,7 @@ async function start() {
     };
   }
   bindAdminPasswordRecovery();
+  bindAdminChangePassword();
   try {
     await checkSession();
     if (ADMIN_PASSWORD_RECOVERY_ACTIVE) {

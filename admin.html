@@ -81,6 +81,25 @@
       <p id="adminAuthFeedback" class="message" hidden></p>
     </section>
 
+    <dialog id="adminChangePasswordDialog" class="admin-password-dialog" aria-labelledby="adminChangePasswordTitle">
+      <form id="adminChangePasswordForm" class="auth-form" novalidate>
+        <h2 id="adminChangePasswordTitle">Passwort ändern</h2>
+        <label class="field">
+          <span>Neues Passwort (mindestens 12 Zeichen)</span>
+          <input id="adminChangePassword" type="password" autocomplete="new-password" minlength="12" required>
+        </label>
+        <label class="field">
+          <span>Neues Passwort wiederholen</span>
+          <input id="adminChangePasswordRepeat" type="password" autocomplete="new-password" minlength="12" required>
+        </label>
+        <p id="adminChangePasswordFeedback" class="message" hidden></p>
+        <div class="admin-password-dialog__actions">
+          <button type="button" class="button button--ghost" data-close-password-dialog>Abbrechen</button>
+          <button type="submit" class="button button--primary">Passwort speichern</button>
+        </div>
+      </form>
+    </dialog>
+
     <div id="adminWorkspace" class="admin-app" hidden>
       <aside class="admin-sidebar" aria-label="Navigation">
         <div class="admin-sidebar__brand">
@@ -119,6 +138,7 @@
         </nav>
         <div class="admin-sidebar__footer">
           <p id="adminSessionInfo" class="admin-session-line">–</p>
+          <button id="adminChangePasswordButton" type="button" class="button button--ghost admin-sidebar__logout">Passwort ändern</button>
           <button id="adminSignOutButton" type="button" class="button button--ghost admin-sidebar__logout">Abmelden</button>
         </div>
       </aside>
@@ -291,6 +311,13 @@
               <li>Build: <code id="adminSettingsBuild"></code></li>
               <li>Discover: <a href="./index.html">index.html</a></li>
             </ul>
+            <div class="admin-settings-account">
+              <h3>Dein Konto</h3>
+              <div class="admin-password-dialog__actions">
+                <button type="button" class="button button--primary" data-open-password-dialog>Passwort ändern</button>
+                <button type="button" class="button button--ghost" data-admin-sign-out>Abmelden</button>
+              </div>
+            </div>
           </div>
         </section>
       </div>
