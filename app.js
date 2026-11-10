@@ -4969,10 +4969,32 @@ function openRoute(event) {
     return;
   }
 
-  const openedWindow = window.open(url, "_blank", "noopener,noreferrer");
-  if (!openedWindow) {
-    window.location.href = url;
+  openExternalInNewTab(url);
+}
+
+// Öffnet externe Links (Google Maps, WhatsApp …) in einem neuen Tab, Marcha bleibt offen.
+// Hinweis: window.open(..., "noopener") liefert laut Standard immer null zurück. Früher wurde das
+// als „Popup blockiert“ gewertet und Marcha selbst auf die externe Seite umgeleitet.
+function openExternalInNewTab(url) {
+  const targetUrl = String(url || "").trim();
+  if (!targetUrl) return false;
+  const openedWindow = window.open(targetUrl, "_blank");
+  if (openedWindow) {
+    try {
+      openedWindow.opener = null;
+    } catch (error) {
+      // ignorieren
+    }
+    return true;
   }
+  const link = document.createElement("a");
+  link.href = targetUrl;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  document.body.append(link);
+  link.click();
+  link.remove();
+  return true;
 }
 
 function openNavigationForEvent(event) {
@@ -5066,10 +5088,7 @@ function buildEventSharePayload(event) {
 function openExternalShareUrl(url) {
   const targetUrl = String(url || "").trim();
   if (!targetUrl) return false;
-  const openedWindow = window.open(targetUrl, "_blank", "noopener,noreferrer");
-  if (openedWindow) return true;
-  window.location.href = targetUrl;
-  return true;
+  return openExternalInNewTab(targetUrl);
 }
 
 function buildWhatsappShareUrl(event) {
