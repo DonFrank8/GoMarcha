@@ -7301,6 +7301,77 @@ function isFreePrice(priceText) {
   return !normalized || ["free", "0", "0 eur", "0 €", "0€", "gratis", "eintritt frei", "free entry", "entrada gratuita", "entrada libre"].includes(normalized);
 }
 
+// Handy: Event-Details als Vollbild über der Liste; Desktop: wie bisher im Panel neben der Karte.
+let eventDetailOverlayHome = null;
+
+function openEventFromCard(event) {
+  const overlay = document.getElementById("eventDetailOverlay");
+  if (!overlay || !dom.eventDetails || !mapSheetIsMobileViewport()) {
+    selectEvent(event, "list");
+    return;
+  }
+  const resolvedEvent = resolveSelectEventData(event);
+  if (!resolvedEvent) return;
+  state.activeEventId = resolvedEvent.id;
+  state.activeEvent = resolvedEvent;
+  state.selectedEventId = resolvedEvent.id;
+  renderActiveCard({ scrollIntoView: false });
+  renderEventDetails(resolvedEvent);
+  if (!eventDetailOverlayHome) {
+    eventDetailOverlayHome = { parent: dom.eventDetails.parentNode, next: dom.eventDetails.nextSibling };
+  }
+  overlay.append(dom.eventDetails);
+  overlay.hidden = false;
+  overlay.scrollTop = 0;
+  document.body.classList.add("body--detail-open");
+  try {
+    window.history.pushState({ marchaDetail: true }, "", window.location.href);
+  } catch (error) {
+    // Verlauf nicht verfügbar: Zurück-Knopf im Vollbild reicht.
+  }
+  overlay.querySelector("button[data-action='details-collapse']")?.focus({ preventScroll: true });
+  trackEventAnalyticsViewOncePerSession(resolvedEvent.id);
+}
+
+function closeEventDetailOverlay(options = { fromHistory: false }) {
+  const overlay = document.getElementById("eventDetailOverlay");
+  if (!overlay || overlay.hidden) return;
+  overlay.hidden = true;
+  document.body.classList.remove("body--detail-open");
+  if (eventDetailOverlayHome && dom.eventDetails) {
+    eventDetailOverlayHome.parent.insertBefore(dom.eventDetails, eventDetailOverlayHome.next);
+  }
+  const activeCard = document.querySelector(`.event-card[data-event-id="${CSS.escape(String(state.activeEventId || ""))}"]`);
+  activeCard?.focus({ preventScroll: true });
+  if (!options.fromHistory && window.history.state?.marchaDetail) {
+    window.history.back();
+  }
+}
+
+function bindEventDetailOverlay() {
+  const overlay = document.getElementById("eventDetailOverlay");
+  if (!overlay) return;
+  overlay.addEventListener(
+    "click",
+    (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest("button[data-action='details-collapse']")) {
+        event.preventDefault();
+        event.stopPropagation();
+        closeEventDetailOverlay();
+      }
+    },
+    true
+  );
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeEventDetailOverlay();
+  });
+  window.addEventListener("popstate", () => closeEventDetailOverlay({ fromHistory: true }));
+  window.matchMedia("(max-width: 780px)").addEventListener?.("change", (query) => {
+    if (!query.matches) closeEventDetailOverlay();
+  });
+}
+
 function createEventCard(event, index = 0) {
   const card = document.createElement("article");
   card.className = "event-card";
@@ -7363,13 +7434,13 @@ function createEventCard(event, index = 0) {
       return;
     }
 
-    selectEvent(event, "list");
+    openEventFromCard(event);
   });
   card.addEventListener("keydown", (keyEvent) => {
     if (keyEvent.target !== card) return;
     if (keyEvent.key === "Enter" || keyEvent.key === " ") {
       keyEvent.preventDefault();
-      selectEvent(event, "list");
+      openEventFromCard(event);
     }
   });
   return card;
@@ -9009,6 +9080,7 @@ async function startApp() {
   initMap();
   setViewMode("list");
   bindEvents();
+  bindEventDetailOverlay();
   setupEventLocationAutocomplete();
   renderNearbyFilterControls();
   setupInstallBanner();
