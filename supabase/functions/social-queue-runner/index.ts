@@ -1421,9 +1421,9 @@ async function resolveRunnerAuth(
       return { ok: false, status: 401, error: "Admin session missing.", reason: "invalid_jwt" };
     }
 
+    // Nur app_metadata zählt; user_metadata kann jeder Nutzer selbst ändern.
     const appRole = String(data.user.app_metadata?.role || "").toLowerCase();
-    const userRole = String(data.user.user_metadata?.role || "").toLowerCase();
-    const isAdmin = appRole === "admin" || userRole === "admin";
+    const isAdmin = appRole === "admin";
     if (!isAdmin) {
       slog("auth_rejected", {
         auth_mode: "admin_jwt",

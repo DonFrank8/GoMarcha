@@ -31,8 +31,8 @@ Der Inhaber (Frank) ist **kein Programmierer**. Er gibt Aufgaben vor, prüft Erg
 | DNS/SSL | Cloudflare | — |
 | Event-Share-Vorschau | Cloudflare Worker (Route `www.gomarcha.com/e/*`) | `workers/event-share/` |
 | Backend | Supabase (Postgres, Auth per Magic Link, Storage-Bucket `event-images`) | `supabase/` |
-| Edge Functions | Deno/TypeScript; aktiv laut `supabase/config.toml`: `social-queue-runner`, `event-share`, `notify-new-event` | `supabase/functions/` |
-| Social Media | Postiz (Facebook, Instagram), Captions aus festen spanischen Vorlagen (kein KI-Dienst) | `supabase/functions/social-queue-runner/` |
+| Edge Functions | Deno/TypeScript; im Repo laut `supabase/config.toml`: `social-queue-runner`, `event-share`, `notify-new-event`. Zusätzlich deployt, aber **nicht im Repo**: `smart-action` (Übersetzung DE/EN/ES über OpenAI, Secret `OPENAI_API_KEY`) | `supabase/functions/` |
+| Social Media | Postiz (Facebook, Instagram), Captions aus festen spanischen Vorlagen (kein KI-Dienst; KI nur für Übersetzungen über `smart-action`) | `supabase/functions/social-queue-runner/` |
 | Admin-Benachrichtigung | E-Mail per Zoho SMTP bei neuem Event | `supabase/functions/notify-new-event/` |
 | Rechtliche Seiten | Statisches HTML | `legal.html`, `privacy.html`, `data-deletion.html` |
 | SQL-Migrationen | Lose Dateien im Hauptordner (nicht unter `supabase/`) | `supabase-*.sql` |
@@ -40,7 +40,8 @@ Der Inhaber (Frank) ist **kein Programmierer**. Er gibt Aufgaben vor, prüft Erg
 | Skripte | Node ≥ 18 | `scripts/` (Backup, Social-QA, Recurring-Logik) |
 
 Hinweise:
-- `supabase/functions/process-social-queue/` ist vermutlich **veraltet** (nicht in `config.toml`, abgelöst durch `social-queue-runner`). Nicht ändern oder löschen, ohne vorher im Supabase-Dashboard zu prüfen, ob sie noch deployt ist.
+- `supabase/functions/process-social-queue/` ist **veraltet und nicht mehr deployt** (im Dashboard geprüft, Nov. 2026; abgelöst durch `social-queue-runner`).
+- `smart-action` (Übersetzung) wird von `app.js` (`translateText`) und `admin.js` aufgerufen und ist **ohne Login aufrufbar** (JWT-Prüfung aus). Bekanntes Risiko: Fremde könnten über den öffentlichen Anon-Key OpenAI-Kosten verursachen. Absicherung (nur angemeldete Veranstalter/Admins, Längengrenze) ist für die Veranstalter-Konten geplant; bis dahin begrenzt ein Monatsbudget bei OpenAI die Kosten.
 - Share-Vorschau gibt es doppelt: Cloudflare Worker (`workers/event-share/`, Route `/e/*`) und Edge Function `event-share`. Bei Änderungen an der Vorschau beide prüfen.
 
 Sprachen der Inhalte: Deutsch, Englisch, Spanisch (z. B. `description_de/en/es`).
@@ -71,7 +72,8 @@ Sprachen der Inhalte: Deutsch, Englisch, Spanisch (z. B. `description_de/en/es`)
 ## Sicherheit
 
 - **Niemals** `SUPABASE_SERVICE_ROLE_KEY`, `POSTIZ_API_KEY`, SMTP-Daten oder andere Secrets in Frontend-Dateien oder ins Repo schreiben. Secrets liegen in Supabase bzw. Cloudflare.
-- Admin-Rechte laufen über `app_metadata.role = 'admin'` und RLS-Policies (`supabase-rls.sql`). Änderungen an RLS immer extra erklären und freigeben lassen.
+- Admin-Rechte laufen **nur** über `app_metadata.role = 'admin'` und RLS-Policies (`supabase-rls.sql`). `user_metadata` darf **nie** für Rechte verwendet werden – das kann jeder Nutzer selbst ändern (Lücke im Nov. 2026 geschlossen, siehe `supabase-admin-role-hardening.sql`). Frank ist zusätzlich `app_metadata.supervisor = true`. Änderungen an RLS immer extra erklären und freigeben lassen.
+- Selbst-Registrierung in Supabase ist **an** (nötig für spätere Veranstalter-Konten). Neue Nutzer haben keine Rechte außer denen, die RLS ausdrücklich erlaubt.
 - Lokale Backups (`backups/`, `.env.backup.local`) nie committen.
 
 ## Testen
