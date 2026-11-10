@@ -48,6 +48,7 @@ Sprachen der Inhalte: Deutsch, Englisch, Spanisch (z. B. `description_de/en/es`)
 
 ## Wichtige Dokumente im Repo (vor Änderungen lesen)
 
+- `OFFENE_PUNKTE.md` — **Merkliste mit Franks offenen Aufgaben und Entscheidungen.** Zu Beginn jeder Session lesen und Frank fragen, womit es weitergeht.
 - `SQL_MIGRATIONS.md` — **Quelle der Wahrheit** für Datenbankschema und Reihenfolge der Migrationen
 - `SOCIAL_AUTOMATION_SETUP.md` — Ablauf der Social-Media-Queue, Zeitregeln, Postiz
 - `RECURRING_EVENTS_NOTES.md` — wiederkehrende Events (weekly/monthly)
