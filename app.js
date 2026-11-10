@@ -349,9 +349,17 @@ const I18N = {
     view_list: "Liste",
     featured_open: "Mehr Infos",
     view_map: "Karte",
-    nav_discover: "Entdecken",
+    nav_discover: "Liste",
+    map_back_to_list: "← Liste",
     nav_map: "Karte",
     nav_submit: "Einreichen",
+    nav_saved: "Gemerkt",
+    submit_cta_short: "+ Event",
+    submit_teaser_title: "Du veranstaltest Livemusik?",
+    submit_teaser_text: "Locations, Bars und Bands tragen ihre Events selbst ein – kostenlos. Wir prüfen jedes Event vor der Veröffentlichung.",
+    list_title_saved: "Deine gemerkten Events",
+    saved_empty: "Noch nichts gemerkt. Tippe bei einem Event auf ♥, dann findest du es hier wieder.",
+    saved_show_all: "Alle Events zeigen",
     sheet_title: "Events in deiner Nahe",
     sheet_sort_nearby: "Nahe",
     sheet_sort_soonest: "Bald",
@@ -383,6 +391,9 @@ const I18N = {
     filter_date_all: "Alle Daten",
     filter_time: "Zeitraum",
     filter_time_today: "Heute",
+    price_free_short: "Gratis",
+    filter_more: "Mehr Filter",
+    filter_time_weekend_short: "Wochenende",
     filter_time_tomorrow: "Morgen",
     filter_time_this_weekend: "Dieses Wochenende",
     filter_time_next_weekend: "Nächstes Wochenende",
@@ -455,7 +466,7 @@ const I18N = {
     debug_note_no_data: "Keine Live-Daten gefunden",
     debug_note_error: "Live-Daten derzeit nicht erreichbar",
     button_all: "Alle",
-    submit_cta: "Event hinzufügen",
+    submit_cta: "Event eintragen",
     feedback_cta: "Feedback senden",
     feedback_email_subject: "Marcha Beta Feedback",
     feedback_email_body: "Hi Marcha Team,%0A%0Amein Feedback zur Beta:%0A",
@@ -638,9 +649,17 @@ const I18N = {
     view_list: "List",
     featured_open: "Details",
     view_map: "Map",
-    nav_discover: "Discover",
+    nav_discover: "List",
+    map_back_to_list: "← List",
     nav_map: "Map",
     nav_submit: "Submit",
+    nav_saved: "Saved",
+    submit_cta_short: "+ Event",
+    submit_teaser_title: "Do you host live music?",
+    submit_teaser_text: "Venues, bars and bands add their own events – for free. We check every event before it goes live.",
+    list_title_saved: "Your saved events",
+    saved_empty: "Nothing saved yet. Tap ♥ on an event to find it here again.",
+    saved_show_all: "Show all events",
     sheet_title: "Events near you",
     sheet_sort_nearby: "Nearby",
     sheet_sort_soonest: "Soonest",
@@ -672,6 +691,9 @@ const I18N = {
     filter_date_all: "All dates",
     filter_time: "Time",
     filter_time_today: "Today",
+    price_free_short: "Free",
+    filter_more: "More filters",
+    filter_time_weekend_short: "Weekend",
     filter_time_tomorrow: "Tomorrow",
     filter_time_this_weekend: "This weekend",
     filter_time_next_weekend: "Next weekend",
@@ -744,7 +766,7 @@ const I18N = {
     debug_note_no_data: "No live data found",
     debug_note_error: "Live data currently unavailable",
     button_all: "All",
-    submit_cta: "Add your event",
+    submit_cta: "List your event",
     feedback_cta: "Send feedback",
     feedback_email_subject: "Marcha Beta Feedback",
     feedback_email_body: "Hi Marcha Team,%0A%0Amy beta feedback:%0A",
@@ -927,9 +949,17 @@ const I18N = {
     view_list: "Lista",
     featured_open: "Más info",
     view_map: "Mapa",
-    nav_discover: "Descubrir",
+    nav_discover: "Lista",
+    map_back_to_list: "← Lista",
     nav_map: "Mapa",
     nav_submit: "Enviar",
+    nav_saved: "Guardados",
+    submit_cta_short: "+ Evento",
+    submit_teaser_title: "¿Organizas música en directo?",
+    submit_teaser_text: "Locales, bares y bandas publican sus eventos – gratis. Revisamos cada evento antes de publicarlo.",
+    list_title_saved: "Tus eventos guardados",
+    saved_empty: "Aún no has guardado nada. Toca ♥ en un evento para encontrarlo aquí.",
+    saved_show_all: "Ver todos los eventos",
     sheet_title: "Eventos cerca de ti",
     sheet_sort_nearby: "Cerca",
     sheet_sort_soonest: "Pronto",
@@ -961,6 +991,9 @@ const I18N = {
     filter_date_all: "Todas las fechas",
     filter_time: "Periodo",
     filter_time_today: "Hoy",
+    price_free_short: "Gratis",
+    filter_more: "Más filtros",
+    filter_time_weekend_short: "Finde",
     filter_time_tomorrow: "Mañana",
     filter_time_this_weekend: "Este fin de semana",
     filter_time_next_weekend: "Próximo fin de semana",
@@ -1033,7 +1066,7 @@ const I18N = {
     debug_note_no_data: "No se encontraron datos en vivo",
     debug_note_error: "Datos en vivo no disponibles temporalmente",
     button_all: "Todos",
-    submit_cta: "Añade tu evento",
+    submit_cta: "Publicar evento",
     feedback_cta: "Enviar feedback",
     feedback_email_subject: "Feedback Beta Marcha",
     feedback_email_body: "Hola equipo Marcha,%0A%0Ami feedback de la beta:%0A",
@@ -1262,6 +1295,7 @@ const state = {
     hideTimer: null
   },
   favoriteEventIds: new Set(),
+  savedOnly: false,
   lang: "de",
   debug: {
     enabled: true,
@@ -4960,10 +4994,32 @@ function openRoute(event) {
     return;
   }
 
-  const openedWindow = window.open(url, "_blank", "noopener,noreferrer");
-  if (!openedWindow) {
-    window.location.href = url;
+  openExternalInNewTab(url);
+}
+
+// Öffnet externe Links (Google Maps, WhatsApp …) in einem neuen Tab, Marcha bleibt offen.
+// Hinweis: window.open(..., "noopener") liefert laut Standard immer null zurück. Früher wurde das
+// als „Popup blockiert“ gewertet und Marcha selbst auf die externe Seite umgeleitet.
+function openExternalInNewTab(url) {
+  const targetUrl = String(url || "").trim();
+  if (!targetUrl) return false;
+  const openedWindow = window.open(targetUrl, "_blank");
+  if (openedWindow) {
+    try {
+      openedWindow.opener = null;
+    } catch (error) {
+      // ignorieren
+    }
+    return true;
   }
+  const link = document.createElement("a");
+  link.href = targetUrl;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  document.body.append(link);
+  link.click();
+  link.remove();
+  return true;
 }
 
 function openNavigationForEvent(event) {
@@ -5057,10 +5113,7 @@ function buildEventSharePayload(event) {
 function openExternalShareUrl(url) {
   const targetUrl = String(url || "").trim();
   if (!targetUrl) return false;
-  const openedWindow = window.open(targetUrl, "_blank", "noopener,noreferrer");
-  if (openedWindow) return true;
-  window.location.href = targetUrl;
-  return true;
+  return openExternalInNewTab(targetUrl);
 }
 
 function buildWhatsappShareUrl(event) {
@@ -5435,9 +5488,8 @@ function syncLegacyDateFilterValue() {
 }
 
 function renderTimePresetButtons() {
-  if (!dom.timePresetGroup) return;
   const activePreset = normalizeDatePresetId(state.activeDatePreset);
-  dom.timePresetGroup.querySelectorAll("button[data-date-preset]").forEach((button) => {
+  document.querySelectorAll("button[data-date-preset]").forEach((button) => {
     const preset = normalizeDatePresetId(button.dataset.datePreset);
     const isActive = Boolean(activePreset && preset === activePreset);
     button.classList.toggle("is-active", isActive);
@@ -6473,6 +6525,7 @@ function applyFilters() {
       if (!hasQuickMatch) return false;
     }
     if (filters.search && !haystack.includes(filters.search)) return false;
+    if (state.savedOnly && !isFavoriteEvent(event.id)) return false;
     if (filters.nearbyOnly) {
       if (!Number.isFinite(event.distance_km)) return false;
       if (event.distance_km > filters.radiusKm) return false;
@@ -7243,8 +7296,9 @@ function setViewMode(nextMode, { scroll = false } = {}) {
   }
   if (dom.viewToggleList) dom.viewToggleList.classList.toggle("is-active", resolvedMode === "list");
   if (dom.viewToggleMap) dom.viewToggleMap.classList.toggle("is-active", resolvedMode === "map");
-  if (dom.bottomNavDiscover) dom.bottomNavDiscover.classList.toggle("is-active", resolvedMode === "list");
+  if (dom.bottomNavDiscover) dom.bottomNavDiscover.classList.toggle("is-active", resolvedMode === "list" && !state.savedOnly);
   if (dom.bottomNavMap) dom.bottomNavMap.classList.toggle("is-active", resolvedMode === "map");
+  document.getElementById("bottomNavSaved")?.classList.toggle("is-active", resolvedMode === "list" && state.savedOnly);
   if (mapSheetIsAvailable()) {
     const nextSheetState = resolvedMode === "map" && mapSheetIsMobileViewport() ? "peek" : "half";
     setMapBottomSheetState(resolvedMode === "map" ? nextSheetState : "peek");
@@ -7263,6 +7317,121 @@ function setViewMode(nextMode, { scroll = false } = {}) {
   }
 }
 
+function escapeCardText(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function formatCardWhen(event) {
+  const timePart = String(event.event_time || "").trim().slice(0, 5);
+  const iso = String(event.event_date || "").slice(0, 10);
+  const date = iso ? new Date(`${iso}T12:00:00`) : null;
+  if (!date || Number.isNaN(date.getTime())) return timePart || t("details_time_fallback");
+  const today = new Date();
+  today.setHours(12, 0, 0, 0);
+  const dayDiff = Math.round((date.getTime() - today.getTime()) / 86400000);
+  let dayLabel;
+  if (dayDiff === 0) dayLabel = t("filter_time_today");
+  else if (dayDiff === 1) dayLabel = t("filter_time_tomorrow");
+  else {
+    dayLabel = new Intl.DateTimeFormat(getLocale(), { weekday: "short", day: "numeric", month: "short" }).format(date);
+  }
+  return timePart ? `${dayLabel} · ${timePart}` : dayLabel;
+}
+
+function isFreePrice(priceText) {
+  const normalized = String(priceText || "").trim().toLowerCase();
+  return !normalized || ["free", "0", "0 eur", "0 €", "0€", "gratis", "eintritt frei", "free entry", "entrada gratuita", "entrada libre"].includes(normalized);
+}
+
+// Handy: Event-Details als Vollbild über der Liste; Desktop: wie bisher im Panel neben der Karte.
+let eventDetailOverlayHome = null;
+
+function openEventFromCard(event) {
+  const overlay = document.getElementById("eventDetailOverlay");
+  if (!overlay || !dom.eventDetails || !mapSheetIsMobileViewport()) {
+    selectEvent(event, "list");
+    return;
+  }
+  const resolvedEvent = resolveSelectEventData(event);
+  if (!resolvedEvent) return;
+  state.activeEventId = resolvedEvent.id;
+  state.activeEvent = resolvedEvent;
+  state.selectedEventId = resolvedEvent.id;
+  renderActiveCard({ scrollIntoView: false });
+  renderEventDetails(resolvedEvent);
+  if (!eventDetailOverlayHome) {
+    eventDetailOverlayHome = { parent: dom.eventDetails.parentNode, next: dom.eventDetails.nextSibling };
+  }
+  overlay.append(dom.eventDetails);
+  overlay.hidden = false;
+  overlay.scrollTop = 0;
+  document.body.classList.add("body--detail-open");
+  try {
+    window.history.pushState({ marchaDetail: true }, "", window.location.href);
+  } catch (error) {
+    // Verlauf nicht verfügbar: Zurück-Knopf im Vollbild reicht.
+  }
+  overlay.querySelector("button[data-action='details-collapse']")?.focus({ preventScroll: true });
+  trackEventAnalyticsViewOncePerSession(resolvedEvent.id);
+}
+
+function closeEventDetailOverlay(options = { fromHistory: false }) {
+  const overlay = document.getElementById("eventDetailOverlay");
+  if (!overlay || overlay.hidden) return;
+  overlay.hidden = true;
+  document.body.classList.remove("body--detail-open");
+  if (eventDetailOverlayHome && dom.eventDetails) {
+    eventDetailOverlayHome.parent.insertBefore(dom.eventDetails, eventDetailOverlayHome.next);
+  }
+  if (state.viewMode === "map" && mapSheetIsAvailable()) setMapBottomSheetState("peek");
+  const activeCard = document.querySelector(`.event-card[data-event-id="${CSS.escape(String(state.activeEventId || ""))}"]`);
+  activeCard?.focus({ preventScroll: true });
+  if (!options.fromHistory && window.history.state?.marchaDetail) {
+    window.history.back();
+  }
+}
+
+function bindEventDetailOverlay() {
+  const overlay = document.getElementById("eventDetailOverlay");
+  if (!overlay) return;
+  // Handy-Karte: Tipp auf das Event unten öffnet dieselbe Vollbild-Ansicht wie in der Liste.
+  dom.mapBottomSheet?.addEventListener(
+    "click",
+    (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (!target?.closest("button[data-action='details-preview']")) return;
+      if (!mapSheetIsMobileViewport() || !state.activeEvent) return;
+      event.preventDefault();
+      event.stopPropagation();
+      openEventFromCard(state.activeEvent);
+    },
+    true
+  );
+  overlay.addEventListener(
+    "click",
+    (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest("button[data-action='details-collapse']")) {
+        event.preventDefault();
+        event.stopPropagation();
+        closeEventDetailOverlay();
+      }
+    },
+    true
+  );
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeEventDetailOverlay();
+  });
+  window.addEventListener("popstate", () => closeEventDetailOverlay({ fromHistory: true }));
+  window.matchMedia("(max-width: 780px)").addEventListener?.("change", (query) => {
+    if (!query.matches) closeEventDetailOverlay();
+  });
+}
+
 function createEventCard(event, index = 0) {
   const card = document.createElement("article");
   card.className = "event-card";
@@ -7271,25 +7440,25 @@ function createEventCard(event, index = 0) {
   const eventTitle = getEventTitle(event);
   const eventArtist = getEventArtist(event);
   const eventCategory = getEventCategory(event);
-  const primaryGenre = splitGenres(eventCategory)[0] || eventCategory || "-";
+  const primaryGenre = splitGenres(eventCategory)[0] || eventCategory || "";
   const favoriteActive = isFavoriteEvent(event.id);
-  const vibeBadges = renderEventVibeBadges(event, "event-card__micro-tag");
   const recurrenceLineText = getRecurringText(event, state.lang);
-  const distanceLine = Number.isFinite(event.distance_km)
-    ? `<p class="event-card__line event-card__line--distance">${formatDistanceLabel(event.distance_km)}</p>`
-    : "";
-  const recurrenceLine = recurrenceLineText
-    ? `<p class="event-card__line event-card__line--recurrence">📅 ${recurrenceLineText}</p>`
-    : "";
+  const venue = getEventVenue(event);
+  const placeLine = [venue, event.city].map((value) => String(value || "").trim()).filter(Boolean).join(" · ");
+  const isFree = isFreePrice(event.price_text);
+  const priceLabel = isFree ? t("price_free_short") : formatPrice(event.price_text);
+  const distanceText = Number.isFinite(event.distance_km) ? formatDistanceLabel(event.distance_km) : "";
+  card.setAttribute("role", "link");
+  card.setAttribute("tabindex", "0");
+  card.setAttribute("aria-label", [eventTitle, formatCardWhen(event), placeLine].filter(Boolean).join(", "));
   card.innerHTML = `
     <div class="event-card__media">
       ${
         event.image_url
-          ? `<img class="event-card__image" src="${event.image_url}" alt="${eventTitle}" loading="lazy">`
-          : `<div class="event-card__image-fallback" aria-hidden="true"><span>${iconForGenre(primaryGenre)}</span></div>`
+          ? `<img class="event-card__image" src="${escapeCardText(event.image_url)}" alt="" loading="${index < 4 ? "eager" : "lazy"}" decoding="async">`
+          : `<div class="event-card__image-fallback" aria-hidden="true"><span class="event-card__fallback-genre">${escapeCardText(primaryGenre || "Live")}</span></div>`
       }
-      ${vibeBadges ? `<div class="event-card__micro-tags">${vibeBadges}</div>` : ""}
-      <span class="event-card__genre-badge">${primaryGenre}</span>
+      <span class="event-card__price ${isFree ? "is-free" : ""}">${escapeCardText(priceLabel)}</span>
       <button
         type="button"
         class="event-card__favorite ${favoriteActive ? "is-active" : ""}"
@@ -7301,18 +7470,14 @@ function createEventCard(event, index = 0) {
       </button>
     </div>
     <div class="event-card__body">
-      <div class="event-card__header">
-        <h4 class="event-card__title">${eventTitle}</h4>
-        <div class="event-card__artist">${eventArtist ? `${t("details_artist")}: ${eventArtist}` : ""}</div>
-      </div>
-      ${recurrenceLine}
-      ${distanceLine}
-      <p class="event-card__line event-card__line--datetime">🗓 ${formatDateTime(event)}</p>
-      <p class="event-card__line event-card__line--location">📍 ${formatEventPlace(event)}</p>
-      <div class="event-card__chips">
-        <span class="event-card__chip">${primaryGenre}</span>
-        <span class="event-card__chip event-card__chip--price">${formatPrice(event.price_text)}</span>
-      </div>
+      <p class="event-card__when">${escapeCardText(formatCardWhen(event))}</p>
+      <h4 class="event-card__title">${escapeCardText(eventTitle)}</h4>
+      <p class="event-card__place">${escapeCardText(placeLine || "-")}</p>
+      <p class="event-card__extra">${[primaryGenre, eventArtist, recurrenceLineText, distanceText]
+        .map((value) => String(value || "").trim())
+        .filter(Boolean)
+        .map(escapeCardText)
+        .join(" · ")}</p>
     </div>
   `;
   card.addEventListener("click", (clickEvent) => {
@@ -7329,14 +7494,72 @@ function createEventCard(event, index = 0) {
       return;
     }
 
-    selectEvent(event, "list");
+    openEventFromCard(event);
+  });
+  card.addEventListener("keydown", (keyEvent) => {
+    if (keyEvent.target !== card) return;
+    if (keyEvent.key === "Enter" || keyEvent.key === " ") {
+      keyEvent.preventDefault();
+      openEventFromCard(event);
+    }
   });
   return card;
 }
 
+// „Gemerkt“: zeigt nur Events mit Herz (gespeichert im Browser, wie bisher).
+// Hinweis „Du veranstaltest Livemusik?“: nach der 6. Karte in der Liste, sonst unter der Liste.
+const SUBMIT_TEASER_AFTER_CARDS = 6;
+let submitTeaserHome = null;
+
+function placeSubmitTeaser(listElement) {
+  const teaser = document.getElementById("submitTeaser");
+  if (!teaser) return;
+  if (!submitTeaserHome) submitTeaserHome = { parent: teaser.parentNode, next: teaser.nextSibling };
+  if (listElement) {
+    teaser.classList.add("submit-teaser--in-list");
+    listElement.append(teaser);
+  } else {
+    teaser.classList.remove("submit-teaser--in-list");
+    submitTeaserHome.parent.insertBefore(teaser, submitTeaserHome.next);
+  }
+}
+
+function renderSavedModeChrome() {
+  const heading = document.querySelector("#listSection .panel__heading h3");
+  if (heading) heading.textContent = state.savedOnly ? t("list_title_saved") : t("list_title");
+  document.body.classList.toggle("is-saved-mode", state.savedOnly);
+  const savedButton = document.getElementById("bottomNavSaved");
+  if (savedButton) {
+    savedButton.classList.toggle("is-active", state.savedOnly);
+    savedButton.setAttribute("aria-pressed", String(state.savedOnly));
+  }
+  if (dom.bottomNavDiscover) dom.bottomNavDiscover.classList.toggle("is-active", !state.savedOnly && state.viewMode === "list");
+}
+
+function setSavedOnly(nextValue) {
+  state.savedOnly = Boolean(nextValue);
+  if (state.viewMode !== "list") setViewMode("list");
+  applyFilters();
+  dom.listSection?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 function renderEventList() {
+  placeSubmitTeaser(null);
   dom.eventList.innerHTML = "";
   setResultCount(state.filteredEvents.length);
+  renderSavedModeChrome();
+
+  if (!state.filteredEvents.length && state.savedOnly) {
+    dom.eventList.innerHTML = `
+      <div class="event-list__empty event-list__empty-state">
+        <p>${t("saved_empty")}</p>
+        <div class="event-list__empty-actions">
+          <button type="button" class="button-secondary button-secondary--primary" data-action="saved-show-all">${t("saved_show_all")}</button>
+        </div>
+      </div>
+    `;
+    return;
+  }
 
   if (!state.filteredEvents.length) {
     dom.eventList.innerHTML = `
@@ -7359,6 +7582,7 @@ function renderEventList() {
   }
 
   state.filteredEvents.forEach((event, index) => {
+    if (index === SUBMIT_TEASER_AFTER_CARDS) placeSubmitTeaser(dom.eventList);
     const card = createEventCard(event, index);
     card.classList.add("event-card--enter");
     card.style.setProperty("--card-index", String(index));
@@ -7387,9 +7611,9 @@ function createMarkerIcon(event, active = false) {
   return L.divIcon({
     className: "marker-pin-wrap",
     html: `<div class="marker-pin ${active ? "marker-pin--active" : ""}"><span>${iconForGenre(primaryGenre)}</span></div>`,
-    iconSize: [34, 34],
-    iconAnchor: [17, 34],
-    popupAnchor: [0, -28]
+    iconSize: [44, 44],
+    iconAnchor: [22, 44],
+    popupAnchor: [0, -36]
   });
 }
 
@@ -8333,6 +8557,25 @@ function bindEvents() {
       applyDatePreset(button.dataset.datePreset || "");
     });
   }
+  const mapBackToList = document.getElementById("mapBackToList");
+  if (mapBackToList) {
+    mapBackToList.addEventListener("click", () => setViewMode("list", { scroll: true }));
+  }
+  const heroTimeRail = document.getElementById("heroTimeRail");
+  if (heroTimeRail) {
+    heroTimeRail.addEventListener("click", (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      const button = target?.closest("button[data-date-preset]");
+      if (!button) return;
+      const preset = normalizeDatePresetId(button.dataset.datePreset || "");
+      if (preset && preset === normalizeDatePresetId(state.activeDatePreset)) {
+        setDateRangeState({ start: null, end: null }, "");
+        applyFilters();
+        return;
+      }
+      applyDatePreset(button.dataset.datePreset || "");
+    });
+  }
   if (dom.dateRangeStart) {
     dom.dateRangeStart.addEventListener("change", handleCustomDateRangeInputChange);
   }
@@ -8447,16 +8690,20 @@ function bindEvents() {
       updateInstallUiVisibility();
     });
   }
-  if (dom.bottomNavSubmit) {
-    dom.bottomNavSubmit.addEventListener("click", () => {
+  ["openSubmitModalTop", "openSubmitModalTeaser"].forEach((buttonId) => {
+    document.getElementById(buttonId)?.addEventListener("click", () => {
       setFormFeedback("");
       openSubmitModal();
     });
-  }
+  });
+  document.getElementById("bottomNavSaved")?.addEventListener("click", () => setSavedOnly(true));
   if (dom.bottomNavDiscover) {
     dom.bottomNavDiscover.addEventListener("click", (event) => {
       event.preventDefault();
+      const wasSavedOnly = state.savedOnly;
+      state.savedOnly = false;
       setViewMode("list", { scroll: true });
+      if (wasSavedOnly) applyFilters();
     });
   }
   if (dom.bottomNavMap) {
@@ -8488,6 +8735,10 @@ function bindEvents() {
       const resetButton = target.closest("button[data-action='empty-reset']");
       if (resetButton) {
         resetFilters();
+        return;
+      }
+      if (target.closest("button[data-action='saved-show-all']")) {
+        setSavedOnly(false);
         return;
       }
       const submitButton = target.closest("button[data-action='empty-open-submit']");
@@ -8953,6 +9204,7 @@ async function startApp() {
   initMap();
   setViewMode("list");
   bindEvents();
+  bindEventDetailOverlay();
   setupEventLocationAutocomplete();
   renderNearbyFilterControls();
   setupInstallBanner();

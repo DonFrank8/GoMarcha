@@ -69,6 +69,7 @@
           >
         </div>
         <div class="hero__top-actions">
+          <button id="openSubmitModalTop" type="button" class="hero-submit-top" data-i18n="submit_cta_short">+ Event</button>
           <div id="languageSwitch" class="language-switch" role="group" aria-label="Language switch">
             <button type="button" class="language-switch__button is-active" data-lang-switch="de">DE</button>
             <button type="button" class="language-switch__button" data-lang-switch="en">EN</button>
@@ -139,6 +140,11 @@
           <span id="heroTodayCountLabel" class="hero-statline__count">Heute 0 Events</span>
         </div>
 
+        <div id="heroTimeRail" class="hero-time-rail" role="group" aria-label="Wann">
+          <button type="button" class="time-chip hero-time-chip" data-date-preset="today" data-i18n="filter_time_today">Heute</button>
+          <button type="button" class="time-chip hero-time-chip" data-date-preset="tomorrow" data-i18n="filter_time_tomorrow">Morgen</button>
+          <button type="button" class="time-chip hero-time-chip" data-date-preset="this-weekend" data-i18n="filter_time_weekend_short">Wochenende</button>
+        </div>
         <div class="quick-controls">
           <div id="quickCategoryRail" class="quick-category-rail" aria-label="Quick categories"></div>
           <div class="view-toggle" role="group" aria-label="View mode">
@@ -243,6 +249,8 @@
       </section>
 
       <section id="listSection" class="panel panel--list">
+        <details class="more-filters">
+          <summary class="more-filters__toggle" data-i18n="filter_more">Mehr Filter</summary>
         <form id="filtersForm" class="list-filters" autocomplete="off">
           <div class="filter-grid">
             <label class="field">
@@ -312,12 +320,18 @@
 
           <button id="resetFilters" type="button" class="btn-reset-filters" hidden data-i18n="filter_reset">Alle Filter zurücksetzen</button>
         </form>
+        </details>
 
         <div class="panel__heading">
           <h3 data-i18n="list_title">Event-Liste</h3>
           <span id="resultCount">0 Treffer</span>
         </div>
         <div id="eventList" class="event-list"></div>
+        <aside id="submitTeaser" class="submit-teaser" aria-labelledby="submitTeaserTitle">
+          <h3 id="submitTeaserTitle" data-i18n="submit_teaser_title">Du veranstaltest Livemusik?</h3>
+          <p data-i18n="submit_teaser_text">Locations, Bars und Bands tragen ihre Events selbst ein – kostenlos. Wir prüfen jedes Event vor der Veröffentlichung.</p>
+          <button id="openSubmitModalTeaser" type="button" class="submit-teaser__cta" data-i18n="submit_cta">Event eintragen</button>
+        </aside>
       </section>
 
     </aside>
@@ -325,6 +339,7 @@
     <section id="mapSection" class="map-column">
       <div class="map-section">
         <div id="map" aria-label="Karte mit Event-Markern"></div>
+        <button id="mapBackToList" type="button" class="map-back-to-list" data-i18n="map_back_to_list">← Liste</button>
         <button id="mapSearchAreaCta" type="button" class="map-search-area-cta" hidden data-i18n="map_search_area">
           Search this area
         </button>
@@ -376,6 +391,7 @@
     </footer>
   </main>
 
+  <div id="eventDetailOverlay" class="event-detail-overlay" role="dialog" aria-modal="true" aria-label="Event" hidden></div>
   <nav class="bottom-nav" aria-label="Primary">
     <a id="bottomNavDiscover" class="bottom-nav__item is-active" href="#discoverSection" data-nav-mode="list">
       <span aria-hidden="true">✨</span>
@@ -385,9 +401,9 @@
       <span aria-hidden="true">🗺️</span>
       <span data-i18n="nav_map">Map</span>
     </a>
-    <button id="bottomNavSubmit" class="bottom-nav__item" type="button">
-      <span aria-hidden="true">＋</span>
-      <span data-i18n="nav_submit">Submit</span>
+    <button id="bottomNavSaved" class="bottom-nav__item" type="button" aria-pressed="false">
+      <span aria-hidden="true">♥</span>
+      <span data-i18n="nav_saved">Gemerkt</span>
     </button>
   </nav>
 
