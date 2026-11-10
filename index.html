@@ -139,6 +139,11 @@
           <span id="heroTodayCountLabel" class="hero-statline__count">Heute 0 Events</span>
         </div>
 
+        <div id="heroTimeRail" class="hero-time-rail" role="group" aria-label="Wann">
+          <button type="button" class="time-chip hero-time-chip" data-date-preset="today" data-i18n="filter_time_today">Heute</button>
+          <button type="button" class="time-chip hero-time-chip" data-date-preset="tomorrow" data-i18n="filter_time_tomorrow">Morgen</button>
+          <button type="button" class="time-chip hero-time-chip" data-date-preset="this-weekend" data-i18n="filter_time_weekend_short">Wochenende</button>
+        </div>
         <div class="quick-controls">
           <div id="quickCategoryRail" class="quick-category-rail" aria-label="Quick categories"></div>
           <div class="view-toggle" role="group" aria-label="View mode">
@@ -243,6 +248,8 @@
       </section>
 
       <section id="listSection" class="panel panel--list">
+        <details class="more-filters">
+          <summary class="more-filters__toggle" data-i18n="filter_more">Mehr Filter</summary>
         <form id="filtersForm" class="list-filters" autocomplete="off">
           <div class="filter-grid">
             <label class="field">
@@ -312,6 +319,7 @@
 
           <button id="resetFilters" type="button" class="btn-reset-filters" hidden data-i18n="filter_reset">Alle Filter zurücksetzen</button>
         </form>
+        </details>
 
         <div class="panel__heading">
           <h3 data-i18n="list_title">Event-Liste</h3>

@@ -383,6 +383,9 @@ const I18N = {
     filter_date_all: "Alle Daten",
     filter_time: "Zeitraum",
     filter_time_today: "Heute",
+    price_free_short: "Gratis",
+    filter_more: "Mehr Filter",
+    filter_time_weekend_short: "Wochenende",
     filter_time_tomorrow: "Morgen",
     filter_time_this_weekend: "Dieses Wochenende",
     filter_time_next_weekend: "Nächstes Wochenende",
@@ -672,6 +675,9 @@ const I18N = {
     filter_date_all: "All dates",
     filter_time: "Time",
     filter_time_today: "Today",
+    price_free_short: "Free",
+    filter_more: "More filters",
+    filter_time_weekend_short: "Weekend",
     filter_time_tomorrow: "Tomorrow",
     filter_time_this_weekend: "This weekend",
     filter_time_next_weekend: "Next weekend",
@@ -961,6 +967,9 @@ const I18N = {
     filter_date_all: "Todas las fechas",
     filter_time: "Periodo",
     filter_time_today: "Hoy",
+    price_free_short: "Gratis",
+    filter_more: "Más filtros",
+    filter_time_weekend_short: "Finde",
     filter_time_tomorrow: "Mañana",
     filter_time_this_weekend: "Este fin de semana",
     filter_time_next_weekend: "Próximo fin de semana",
@@ -5435,9 +5444,8 @@ function syncLegacyDateFilterValue() {
 }
 
 function renderTimePresetButtons() {
-  if (!dom.timePresetGroup) return;
   const activePreset = normalizeDatePresetId(state.activeDatePreset);
-  dom.timePresetGroup.querySelectorAll("button[data-date-preset]").forEach((button) => {
+  document.querySelectorAll("button[data-date-preset]").forEach((button) => {
     const preset = normalizeDatePresetId(button.dataset.datePreset);
     const isActive = Boolean(activePreset && preset === activePreset);
     button.classList.toggle("is-active", isActive);
@@ -7263,6 +7271,36 @@ function setViewMode(nextMode, { scroll = false } = {}) {
   }
 }
 
+function escapeCardText(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function formatCardWhen(event) {
+  const timePart = String(event.event_time || "").trim().slice(0, 5);
+  const iso = String(event.event_date || "").slice(0, 10);
+  const date = iso ? new Date(`${iso}T12:00:00`) : null;
+  if (!date || Number.isNaN(date.getTime())) return timePart || t("details_time_fallback");
+  const today = new Date();
+  today.setHours(12, 0, 0, 0);
+  const dayDiff = Math.round((date.getTime() - today.getTime()) / 86400000);
+  let dayLabel;
+  if (dayDiff === 0) dayLabel = t("filter_time_today");
+  else if (dayDiff === 1) dayLabel = t("filter_time_tomorrow");
+  else {
+    dayLabel = new Intl.DateTimeFormat(getLocale(), { weekday: "short", day: "numeric", month: "short" }).format(date);
+  }
+  return timePart ? `${dayLabel} · ${timePart}` : dayLabel;
+}
+
+function isFreePrice(priceText) {
+  const normalized = String(priceText || "").trim().toLowerCase();
+  return !normalized || ["free", "0", "0 eur", "0 €", "0€", "gratis", "eintritt frei", "free entry", "entrada gratuita", "entrada libre"].includes(normalized);
+}
+
 function createEventCard(event, index = 0) {
   const card = document.createElement("article");
   card.className = "event-card";
@@ -7271,25 +7309,25 @@ function createEventCard(event, index = 0) {
   const eventTitle = getEventTitle(event);
   const eventArtist = getEventArtist(event);
   const eventCategory = getEventCategory(event);
-  const primaryGenre = splitGenres(eventCategory)[0] || eventCategory || "-";
+  const primaryGenre = splitGenres(eventCategory)[0] || eventCategory || "";
   const favoriteActive = isFavoriteEvent(event.id);
-  const vibeBadges = renderEventVibeBadges(event, "event-card__micro-tag");
   const recurrenceLineText = getRecurringText(event, state.lang);
-  const distanceLine = Number.isFinite(event.distance_km)
-    ? `<p class="event-card__line event-card__line--distance">${formatDistanceLabel(event.distance_km)}</p>`
-    : "";
-  const recurrenceLine = recurrenceLineText
-    ? `<p class="event-card__line event-card__line--recurrence">📅 ${recurrenceLineText}</p>`
-    : "";
+  const venue = getEventVenue(event);
+  const placeLine = [venue, event.city].map((value) => String(value || "").trim()).filter(Boolean).join(" · ");
+  const isFree = isFreePrice(event.price_text);
+  const priceLabel = isFree ? t("price_free_short") : formatPrice(event.price_text);
+  const distanceText = Number.isFinite(event.distance_km) ? formatDistanceLabel(event.distance_km) : "";
+  card.setAttribute("role", "link");
+  card.setAttribute("tabindex", "0");
+  card.setAttribute("aria-label", [eventTitle, formatCardWhen(event), placeLine].filter(Boolean).join(", "));
   card.innerHTML = `
     <div class="event-card__media">
       ${
         event.image_url
-          ? `<img class="event-card__image" src="${event.image_url}" alt="${eventTitle}" loading="lazy">`
-          : `<div class="event-card__image-fallback" aria-hidden="true"><span>${iconForGenre(primaryGenre)}</span></div>`
+          ? `<img class="event-card__image" src="${escapeCardText(event.image_url)}" alt="" loading="${index < 4 ? "eager" : "lazy"}" decoding="async">`
+          : `<div class="event-card__image-fallback" aria-hidden="true"><span class="event-card__fallback-genre">${escapeCardText(primaryGenre || "Live")}</span></div>`
       }
-      ${vibeBadges ? `<div class="event-card__micro-tags">${vibeBadges}</div>` : ""}
-      <span class="event-card__genre-badge">${primaryGenre}</span>
+      <span class="event-card__price ${isFree ? "is-free" : ""}">${escapeCardText(priceLabel)}</span>
       <button
         type="button"
         class="event-card__favorite ${favoriteActive ? "is-active" : ""}"
@@ -7301,18 +7339,14 @@ function createEventCard(event, index = 0) {
       </button>
     </div>
     <div class="event-card__body">
-      <div class="event-card__header">
-        <h4 class="event-card__title">${eventTitle}</h4>
-        <div class="event-card__artist">${eventArtist ? `${t("details_artist")}: ${eventArtist}` : ""}</div>
-      </div>
-      ${recurrenceLine}
-      ${distanceLine}
-      <p class="event-card__line event-card__line--datetime">🗓 ${formatDateTime(event)}</p>
-      <p class="event-card__line event-card__line--location">📍 ${formatEventPlace(event)}</p>
-      <div class="event-card__chips">
-        <span class="event-card__chip">${primaryGenre}</span>
-        <span class="event-card__chip event-card__chip--price">${formatPrice(event.price_text)}</span>
-      </div>
+      <p class="event-card__when">${escapeCardText(formatCardWhen(event))}</p>
+      <h4 class="event-card__title">${escapeCardText(eventTitle)}</h4>
+      <p class="event-card__place">${escapeCardText(placeLine || "-")}</p>
+      <p class="event-card__extra">${[primaryGenre, eventArtist, recurrenceLineText, distanceText]
+        .map((value) => String(value || "").trim())
+        .filter(Boolean)
+        .map(escapeCardText)
+        .join(" · ")}</p>
     </div>
   `;
   card.addEventListener("click", (clickEvent) => {
@@ -7330,6 +7364,13 @@ function createEventCard(event, index = 0) {
     }
 
     selectEvent(event, "list");
+  });
+  card.addEventListener("keydown", (keyEvent) => {
+    if (keyEvent.target !== card) return;
+    if (keyEvent.key === "Enter" || keyEvent.key === " ") {
+      keyEvent.preventDefault();
+      selectEvent(event, "list");
+    }
   });
   return card;
 }
@@ -8330,6 +8371,21 @@ function bindEvents() {
       const target = event.target instanceof Element ? event.target : null;
       const button = target?.closest("button[data-date-preset]");
       if (!button) return;
+      applyDatePreset(button.dataset.datePreset || "");
+    });
+  }
+  const heroTimeRail = document.getElementById("heroTimeRail");
+  if (heroTimeRail) {
+    heroTimeRail.addEventListener("click", (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      const button = target?.closest("button[data-date-preset]");
+      if (!button) return;
+      const preset = normalizeDatePresetId(button.dataset.datePreset || "");
+      if (preset && preset === normalizeDatePresetId(state.activeDatePreset)) {
+        setDateRangeState({ start: null, end: null }, "");
+        applyFilters();
+        return;
+      }
       applyDatePreset(button.dataset.datePreset || "");
     });
   }
