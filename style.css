@@ -4921,3 +4921,12 @@ body.body--detail-open { overflow: hidden; }
   color: var(--m-accent-ink);
   box-shadow: none;
 }
+
+/* ---- Titelbild: warme Bühnenlichter (vorläufig, bis eigenes Foto da ist) ---- */
+.hero::before {
+  background:
+    linear-gradient(180deg, rgba(13, 10, 10, 0.25) 0%, rgba(13, 10, 10, 0.55) 55%, var(--m-bg) 100%),
+    url("https://images.unsplash.com/photo-1501281668745-f7f57925c3b4?auto=format&fit=crop&w=1600&q=70") center / cover;
+  filter: none;
+}
+.hero::after { display: none; }
