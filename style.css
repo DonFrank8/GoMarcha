@@ -5584,3 +5584,10 @@ input, button, select, textarea { font-family: inherit; }
 .map-bottom-sheet .event-details__preview { display: block !important; }
 /* Handy: die alte weiße Sprechblase an der Markierung verdeckt die Knöpfe – die Vorschau unten zeigt dasselbe. */
 @media (max-width: 780px) { .map-section .leaflet-popup { display: none; } }
+
+/* Preisfeld mit Häkchen „Eintritt frei“ */
+.field--price { display: grid; gap: 0.4rem; }
+.field--price > label:first-child { display: block; }
+.field-checkbox--price-free { display: inline-flex; align-items: center; gap: 0.5rem; font-weight: 600; cursor: pointer; }
+.field-checkbox--price-free input { width: 20px; height: 20px; accent-color: var(--m-accent); }
+#formPrice:disabled { opacity: 0.45; }

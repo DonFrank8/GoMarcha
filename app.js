@@ -13,7 +13,7 @@ const GEOCODING_MIN_INTERVAL_MS = 850;
 const GEOCODING_MAX_RETRIES = 2;
 const MAPBOX_ACCESS_TOKEN = (window.PARTYRADAR_MAPBOX_TOKEN || "").toString().trim();
 const EVENT_IMAGES_BUCKET = "event-images";
-const MAX_EVENT_IMAGE_BYTES = 5 * 1024 * 1024;
+const MAX_EVENT_IMAGE_BYTES = 40 * 1024 * 1024; // Rohdatei; wird vor dem Upload verkleinert
 const ALLOWED_EVENT_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const DEFAULT_NAVIGATION_PROVIDER = "google";
 const GOOGLE_PLACES_AUTOCOMPLETE_DEBOUNCE_MS = 220;
@@ -492,7 +492,7 @@ const I18N = {
     form_error_image_type: "Bitte ein gültiges Bild (JPG, PNG oder WebP) auswählen.",
     form_error_image_size: "Das Bild ist zu groß. Maximal 5 MB erlaubt.",
     form_error_image_upload: "Bild-Upload fehlgeschlagen. Bitte erneut versuchen.",
-    form_error_image_too_large: "Das Bild ist zu groß (max. 10 MB). Bitte ein kleineres Foto wählen.",
+    form_error_image_too_large: "Das Bild ist zu groß (max. 40 MB). Bitte ein kleineres Foto wählen.",
     form_error_image_unsupported: "Dieses Dateiformat geht leider nicht. Bitte ein Foto als JPG, PNG oder WebP wählen.",
     form_error_image_cleanup: "Hinweis: Das hochgeladene Bild konnte nicht automatisch bereinigt werden.",
     admin_title: "Moderation",
@@ -595,6 +595,9 @@ const I18N = {
     form_label_main_artist: "Künstler",
     form_label_additional_artists: "Weitere Künstler (optional)",
     form_label_price_text: "Preis (EUR)",
+    form_label_price_free: "Eintritt frei",
+    form_error_price_required: "Bitte einen Preis angeben oder „Eintritt frei“ ankreuzen.",
+    price_on_request: "Preis auf Anfrage",
     form_label_description: "Beschreibung",
     form_label_main_image: "Hauptbild (optional)",
     form_label_submitted_by: "Dein Name (Einreicher)",
@@ -607,9 +610,9 @@ const I18N = {
     aria_quick_categories: "Musikrichtungen",
     aria_view_mode: "Ansicht",
     aria_language: "Sprache",
-    form_hint_main_image: "1 Bild (JPG/PNG/WebP), max. 5 MB",
+    form_hint_main_image: "1 Foto oder Flyer (JPG, PNG, WebP, iPhone-Foto) – große Bilder werden automatisch verkleinert",
     form_hint_gallery_premium: "Weitere Bilder und erweiterte Galerie kommen in der bezahlten Version.",
-    form_hint_price_eur: "Bitte Betrag in Euro angeben, z. B. 25 oder 25 EUR.",
+    form_hint_price_eur: "Betrag in Euro, z. B. 25 – oder „Eintritt frei“ ankreuzen.",
     form_placeholder_name: "z. B. Summer Beats Night",
     form_placeholder_location_name: "z. B. Beach Club",
     form_placeholder_address: "z. B. Paseo Marítimo 1",
@@ -806,7 +809,7 @@ const I18N = {
     form_error_image_type: "Please upload a valid image (JPG, PNG, or WebP).",
     form_error_image_size: "The image is too large. Maximum is 5 MB.",
     form_error_image_upload: "Image upload failed. Please try again.",
-    form_error_image_too_large: "The image is too large (max. 10 MB). Please choose a smaller photo.",
+    form_error_image_too_large: "The image is too large (max. 40 MB). Please choose a smaller photo.",
     form_error_image_unsupported: "This file type isn’t supported. Please choose a JPG, PNG or WebP photo.",
     form_error_image_cleanup: "Note: Uploaded image could not be cleaned up automatically.",
     admin_title: "Moderation",
@@ -909,6 +912,9 @@ const I18N = {
     form_label_main_artist: "Artist",
     form_label_additional_artists: "Additional artists (optional)",
     form_label_price_text: "Price (EUR)",
+    form_label_price_free: "Free entry",
+    form_error_price_required: "Please enter a price or tick “Free entry”.",
+    price_on_request: "Price on request",
     form_label_description: "Description",
     form_label_main_image: "Main image (optional)",
     form_label_submitted_by: "Your Name (Submitter)",
@@ -921,9 +927,9 @@ const I18N = {
     aria_quick_categories: "Music styles",
     aria_view_mode: "View",
     aria_language: "Language",
-    form_hint_main_image: "1 image (JPG/PNG/WebP), max. 5 MB",
+    form_hint_main_image: "1 photo or flyer (JPG, PNG, WebP, iPhone photo) – large images are resized automatically",
     form_hint_gallery_premium: "More images and an advanced gallery are coming in the paid version.",
-    form_hint_price_eur: "Please enter amount in euros, e.g. 25 or 25 EUR.",
+    form_hint_price_eur: "Amount in euros, e.g. 25 – or tick “Free entry”.",
     form_placeholder_name: "e.g. Summer Beats Night",
     form_placeholder_location_name: "e.g. Beach Club",
     form_placeholder_address: "e.g. Paseo Maritimo 1",
@@ -1120,7 +1126,7 @@ const I18N = {
     form_error_image_type: "Sube una imagen válida (JPG, PNG o WebP).",
     form_error_image_size: "La imagen es demasiado grande. Máximo 5 MB.",
     form_error_image_upload: "La carga de imagen falló. Inténtalo de nuevo.",
-    form_error_image_too_large: "La imagen es demasiado grande (máx. 10 MB). Elige una foto más pequeña.",
+    form_error_image_too_large: "La imagen es demasiado grande (máx. 40 MB). Elige una foto más pequeña.",
     form_error_image_unsupported: "Este formato no es compatible. Elige una foto en JPG, PNG o WebP.",
     form_error_image_cleanup: "Nota: la imagen subida no se pudo limpiar automáticamente.",
     admin_title: "Moderación",
@@ -1223,6 +1229,9 @@ const I18N = {
     form_label_main_artist: "Artista",
     form_label_additional_artists: "Artistas adicionales (opcional)",
     form_label_price_text: "Precio (EUR)",
+    form_label_price_free: "Entrada gratuita",
+    form_error_price_required: "Indica un precio o marca «Entrada gratuita».",
+    price_on_request: "Precio a consultar",
     form_label_description: "Descripción",
     form_label_main_image: "Imagen principal (opcional)",
     form_label_submitted_by: "Tu nombre (remitente)",
@@ -1235,9 +1244,9 @@ const I18N = {
     aria_quick_categories: "Estilos de música",
     aria_view_mode: "Vista",
     aria_language: "Idioma",
-    form_hint_main_image: "1 imagen (JPG/PNG/WebP), máx. 5 MB",
+    form_hint_main_image: "1 foto o flyer (JPG, PNG, WebP, foto de iPhone): las imágenes grandes se reducen automáticamente",
     form_hint_gallery_premium: "Más imágenes y una galería avanzada llegarán en la versión de pago.",
-    form_hint_price_eur: "Introduce el importe en euros, p. ej. 25 o 25 EUR.",
+    form_hint_price_eur: "Importe en euros, p. ej. 25, o marca «Entrada gratuita».",
     form_placeholder_name: "p. ej. Summer Beats Night",
     form_placeholder_location_name: "p. ej. Beach Club",
     form_placeholder_address: "p. ej. Paseo Marítimo 1",
@@ -1450,6 +1459,7 @@ const dom = {
   formArtistName: document.getElementById("formArtistName"),
   formAdditionalArtists: document.getElementById("formAdditionalArtists"),
   formPrice: document.getElementById("formPrice"),
+  formPriceFree: document.getElementById("formPriceFree"),
   formMainImage: document.getElementById("formMainImage"),
   formSubmittedBy: document.getElementById("formSubmittedBy"),
   formContactEmail: document.getElementById("formContactEmail"),
@@ -2287,7 +2297,7 @@ function normalizeEvent(event, index) {
     event_date: normalizedEventDate,
     event_time: event.event_time || event.time || "",
     genre: event.genre || event.music_genre || "",
-    price_text: event.price_text || event.price || t("details_free"),
+    price_text: event.price_text || event.price || "",
     description: event.description || t("details_no_description"),
     image_url: event.image_url || event.image || "",
     artist_name: event.artist_name || "",
@@ -2337,7 +2347,7 @@ function readFormPayload() {
     genre: dom.formGenre.value.trim(),
     artist_name: dom.formArtistName?.value.trim() || "",
     additional_artists: dom.formAdditionalArtists?.value.trim() || "",
-    price_text: normalizePriceText(dom.formPrice.value),
+    price_text: dom.formPriceFree?.checked ? "0 EUR" : normalizePriceText(dom.formPrice.value),
     main_image: dom.formMainImage?.files?.[0] || null,
     submitted_by: dom.formSubmittedBy.value.trim(),
     contact_email: dom.formContactEmail.value.trim(),
@@ -3107,6 +3117,9 @@ function validateFormPayload(payload) {
   if (!requiredFilled) {
     return { valid: false, message: t("form_error_required") };
   }
+  if (!String(payload.price_text || "").trim()) {
+    return { valid: false, message: t("form_error_price_required") };
+  }
   if (isRecurring) {
     if (!payload.recurrence_start_date) {
       return { valid: false, message: t("form_error_recurrence_start_required") };
@@ -3140,11 +3153,12 @@ function validateFormPayload(payload) {
     return { valid: false, message: t("form_error_email") };
   }
   if (payload.main_image) {
-    if (!ALLOWED_EVENT_IMAGE_MIME_TYPES.has(payload.main_image.type)) {
-      return { valid: false, message: t("form_error_image_type") };
+    // Große Fotos werden vor dem Hochladen automatisch verkleinert (prepareImageForUpload).
+    if (!guessImageContentType(payload.main_image)) {
+      return { valid: false, message: t("form_error_image_unsupported") };
     }
     if (payload.main_image.size > MAX_EVENT_IMAGE_BYTES) {
-      return { valid: false, message: t("form_error_image_size") };
+      return { valid: false, message: t("form_error_image_too_large") };
     }
   }
   return { valid: true, message: "" };
@@ -3161,6 +3175,25 @@ async function hasRecurrenceColumns(client) {
   return !(message.includes("does not exist") && message.includes("recurrence_"));
 }
 
+// „Eintritt frei“: Preisfeld ausgrauen und leeren; wer einen Betrag tippt, nimmt das Häkchen raus.
+function syncPriceFreeState() {
+  if (!dom.formPrice || !dom.formPriceFree) return;
+  const isFree = dom.formPriceFree.checked;
+  dom.formPrice.disabled = isFree;
+  if (isFree) dom.formPrice.value = "";
+}
+
+function bindPriceFreeToggle() {
+  if (!dom.formPrice || !dom.formPriceFree) return;
+  dom.formPriceFree.addEventListener("change", syncPriceFreeState);
+  dom.formPrice.addEventListener("input", () => {
+    if (dom.formPrice.value.trim() && dom.formPriceFree.checked) {
+      dom.formPriceFree.checked = false;
+      syncPriceFreeState();
+    }
+  });
+}
+
 function clearEventForm() {
   if (!dom.eventForm) return;
   dom.eventForm.reset();
@@ -3168,6 +3201,7 @@ function clearEventForm() {
   resetLocationSearchToken();
   hideLocationSuggestionList();
   if (dom.formMainImage) dom.formMainImage.value = "";
+  syncPriceFreeState();
   if (dom.formRecurrenceType) {
     dom.formRecurrenceType.value = RECURRENCE_TYPE_NONE;
     updateRecurrenceFormState();
@@ -3398,7 +3432,8 @@ async function prepareImageForUpload(file) {
   }
 
   if (contentType && file.size <= UPLOAD_MAX_BYTES) return file;
-  const unsupported = new Error(t(contentType ? "form_error_image_too_large" : "form_error_image_unsupported"));
+  // Nicht verkleinerbar (z. B. HEIC am Computer) und zu groß/unbekannt: um JPG/PNG/WebP bitten.
+  const unsupported = new Error(t("form_error_image_unsupported"));
   unsupported.isUserFacing = true;
   throw unsupported;
 }
@@ -4953,7 +4988,8 @@ function formatDateTime(event) {
 }
 
 function formatPrice(priceText) {
-  if (!priceText) return t("details_free");
+  // Kein Preis angegeben ist NICHT gratis (sonst stehen Events mit Eintritt als kostenlos da).
+  if (!String(priceText || "").trim()) return t("price_on_request");
   const normalized = String(priceText).trim().toLowerCase();
   if (normalized === "free" || normalized === "0" || normalized === "0 eur") return t("details_free");
   return String(priceText);
@@ -7482,7 +7518,7 @@ function formatCardWhen(event) {
 
 function isFreePrice(priceText) {
   const normalized = String(priceText || "").trim().toLowerCase();
-  return !normalized || ["free", "0", "0 eur", "0 €", "0€", "gratis", "eintritt frei", "free entry", "entrada gratuita", "entrada libre"].includes(normalized);
+  return Boolean(normalized) && ["free", "0", "0 eur", "0 €", "0€", "gratis", "eintritt frei", "free entry", "entrada gratuita", "entrada libre"].includes(normalized);
 }
 
 // Handy: Event-Details als Vollbild über der Liste; Desktop: wie bisher im Panel neben der Karte.
@@ -8798,6 +8834,7 @@ async function updateModerationStatus(eventId, nextStatus, verificationNotes) {
 }
 
 function bindEvents() {
+  bindPriceFreeToggle();
   attachTapFeedback();
   attachRecurrenceFieldListeners();
   updateInstallUiVisibility();

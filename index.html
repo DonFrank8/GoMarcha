@@ -564,13 +564,17 @@
                 placeholder="z. B. DJ X, Live Band Y"
               ></textarea>
             </label>
-            <label class="field">
-              <span data-i18n="form_label_price_text">Preis (EUR)</span>
-              <input name="price_text" id="formPrice" type="text" data-i18n-placeholder="form_placeholder_price_text" placeholder="z. B. 25 EUR">
+            <div class="field field--price">
+              <label for="formPrice"><span data-i18n="form_label_price_text">Preis (EUR)</span></label>
+              <input name="price_text" id="formPrice" type="text" inputmode="decimal" data-i18n-placeholder="form_placeholder_price_text" placeholder="z. B. 25 EUR">
+              <label class="field-checkbox field-checkbox--price-free">
+                <input id="formPriceFree" type="checkbox">
+                <span data-i18n="form_label_price_free">Eintritt frei</span>
+              </label>
               <small class="field__hint field__hint--currency" data-i18n="form_hint_price_eur">
-                Bitte Betrag in Euro angeben, z. B. 25 oder 25 EUR.
+                Betrag in Euro, z. B. 25 – oder „Eintritt frei“ ankreuzen.
               </small>
-            </label>
+            </div>
           </div>
           <label class="field field--full">
             <span data-i18n="form_label_description">Beschreibung</span>
@@ -586,7 +590,7 @@
               data-i18n-aria-label="form_label_main_image"
             >
             <small class="field__hint" data-i18n="form_hint_main_image">
-              1 Bild (JPG/PNG/WebP), max. 5 MB
+              1 Foto oder Flyer (JPG, PNG, WebP, iPhone-Foto) – große Bilder werden automatisch verkleinert
             </small>
             <small class="field__hint" data-i18n="form_hint_gallery_premium">
               Weitere Bilder und erweiterte Galerie kommen in der bezahlten Version.
