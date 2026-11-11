@@ -44,7 +44,23 @@ Betrifft die Edge Function `smart-action` (OpenAI, Code NICHT im Repo) → Code 
 **Beobachtung beim Test (11.11.2026):** Live sind nur 5 Events (alle wöchentlich). Mittwochs zeigt „Heute“ deshalb 0 Treffer.
 Ortsangaben enthalten teils „Spanien“ (aus den Daten, z. B. „Alhaurín de la Torre, Spanien“) – auch auf EN/ES.
 
-## 0. ALS NÄCHSTES (Frank, 10.11.2026: „machen wir gleich morgen“): Sicherheits-Fixes aus dem Council
+## 0. Sicherheits-Fixes – Stand 11.11.2026
+
+**In der Live-Datenbank ERLEDIGT (Frank hat SQL #15, #16, #17 ausgeführt, von Claude als Besucher getestet):**
+- Bilder löschen nur noch Admins; Upload nur `pending/` (+ `admin-replacements/` für Admins), nur Bilder, max. 10 MB; Dateiliste gesperrt.
+- Insert-Trigger setzt für Nicht-Admins status/featured/promoted/is_featured/archived_at/original_event_id zurück; Längengrenzen (NOT VALID).
+- **Gefunden + entfernt:** drei nicht im Repo angelegte Allow-All-Regeln auf `events` („Anyone can update events“ – jeder konnte Events ändern; „Public can read events“ – jeder konnte auch pending/rejected inkl. E-Mail lesen; „Anyone can insert events“).
+- Test als Besucher danach: pending lesen 0, Event ändern blockiert, Upload pending/ ok, Dateiliste leer, Bild-Links ok, 33 freigegebene Events lesbar.
+
+**Code auf Branch `security-fixes` (noch NICHT live):** automatische Bildverkleinerung vor Upload, Preis-Pflicht mit Häkchen „Eintritt frei“, leerer Preis = „Preis auf Anfrage“, supabase-js fest 2.118.0, Cache v17.
+Nach Live-Gang: Frank trägt selbst ein Test-Event „TEST – bitte löschen“ mit Handy-Foto + „Eintritt frei“ ein und löscht es in der Moderation (automatischer Test-Eintrag durch Claude wurde von der Umgebung blockiert).
+
+**Noch offen:**
+- **E-Mail/Name der Einreicher bei FREIGEGEBENEN Events** sind für jeden über die API lesbar (RLS gilt pro Zeile). Lösung: Spaltenrechte für `anon` entziehen (`contact_email`, `submitted_by`, `verification_notes`) + Website lädt feste Spaltenliste statt `select("*")`.
+- Security Advisor: `rls_auto_enable()` (Event-Trigger, nicht aus dem Repo, vermutlich Supabase-Automatik „RLS für neue Tabellen“) – ansehen; `pg_net` in public (lassen); „Leaked Password Protection“ in Auth einschalten, falls im Tarif möglich.
+- Zwei Testbilder `pending/2026/11/11/sicherheitstest*.jpg` können in Storage gelöscht werden (harmlos).
+
+### Ursprüngliche Council-Liste (10.11.2026)
 
 Erst **Plan vorlegen**, dann umsetzen. Ergebnis eines Councils (4 Prüfer) vom 10.11.2026, Punkt 1 selbst im Code bestätigt:
 
