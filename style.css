@@ -5577,3 +5577,10 @@ input, button, select, textarea { font-family: inherit; }
   filter: none;
   animation: none;
 }
+
+/* Kartenfenster unten zeigt nur die Vorschau; die ganze Detailseite öffnet im eigenen Fenster. */
+.map-bottom-sheet .event-details__full,
+.map-bottom-sheet .event-details__sheet-actions { display: none !important; }
+.map-bottom-sheet .event-details__preview { display: block !important; }
+/* Handy: die alte weiße Sprechblase an der Markierung verdeckt die Knöpfe – die Vorschau unten zeigt dasselbe. */
+@media (max-width: 780px) { .map-section .leaflet-popup { display: none; } }

@@ -7936,7 +7936,8 @@ function renderMapMarkers() {
 
   const filteredMappableEvents = getMappableEvents(state.filteredEvents);
   const allMappableEvents = getMappableEvents(state.allEvents);
-  const markerSource = filteredMappableEvents.length ? filteredMappableEvents : allMappableEvents;
+  // Wie in der Liste: pro wiederkehrender Serie nur der nächste Termin als Markierung.
+  const markerSource = collapseRecurringForList(filteredMappableEvents.length ? filteredMappableEvents : allMappableEvents);
 
   mapDebugLog("[Marcha Debug] Map marker render:", {
     mapReady: Boolean(map && markersLayer),
@@ -8304,8 +8305,8 @@ function renderEventDetails(event) {
     dom.eventDetails.classList.add("event-details--animate-in");
   });
   bindEventDetailsGalleryInteractions();
-  if (state.viewMode === "map" && mapSheetIsAvailable() && mapSheetIsMobileViewport()) {
-    setMapBottomSheetState("half");
+  if (state.viewMode === "map" && mapSheetIsAvailable() && !document.body.classList.contains("body--detail-open")) {
+    setMapBottomSheetState("peek");
   }
 }
 
@@ -8370,11 +8371,8 @@ function focusMapOnEvent(eventData, options = { flyTo: false, openPopup: false }
 
 function openMapDetails(options = {}) {
   if (!mapSheetIsAvailable()) return;
-  const shouldExpand = Boolean(options.expandSheet);
-  const nextState = mapSheetIsMobileViewport()
-    ? (shouldExpand ? "full" : "peek")
-    : "half";
-  setMapBottomSheetState(nextState);
+  // Unten nur die kleine Vorschau zeigen; die ganze Detailseite öffnet ein Tipp darauf (eigenes Fenster).
+  setMapBottomSheetState("peek");
 }
 
 function selectEvent(eventData, source = "list") {
