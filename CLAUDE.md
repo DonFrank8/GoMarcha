@@ -17,7 +17,8 @@ Der Inhaber (Frank) ist **kein Programmierer**. Er gibt Aufgaben vor, prüft Erg
 1. **Erst analysieren, dann coden.** Bei jeder Aufgabe zuerst: Was ist die Ursache? Welche Dateien/Funktionen sind betroffen? Welcher Plan? → Plan vorlegen und auf Freigabe warten.
 2. **Minimale Änderungen.** Nur das ändern, was für die Aufgabe nötig ist. Kein Umbau, kein „Aufräumen" nebenbei.
 3. **Ein Thema pro Commit**, mit klarer Commit-Message im Stil `fix: …` / `feat: …`.
-4. **Kein Push, kein Deploy, keine SQL-Ausführung auf der Live-Datenbank ohne ausdrückliche Freigabe.** Das gilt auch für `supabase functions deploy` und `wrangler deploy`.
+4. **Kein Push auf `main`, kein Deploy, keine SQL-Ausführung auf der Live-Datenbank ohne ausdrückliche Freigabe.** Das gilt auch für `supabase functions deploy` und `wrangler deploy`.
+   Ausnahme (Frank, 11.11.2026): **Arbeits-Branches (alles außer `main`) dürfen ohne Rückfrage gepusht werden**, damit keine Arbeit verloren geht, wenn eine Session endet. Sie gehen dadurch nicht live (GitHub Pages veröffentlicht nur `main`). Nie mit `--force` auf fremde Branches, nie direkt auf `main`.
 5. **Nach jeder Änderung:** kurz zusammenfassen, was geändert wurde, wie man es testet, und welche Risiken es gibt.
 6. Bei Unsicherheit: nachfragen statt raten.
 
