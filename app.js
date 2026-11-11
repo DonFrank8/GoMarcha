@@ -24,6 +24,8 @@ const SUBMITTER_PROFILE_STORAGE_KEY = "vibeon.submitterProfile.v1";
 const INSTALL_BANNER_DISMISS_STORAGE_KEY = "vibeon.installBanner.dismissedUntil";
 const INSTALL_BANNER_INSTALLED_STORAGE_KEY = "vibeon.installBanner.installedUntil";
 const MOBILE_INSTALL_CTA_DISMISS_STORAGE_KEY = "vibeon.installCta.dismissedUntil";
+const VISIT_COUNT_STORAGE_KEY = "marcha.visitCount";
+const VISIT_COUNTED_SESSION_KEY = "marcha.visitCounted";
 const USER_LOCATION_STORAGE_KEY = "vibeon.userLocation.v1";
 const LANGUAGE_STORAGE_KEY = "vibeon.language";
 const SOURCE_STORAGE_KEY = "source";
@@ -4660,8 +4662,31 @@ function updateMobileInstallEntryContent() {
   dom.mobileInstallEntryHelper.hidden = true;
 }
 
+// Besuche zählen (einmal pro Browser-Sitzung).
+function countVisitOnce() {
+  try {
+    if (window.sessionStorage.getItem(VISIT_COUNTED_SESSION_KEY)) return;
+    window.sessionStorage.setItem(VISIT_COUNTED_SESSION_KEY, "1");
+    const count = Number(window.localStorage.getItem(VISIT_COUNT_STORAGE_KEY) || 0) + 1;
+    window.localStorage.setItem(VISIT_COUNT_STORAGE_KEY, String(count));
+  } catch (_error) {
+    // Ignore storage errors.
+  }
+}
+
+// Install-Hinweis erst, wenn jemand wiederkommt oder ein Event gemerkt hat.
+function hasEarnedInstallHint() {
+  if (state.favoriteEventIds && state.favoriteEventIds.size > 0) return true;
+  try {
+    return Number(window.localStorage.getItem(VISIT_COUNT_STORAGE_KEY) || 0) >= 2;
+  } catch (_error) {
+    return false;
+  }
+}
+
 function canShowMobileInstallEntry() {
   if (!dom.mobileInstallEntry) return false;
+  if (!hasEarnedInstallHint()) return false;
   if (window.matchMedia?.("(max-width: 780px)")?.matches !== true) return false;
   if (!isInstallSurfaceRelevant()) return false;
   if (isInstallSuppressed(MOBILE_INSTALL_CTA_DISMISS_STORAGE_KEY)) return false;
@@ -4780,6 +4805,7 @@ function toggleFavoriteEvent(eventId) {
   if (state.favoriteEventIds.has(id)) state.favoriteEventIds.delete(id);
   else state.favoriteEventIds.add(id);
   persistFavoriteEventIds();
+  if (state.favoriteEventIds.size === 1) updateInstallUiVisibility();
   return state.favoriteEventIds.has(id);
 }
 
@@ -9207,6 +9233,7 @@ async function startApp() {
   bindEventDetailOverlay();
   setupEventLocationAutocomplete();
   renderNearbyFilterControls();
+  countVisitOnce();
   setupInstallBanner();
   setupMobileInstallEntry();
   await primeUserLocationOnAppLoad();

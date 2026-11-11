@@ -5223,3 +5223,27 @@ body { background: var(--m-bg); color: var(--m-text); }
   .quick-controls .quick-category-rail { flex: 1 1 auto; min-width: 0; }
   .quick-controls .view-toggle { flex: none; }
 }
+
+/* ---- Install-Hinweis: kompakt in einer Zeile ---- */
+.mobile-install-entry {
+  border-color: var(--m-line);
+  background: rgba(23, 17, 31, 0.86);
+  padding: 0.45rem 0.5rem 0.45rem 0.75rem;
+  margin-bottom: 0.5rem;
+  border-radius: 999px;
+}
+.mobile-install-entry.is-visible {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.6rem;
+}
+.mobile-install-entry__text { flex: 1 1 auto; min-width: 0; }
+.mobile-install-entry__text strong { font-size: 0.82rem; color: var(--m-text); }
+.mobile-install-entry__text p { display: none; }
+.mobile-install-entry__actions { margin-top: 0; flex: none; flex-wrap: nowrap; }
+.mobile-install-entry__actions .button-secondary,
+.mobile-install-entry .button-link { min-height: 32px; padding: 0.2rem 0.75rem; font-size: 0.76rem; }
+.mobile-install-entry .button-link { border-color: var(--m-line); color: var(--m-muted); background: transparent; }
+.mobile-install-entry__helper { flex-basis: 100%; border-radius: 10px; border-color: var(--m-line); background: rgba(11, 7, 18, 0.7); color: var(--m-text); }
+.mobile-install-entry:has(.mobile-install-entry__helper:not([hidden])) { border-radius: 14px; }
