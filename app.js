@@ -438,6 +438,9 @@ const I18N = {
     details_price: "Eintritt",
     details_navigate: "Route öffnen",
     details_view: "Details ansehen",
+    details_when: "Wann",
+    details_where: "Wo",
+    details_repeat: "Wiederholung",
     details_image_counter: "{current} / {total}",
     details_share: "Teilen",
     details_copy_link: "Link kopieren",
@@ -747,6 +750,9 @@ const I18N = {
     details_price: "Entry",
     details_navigate: "Open route",
     details_view: "View details",
+    details_when: "When",
+    details_where: "Where",
+    details_repeat: "Repeats",
     details_image_counter: "{current} / {total}",
     details_share: "Share",
     details_copy_link: "Copy link",
@@ -1056,6 +1062,9 @@ const I18N = {
     details_price: "Entrada",
     details_navigate: "Abrir ruta",
     details_view: "Ver detalles",
+    details_when: "Cuándo",
+    details_where: "Dónde",
+    details_repeat: "Se repite",
     details_image_counter: "{current} / {total}",
     details_share: "Compartir",
     details_copy_link: "Copiar enlace",
@@ -7953,6 +7962,10 @@ function renderEventDetails(event) {
     ? `<p class="event-details__subtitle">${additionalArtists}</p>`
     : "";
   const recurringText = getRecurringText(event, state.lang);
+  const detailSubtitle = [mainArtist, additionalArtists, getEventCategory(event)]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .join(" · ");
   const recurringLine = recurringText
     ? `<p class="event-details__recurrence">📅 ${recurringText}</p>`
     : "";
@@ -8131,52 +8144,65 @@ function renderEventDetails(event) {
           <span>${t("details_close_short")}</span>
         </button>
       </div>
-      <div class="event-details__layout">
-        <div class="event-details__media">
-          ${galleryMarkup}
+      <div class="event-details__layout event-details__layout--v2">
+        <div class="event-details__hero">
+          ${event.image_url ? `<img class="event-details__hero-bg" src="${escapeCardText(event.image_url)}" alt="" aria-hidden="true">` : ""}
+          <div class="event-details__media">
+            ${galleryMarkup}
+          </div>
         </div>
         <div class="event-details__content">
           <div class="event-details__header">
             <h4>${eventTitle}</h4>
-            ${artistLine}
-            ${additionalArtistsLine}
-            <p class="event-details__location-lead">📍 ${t("details_location")}: ${locationLead}</p>
-            <p class="event-details__venue-detail">${t("details_address")}: ${addressDetail}</p>
-            ${cityCountryMarkup}
-            ${locationExtraMarkup}
-            ${distancePlaceholder}
-            ${recurringLine}
-            ${topBadgesMarkup}
+            ${detailSubtitle ? `<p class="event-details__artist">${detailSubtitle}</p>` : ""}
           </div>
-          <div class="event-details__flow">
-            <article class="event-details__section">
-              <h5>${t("details_date")}</h5>
-              <p>${dateText}</p>
-            </article>
-            <article class="event-details__section">
-              <h5>${t("details_time")}</h5>
-              <p>${timeText}</p>
-            </article>
-            <article class="event-details__section">
-              <h5>${t("details_category")}</h5>
-              <p>${genreText}</p>
-            </article>
-            <article class="event-details__section">
-              <h5>${t("details_entry")}</h5>
-              <p>${priceText}</p>
-            </article>
+          <div class="event-details__facts">
+            <div class="event-details__fact">
+              <small>${t("details_when")}</small>
+              <b>${dateTimeText || "-"}</b>
+            </div>
+            <div class="event-details__fact">
+              <small>${t("details_entry")}</small>
+              <b>${priceText || "-"}</b>
+            </div>
+            <div class="event-details__fact event-details__fact--wide">
+              <small>${t("details_where")}</small>
+              <b>${locationLead}</b>
+              <span>${[addressDetail !== "-" ? addressDetail : "", addressOnlyLine ? cityCountryLine : ""].filter(Boolean).join(" · ")}</span>
+              ${distancePlaceholder}
+            </div>
+            ${
+              recurringText
+                ? `<div class="event-details__fact event-details__fact--wide event-details__fact--repeat"><small>${t("details_repeat")}</small><b>↻ ${recurringText}</b></div>`
+                : ""
+            }
           </div>
-          <div class="event-details__full-actions">
-            ${routeButtonMarkup}
+          ${descriptionMarkup}
+          <div class="event-details__more-actions">
             ${calendarButtonMarkup}
-          </div>
-          <div class="event-details__share-actions-minimal">
-            ${shareButtonMarkup}
             ${copyLinkButtonMarkup}
           </div>
-          ${quickShareButtonsMarkup}
-          ${descriptionMarkup}
         </div>
+      </div>
+      <div class="event-details__actionbar">
+        <div class="event-details__share-menu" hidden>
+          ${shareButtonMarkup}
+          ${quickShareButtonsMarkup}
+        </div>
+        ${routeButtonMarkup}
+        <button
+          type="button"
+          class="button-secondary event-details__action event-details__action--fav ${isFavoriteEvent(event.id) ? "is-active" : ""}"
+          data-action="details-favorite"
+          data-event-id="${event.id}"
+          aria-pressed="${isFavoriteEvent(event.id) ? "true" : "false"}"
+        >♥ ${t("card_favorite")}</button>
+        <button
+          type="button"
+          class="button-secondary event-details__action"
+          data-action="details-share-menu"
+          aria-expanded="false"
+        >${t("details_share")}</button>
       </div>
     </div>
   `;
@@ -8922,6 +8948,29 @@ function bindEvents() {
       if (detailsCollapseButton) {
         setMapBottomSheetState("peek");
         window.setTimeout(() => map?.invalidateSize(), 100);
+        return;
+      }
+      const favoriteDetailButton = target.closest("button[data-action='details-favorite']");
+      if (favoriteDetailButton) {
+        const eventId = favoriteDetailButton.dataset.eventId || state.selectedEventId;
+        const isFavorite = toggleFavoriteEvent(eventId);
+        favoriteDetailButton.classList.toggle("is-active", isFavorite);
+        favoriteDetailButton.setAttribute("aria-pressed", String(isFavorite));
+        document
+          .querySelectorAll(`.event-card[data-event-id="${CSS.escape(String(eventId))}"] button[data-action='favorite-toggle']`)
+          .forEach((button) => {
+            button.classList.toggle("is-active", isFavorite);
+            button.setAttribute("aria-pressed", String(isFavorite));
+          });
+        return;
+      }
+      const shareMenuButton = target.closest("button[data-action='details-share-menu']");
+      if (shareMenuButton) {
+        const menu = dom.eventDetails.querySelector(".event-details__share-menu");
+        if (menu) {
+          menu.hidden = !menu.hidden;
+          shareMenuButton.setAttribute("aria-expanded", String(!menu.hidden));
+        }
         return;
       }
       const shareButton = target.closest("button[data-action='details-share']");
