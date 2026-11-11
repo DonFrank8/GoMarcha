@@ -23,6 +23,7 @@
 | 12 | `supabase-admin-save-reuse-fix.sql` | Fix: `archived_at`, `original_event_id` (FK), NOT NULL auf `event_date` aufheben, `is_featured` | MITTEL | Ja | Überschneidung mit #3, abhängig von #1 |
 | 13 | `supabase-admin-select-events-fix.sql` | Fix: `marcha_auth_is_admin()` neu definieren, Admin-Select + Public-Read-Policies erneuern | HOCH | Ja (CREATE OR REPLACE, DROP IF EXISTS) | Überschreibt Teile von #1 |
 | 14 | `supabase-admin-role-hardening.sql` | **Sicherheits-Fix**: `marcha_auth_is_admin()` akzeptiert nur noch `app_metadata.role` (nicht mehr das vom Nutzer änderbare `user_metadata`). Teil 1 nur lesen, Teil 2 setzt vorher die Admin-Rolle des eigenen Kontos in `app_metadata` (Aussperr-Schutz) | **KRITISCH** | Ja (Transaktion, Abbruch ohne Änderung, wenn das Admin-Konto fehlt) | Abhängig von #1; muss nach #1 und #13 laufen (beide sind inzwischen angepasst) |
+| 15 | `supabase-security-hardening.sql` | **Sicherheits-Fix (Council 10.11.2026)**: Bilder löschen nur Admins; Upload nur `pending/` (Besucher) bzw. `admin-replacements/` (Admins), nur Bildendungen, Bucket-Limit 10 MB + Bild-MIME-Typen; BEFORE-INSERT-Trigger setzt für Nicht-Admins `status/featured/promoted/is_featured/archived_at/original_event_id` zurück; Längengrenzen (NOT VALID, nur neue Zeilen). Rückbau-Abschnitt am Dateiende | **KRITISCH** | Ja (DROP IF EXISTS, CREATE OR REPLACE, Constraint nur wenn nicht vorhanden) | Abhängig von #1 und #14 (`marcha_auth_is_admin()`) |
 
 ---
 
