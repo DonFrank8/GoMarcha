@@ -356,6 +356,7 @@ const I18N = {
     nav_map: "Karte",
     nav_submit: "Einreichen",
     nav_saved: "Gemerkt",
+    card_favorite: "Merken",
     submit_cta_short: "+ Event",
     submit_teaser_title: "Du veranstaltest Livemusik?",
     submit_teaser_text: "Locations, Bars und Bands tragen ihre Events selbst ein – kostenlos. Wir prüfen jedes Event vor der Veröffentlichung.",
@@ -664,6 +665,7 @@ const I18N = {
     nav_map: "Map",
     nav_submit: "Submit",
     nav_saved: "Saved",
+    card_favorite: "Save",
     submit_cta_short: "+ Event",
     submit_teaser_title: "Do you host live music?",
     submit_teaser_text: "Venues, bars and bands add their own events – for free. We check every event before it goes live.",
@@ -972,6 +974,7 @@ const I18N = {
     nav_map: "Mapa",
     nav_submit: "Enviar",
     nav_saved: "Guardados",
+    card_favorite: "Guardar",
     submit_cta_short: "+ Evento",
     submit_teaser_title: "¿Organizas música en directo?",
     submit_teaser_text: "Locales, bares y bandas publican sus eventos – gratis. Revisamos cada evento antes de publicarlo.",
@@ -7375,6 +7378,20 @@ function escapeCardText(value) {
     .replace(/"/g, "&quot;");
 }
 
+// Kalender-Block auf der Karte (Computer): Wochentag, Tag, Monat.
+function getCardDateParts(event) {
+  const iso = String(event?.event_date || "").slice(0, 10);
+  const date = iso ? new Date(`${iso}T12:00:00`) : null;
+  if (!date || Number.isNaN(date.getTime())) return null;
+  const clean = (value) => String(value || "").replace(/\./g, "").trim().toUpperCase();
+  const locale = getLocale();
+  return {
+    weekday: clean(new Intl.DateTimeFormat(locale, { weekday: "short" }).format(date)).slice(0, 3),
+    day: String(date.getDate()),
+    month: clean(new Intl.DateTimeFormat(locale, { month: "short" }).format(date)).slice(0, 4)
+  };
+}
+
 function formatCardWhen(event) {
   const timePart = String(event.event_time || "").trim().slice(0, 5);
   const iso = String(event.event_date || "").slice(0, 10);
@@ -7501,6 +7518,9 @@ function createEventCard(event, index = 0) {
   card.setAttribute("role", "link");
   card.setAttribute("tabindex", "0");
   card.setAttribute("aria-label", [eventTitle, formatCardWhen(event), placeLine].filter(Boolean).join(", "));
+  const dateParts = getCardDateParts(event);
+  const timePart = String(event.event_time || "").trim().slice(0, 5);
+  const metaLine = [placeLine, distanceText].filter(Boolean).join(" · ");
   card.innerHTML = `
     <div class="event-card__media">
       ${
@@ -7508,26 +7528,29 @@ function createEventCard(event, index = 0) {
           ? `<img class="event-card__image" src="${escapeCardText(event.image_url)}" alt="" loading="${index < 4 ? "eager" : "lazy"}" decoding="async">`
           : `<div class="event-card__image-fallback" aria-hidden="true"><span class="event-card__fallback-genre">${escapeCardText(primaryGenre || "Live")}</span></div>`
       }
-      <span class="event-card__price ${isFree ? "is-free" : ""}">${escapeCardText(priceLabel)}</span>
+      ${
+        dateParts
+          ? `<div class="event-card__date" aria-hidden="true"><small>${escapeCardText(dateParts.weekday)}</small><b>${escapeCardText(dateParts.day)}</b><i>${escapeCardText(dateParts.month)}</i></div>`
+          : ""
+      }
       <button
         type="button"
         class="event-card__favorite ${favoriteActive ? "is-active" : ""}"
         data-action="favorite-toggle"
-        aria-label="Favorite event"
+        aria-label="${escapeCardText(t("card_favorite"))}"
         aria-pressed="${favoriteActive ? "true" : "false"}"
       >
         ❤
       </button>
+      <div class="event-card__tags">
+        ${recurrenceLineText ? `<span class="event-card__tag event-card__tag--repeat">↻ ${escapeCardText(recurrenceLineText)}</span>` : ""}
+        <span class="event-card__tag event-card__tag--price ${isFree ? "is-free" : ""}">${escapeCardText(priceLabel)}</span>
+      </div>
     </div>
     <div class="event-card__body">
-      <p class="event-card__when">${escapeCardText(formatCardWhen(event))}</p>
+      <p class="event-card__when">${escapeCardText([formatCardWhen(event), priceLabel].filter(Boolean).join(" · "))}</p>
       <h4 class="event-card__title">${escapeCardText(eventTitle)}</h4>
-      <p class="event-card__place">${escapeCardText(placeLine || "-")}</p>
-      <p class="event-card__extra">${[primaryGenre, eventArtist, recurrenceLineText, distanceText]
-        .map((value) => String(value || "").trim())
-        .filter(Boolean)
-        .map(escapeCardText)
-        .join(" · ")}</p>
+      <p class="event-card__place">${timePart ? `<span class="event-card__time">${escapeCardText(timePart)}</span>` : ""}${escapeCardText(metaLine || "-")}</p>
     </div>
   `;
   card.addEventListener("click", (clickEvent) => {
