@@ -9,11 +9,17 @@ Erledigtes hier streichen bzw. nach „Erledigt“ verschieben.
 Paket (SVG/PNG, App-Icon, Favicon, Android adaptive, einfarbig) in Drive: „Logo Marcha final / Marcha Logo 2026 – C3 Disco-Sonne“.
 Council (4 Prüfer) + Grafikdesigner-Review: Frank unterschreibt die Designer-Punkte vollständig.
 
-**Etappe 1 – Branch `redesign-etappe-1` (gebaut 11.11.2026, noch NICHT live, wartet auf Franks Freigabe):**
+**Etappe 1 – LIVE seit 11.11.2026** (Freigabe Frank, Branch `redesign-etappe-1` nach `main`):
 eine Farbpalette (Orange = einzige Aktionsfarbe), Überschrift „Livemusik & Partys an der Costa del Sol“ (bewusst nicht „Nacht“ – es gibt auch Nachmittags-Partys),
 kompakter Kopfbereich, Install-Hinweis erst ab 2. Besuch/erstem Favorit, wiederkehrende Events nur einmal in der Liste,
 Übersetzungslücken (Footer u. a.), neues Logo + Icons v5 + neues Vorschaubild (`social-preview-es.jpg`, `social-preview.png`).
-Offen dazu: Android-App-Icon im Play-Store-Build (eigenes Projekt, nicht in diesem Repo) mit `android-adaptive-*.svg` aus dem Logo-Paket tauschen.
+Frank-Feedback nach Live-Gang: Hinweis „Jeden Freitag“ geht auf der Karte unter → wird in Etappe 2 mit dem neuen Kartendesign sichtbarer.
+
+**TO-DO Google Play (Frank, 11.11.2026):** neues App-Icon in die Android-App bringen.
+- Das Android-Projekt (Play-Store-Build, `Marcha.aab`) liegt NICHT in diesem Repo.
+- Dateien im Logo-Paket (Drive „Logo Marcha final / Marcha Logo 2026 – C3 Disco-Sonne“): `android-adaptive-vordergrund.svg` + `android-adaptive-hintergrund.svg` (Adaptive Icon), `marcha-icon-1024.png` / `marcha-icon-512.png`.
+- Play Console: Store-Eintrag → App-Symbol (512 × 512 PNG) und Feature-Grafik tauschen; Screenshots (Canva „Marcha App Store Screens“) zeigen noch das alte Logo.
+- Neuen Build im Closed Test hochladen (zusammen mit dem nächsten ohnehin fälligen Build).
 
 **Etappe 2 (ca. 1 Woche):** neues Kartendesign (einheitlicher Rahmen statt Flyer-Pinnwand, Datum als Block),
 Desktop: Liste volle Breite, Karte nur per Schalter; Event-Detailseite mit Info-Leiste (Wann/Wo/Preis) und fester Aktionsleiste (Route/Merken/Teilen);
