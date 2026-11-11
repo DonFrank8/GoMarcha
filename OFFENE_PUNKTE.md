@@ -1,7 +1,17 @@
 # Offene Punkte — Marcha
 
-Merkliste für die nächsten Sessions. Stand: 11.11.2026 (Redesign Etappe 1).
+Merkliste für die nächsten Sessions. Stand: 11.11.2026 abends (Etappe 1+2 und Sicherheits-Fixes live).
 Erledigtes hier streichen bzw. nach „Erledigt“ verschieben.
+
+## ALS NÄCHSTES (Frank, 11.11.2026 abends: „machen wir morgen“)
+
+1. **Interne Dateien sind öffentlich** (DRINGEND): GitHub Pages veröffentlicht das ganze Repo, z. B. `gomarcha.com/OFFENE_PUNKTE.md`, `CLAUDE.md`, `SQL_MIGRATIONS.md`, `supabase-*.sql` (geprüft 11.11.2026: alle HTTP 200).
+   Lösung planen: öffentliche Website in einen eigenen Ordner verschieben (Pages-Quelle umstellen) oder interne Dateien aus dem Pages-Repo herausnehmen. Bis dahin keine Details zu offenen Sicherheitslücken in Repo-Dateien schreiben.
+2. **Google Places (Ortsvorschläge im Formular) liefert 403** „The caller does not have permission“ – für www und ohne www, ohne Grund-Angabe (also vermutlich NICHT die Domain-Sperre).
+   Nicht durch Code-Änderungen verursacht (Schlüssel/Einbindung seit 10.11. unverändert). In der Google Cloud prüfen: „Places API (New)“ aktiviert? Schlüssel `AIzaSyBpHW…` → API-Einschränkungen enthalten „Places API (New)“? Website-Einschränkungen `https://www.gomarcha.com/*` + `https://gomarcha.com/*`? Abrechnung aktiv?
+   Formular funktioniert ohne Vorschläge (Adresse von Hand, Koordinaten über OpenStreetMap). Fehlermeldung im Formular ist fest auf Englisch → übersetzen.
+3. Datenschutz-Restpunkt aus den Sicherheits-Fixes abschließen (Einreicher-Daten, siehe Gesprächsverlauf 11.11.; Spaltenrechte + feste Spaltenliste in der Website).
+4. Frank: Test-Event „TEST – bitte löschen“ vom Handy (Foto + „Eintritt frei“) prüfen und in der Moderation löschen, falls noch nicht geschehen.
 
 ## Redesign (11.11.2026): neues Logo + Design in Etappen
 
@@ -21,7 +31,7 @@ Frank-Feedback nach Live-Gang: Hinweis „Jeden Freitag“ geht auf der Karte un
 - Play Console: Store-Eintrag → App-Symbol (512 × 512 PNG) und Feature-Grafik tauschen; Screenshots (Canva „Marcha App Store Screens“) zeigen noch das alte Logo.
 - Neuen Build im Closed Test hochladen (zusammen mit dem nächsten ohnehin fälligen Build).
 
-**Etappe 2 – gebaut 11.11.2026 auf Branch `redesign-etappe-2`, wartet auf Franks Freigabe (Vorschau-Artifact „Marcha Redesign Etappe 2“):**
+**Etappe 2 – LIVE seit 11.11.2026** (Freigabe Frank):
 neue Schriften (Outfit/DM Sans), neue Event-Karte (Handy: Flyer frei, nur Herz + gelbes „Jeden Freitag“, Datum/Preis orange darunter; Computer: Kalender-Block),
 Computer: Liste volle Breite + Karte per Schalter, Detailseite (Info-Kacheln, feste Leiste Route/Merken/Teilen, Teilen-Menü), Flyer-Großansicht,
 Kopfbereich mit Abendverlauf statt Stockfoto, Karte: eine Markierung pro Serie (vorher 45, Tipp zeigte Termin im Jan. 2027), Cache v16.
@@ -52,11 +62,11 @@ Ortsangaben enthalten teils „Spanien“ (aus den Daten, z. B. „Alhaurín de 
 - **Gefunden + entfernt:** drei nicht im Repo angelegte Allow-All-Regeln auf `events` („Anyone can update events“ – jeder konnte Events ändern; „Public can read events“ – jeder konnte auch pending/rejected inkl. E-Mail lesen; „Anyone can insert events“).
 - Test als Besucher danach: pending lesen 0, Event ändern blockiert, Upload pending/ ok, Dateiliste leer, Bild-Links ok, 33 freigegebene Events lesbar.
 
-**Code auf Branch `security-fixes` (noch NICHT live):** automatische Bildverkleinerung vor Upload, Preis-Pflicht mit Häkchen „Eintritt frei“, leerer Preis = „Preis auf Anfrage“, supabase-js fest 2.118.0, Cache v17.
+**Code – LIVE seit 11.11.2026:** automatische Bildverkleinerung vor Upload, Preis-Pflicht mit Häkchen „Eintritt frei“, leerer Preis = „Preis auf Anfrage“, supabase-js fest 2.118.0, Cache v17.
 Nach Live-Gang: Frank trägt selbst ein Test-Event „TEST – bitte löschen“ mit Handy-Foto + „Eintritt frei“ ein und löscht es in der Moderation (automatischer Test-Eintrag durch Claude wurde von der Umgebung blockiert).
 
 **Noch offen:**
-- **E-Mail/Name der Einreicher bei FREIGEGEBENEN Events** sind für jeden über die API lesbar (RLS gilt pro Zeile). Lösung: Spaltenrechte für `anon` entziehen (`contact_email`, `submitted_by`, `verification_notes`) + Website lädt feste Spaltenliste statt `select("*")`.
+- Datenschutz-Restpunkt (Einreicher-Daten): siehe „ALS NÄCHSTES“ Punkt 3.
 - Security Advisor: `rls_auto_enable()` (Event-Trigger, nicht aus dem Repo, vermutlich Supabase-Automatik „RLS für neue Tabellen“) – ansehen; `pg_net` in public (lassen); „Leaked Password Protection“ in Auth einschalten, falls im Tarif möglich.
 - Zwei Testbilder `pending/2026/11/11/sicherheitstest*.jpg` können in Storage gelöscht werden (harmlos).
 
