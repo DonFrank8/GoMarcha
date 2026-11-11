@@ -492,6 +492,8 @@ const I18N = {
     form_error_image_type: "Bitte ein gültiges Bild (JPG, PNG oder WebP) auswählen.",
     form_error_image_size: "Das Bild ist zu groß. Maximal 5 MB erlaubt.",
     form_error_image_upload: "Bild-Upload fehlgeschlagen. Bitte erneut versuchen.",
+    form_error_image_too_large: "Das Bild ist zu groß (max. 10 MB). Bitte ein kleineres Foto wählen.",
+    form_error_image_unsupported: "Dieses Dateiformat geht leider nicht. Bitte ein Foto als JPG, PNG oder WebP wählen.",
     form_error_image_cleanup: "Hinweis: Das hochgeladene Bild konnte nicht automatisch bereinigt werden.",
     admin_title: "Moderation",
     admin_subtitle: "Prüfe Einreichungen und entscheide, was im Marcha Feed sichtbar wird.",
@@ -804,6 +806,8 @@ const I18N = {
     form_error_image_type: "Please upload a valid image (JPG, PNG, or WebP).",
     form_error_image_size: "The image is too large. Maximum is 5 MB.",
     form_error_image_upload: "Image upload failed. Please try again.",
+    form_error_image_too_large: "The image is too large (max. 10 MB). Please choose a smaller photo.",
+    form_error_image_unsupported: "This file type isn’t supported. Please choose a JPG, PNG or WebP photo.",
     form_error_image_cleanup: "Note: Uploaded image could not be cleaned up automatically.",
     admin_title: "Moderation",
     admin_subtitle: "Review submissions and decide what appears in the Marcha feed.",
@@ -1116,6 +1120,8 @@ const I18N = {
     form_error_image_type: "Sube una imagen válida (JPG, PNG o WebP).",
     form_error_image_size: "La imagen es demasiado grande. Máximo 5 MB.",
     form_error_image_upload: "La carga de imagen falló. Inténtalo de nuevo.",
+    form_error_image_too_large: "La imagen es demasiado grande (máx. 10 MB). Elige una foto más pequeña.",
+    form_error_image_unsupported: "Este formato no es compatible. Elige una foto en JPG, PNG o WebP.",
     form_error_image_cleanup: "Nota: la imagen subida no se pudo limpiar automáticamente.",
     admin_title: "Moderación",
     admin_subtitle: "Revisa envíos y decide qué aparece en el feed de Marcha.",
@@ -3343,12 +3349,67 @@ function buildEventImagePath(file) {
   return `pending/${yyyy}/${mm}/${dd}/${Date.now()}-${random}-${safeBase}.${ext}`;
 }
 
-async function uploadEventImage(client, file) {
+// Bilder vor dem Hochladen automatisch verkleinern (max. 2000 px, JPG), damit
+// große Handyfotos ohne Fehlermeldung durchgehen. Der Speicher erlaubt max. 10 MB
+// und nur JPG/PNG/WebP/HEIC (siehe supabase-security-hardening.sql).
+const UPLOAD_MAX_BYTES = 10 * 1024 * 1024;
+const UPLOAD_KEEP_ORIGINAL_BYTES = 1.5 * 1024 * 1024;
+const UPLOAD_MAX_EDGE_PX = 2000;
+const UPLOAD_ALLOWED_TYPES = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+  heic: "image/heic",
+  heif: "image/heif"
+};
+
+function guessImageContentType(file) {
+  const type = String(file?.type || "").toLowerCase();
+  if (Object.values(UPLOAD_ALLOWED_TYPES).includes(type)) return type;
+  return UPLOAD_ALLOWED_TYPES[fileExtension(file?.name)] || "";
+}
+
+async function prepareImageForUpload(file) {
+  const contentType = guessImageContentType(file);
+  const isWebFriendly = ["image/jpeg", "image/png", "image/webp"].includes(contentType);
+  if (isWebFriendly && file.size <= UPLOAD_KEEP_ORIGINAL_BYTES) return file;
+
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, UPLOAD_MAX_EDGE_PX / Math.max(bitmap.width, bitmap.height));
+    const width = Math.max(1, Math.round(bitmap.width * scale));
+    const height = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, width, height);
+    context.drawImage(bitmap, 0, 0, width, height);
+    bitmap.close?.();
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.85));
+    if (blob && blob.size > 0 && blob.size < file.size * 1.05 + 1) {
+      const baseName = String(file.name || "event-image").replace(/\.[^.]+$/, "") || "event-image";
+      return new File([blob], `${baseName}.jpg`, { type: "image/jpeg" });
+    }
+  } catch (error) {
+    console.warn("[Marcha] Bild konnte nicht verkleinert werden, nutze Original:", error);
+  }
+
+  if (contentType && file.size <= UPLOAD_MAX_BYTES) return file;
+  const unsupported = new Error(t(contentType ? "form_error_image_too_large" : "form_error_image_unsupported"));
+  unsupported.isUserFacing = true;
+  throw unsupported;
+}
+
+async function uploadEventImage(client, originalFile) {
+  const file = await prepareImageForUpload(originalFile);
   const path = buildEventImagePath(file);
   const { error: uploadError } = await client.storage
     .from(EVENT_IMAGES_BUCKET)
     .upload(path, file, {
-      contentType: file.type || "application/octet-stream",
+      contentType: guessImageContentType(file) || "image/jpeg",
       upsert: false
     });
 
@@ -8525,7 +8586,7 @@ async function handleCreateEventSubmit(submitEvent) {
         };
       } catch (uploadError) {
         console.error("Image upload failed:", uploadError);
-        setFormFeedback(t("form_error_image_upload"), "error");
+        setFormFeedback(uploadError?.isUserFacing ? uploadError.message : t("form_error_image_upload"), "error");
         return;
       }
     }
@@ -8551,11 +8612,12 @@ async function handleCreateEventSubmit(submitEvent) {
 
     if (error) {
       if (uploadedImagePath) {
+        // Aufräumen klappt nur noch für Admins (Bilder löschen ist geschützt).
+        // Für Besucher bleibt das Bild einfach liegen – kein Fehler für den Besucher.
         try {
           await deleteUploadedEventImage(client, uploadedImagePath);
         } catch (cleanupError) {
-          console.warn("[Marcha Debug] Image cleanup failed:", cleanupError);
-          throw new Error(`${error.message || "Insert failed"} ${t("form_error_image_cleanup")}`.trim());
+          console.warn("[Marcha Debug] Image cleanup skipped:", cleanupError);
         }
       }
       throw new Error(error.message);
