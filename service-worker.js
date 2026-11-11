@@ -1,4 +1,4 @@
-const CACHE_VERSION = "marcha-beta-v14";
+const CACHE_VERSION = "marcha-beta-v15";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 
@@ -15,12 +15,13 @@ const PRE_CACHE_ASSETS = [
   "/index.html",
   "/style.css",
   "/manifest.json",
-  "./assets/favicon-v4.png",
-  "./assets/icon-192-v4.png",
-  "./assets/icon-512-v4.png",
-  "./assets/apple-touch-icon-v4.png",
-  "./assets/logo.png",
-  "./assets/logo-schrift.png"
+  "./assets/favicon-v5.png",
+  "./assets/favicon-v5.svg",
+  "./assets/icon-192-v5.png",
+  "./assets/icon-512-v5.png",
+  "./assets/icon-maskable-512-v5.png",
+  "./assets/apple-touch-icon-v5.png",
+  "./assets/logo-v5.svg"
 ];
 
 function canCacheResponse(response) {

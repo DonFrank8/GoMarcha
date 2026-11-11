@@ -5247,3 +5247,7 @@ body { background: var(--m-bg); color: var(--m-text); }
 .mobile-install-entry .button-link { border-color: var(--m-line); color: var(--m-muted); background: transparent; }
 .mobile-install-entry__helper { flex-basis: 100%; border-radius: 10px; border-color: var(--m-line); background: rgba(11, 7, 18, 0.7); color: var(--m-text); }
 .mobile-install-entry:has(.mobile-install-entry__helper:not([hidden])) { border-radius: 14px; }
+
+/* ---- Neues Logo (C3) im Kopf: ohne alten Leuchteffekt ---- */
+.brand-logo--header { filter: none; opacity: 1; height: 44px; }
+@media (max-width: 780px) { .brand-logo--header { height: 34px; } }
