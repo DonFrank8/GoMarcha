@@ -5253,3 +5253,6 @@ body { background: var(--m-bg); color: var(--m-text); }
 /* ---- Neues Logo (C3) im Kopf: ohne alten Leuchteffekt ---- */
 .brand-logo--header { filter: none; opacity: 1; height: 44px; }
 @media (max-width: 780px) { .brand-logo--header { height: 34px; } }
+
+/* Eingabefelder und Knöpfe übernehmen die Seitenschrift */
+input, button, select, textarea { font-family: inherit; }
