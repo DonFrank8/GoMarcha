@@ -1,7 +1,37 @@
 # Offene Punkte — Marcha
 
-Merkliste für die nächsten Sessions. Stand: 10.11.2026 (abends, nach Council).
+Merkliste für die nächsten Sessions. Stand: 11.11.2026 (Redesign Etappe 1).
 Erledigtes hier streichen bzw. nach „Erledigt“ verschieben.
+
+## Redesign (11.11.2026): neues Logo + Design in Etappen
+
+**Logo entschieden: C3 „Disco-Sonne“** (M mit untergehender Sonne als halbe Discokugel, Schriftzug „marcha“ in Outfit Bold).
+Paket (SVG/PNG, App-Icon, Favicon, Android adaptive, einfarbig) in Drive: „Logo Marcha final / Marcha Logo 2026 – C3 Disco-Sonne“.
+Council (4 Prüfer) + Grafikdesigner-Review: Frank unterschreibt die Designer-Punkte vollständig.
+
+**Etappe 1 – Branch `redesign-etappe-1` (gebaut 11.11.2026, noch NICHT live, wartet auf Franks Freigabe):**
+eine Farbpalette (Orange = einzige Aktionsfarbe), Überschrift „Livemusik & Partys an der Costa del Sol“ (bewusst nicht „Nacht“ – es gibt auch Nachmittags-Partys),
+kompakter Kopfbereich, Install-Hinweis erst ab 2. Besuch/erstem Favorit, wiederkehrende Events nur einmal in der Liste,
+Übersetzungslücken (Footer u. a.), neues Logo + Icons v5 + neues Vorschaubild (`social-preview-es.jpg`, `social-preview.png`).
+Offen dazu: Android-App-Icon im Play-Store-Build (eigenes Projekt, nicht in diesem Repo) mit `android-adaptive-*.svg` aus dem Logo-Paket tauschen.
+
+**Etappe 2 (ca. 1 Woche):** neues Kartendesign (einheitlicher Rahmen statt Flyer-Pinnwand, Datum als Block),
+Desktop: Liste volle Breite, Karte nur per Schalter; Event-Detailseite mit Info-Leiste (Wann/Wo/Preis) und fester Aktionsleiste (Route/Merken/Teilen);
+neues Schriftpaar (z. B. Outfit/Unbounded + DM Sans statt Poppins/Inter); echtes Küsten-Foto statt Stock-Konzertfoto;
+`style.css` mit EINEM Token-System neu aufsetzen (heute 3 Designs übereinander: Basis, „Marbella Beach Vibe Refresh“ ab ~Z. 3989, „Redesign 2026“ ab ~Z. 4642, darüber jetzt die Palette am Dateiende).
+**Etappe 3:** richtiger Footer (Über uns, Kontakt, Instagram, „Für Veranstalter“), hervorgehobene Platzierungen für zahlende Kunden.
+
+**Noch nicht entschieden – Schnellfilter nach Stimmung** (Live-Musik, DJ & Club, Latin, Beach & Sunset, Rooftop, Gratis):
+Frank findet die Idee gut, will aber **keine Events verlieren** (wer „Salsa“ einträgt, muss bei „Latin“ gefunden werden).
+Lösungsidee: Stimmungen als Obergruppen mit fester Zuordnung (Latin = Salsa, Bachata, Son, Merengue, Bolero, Cha Cha Cha, Reggaeton …);
+„Beach & Sunset“/„Rooftop“ brauchen eine Angabe pro Location → mit den Veranstalter-Konten.
+
+**Übersetzungen müssen besser werden (Frank):** Automatische Übersetzungen klingen nicht natürlich/nativ.
+Betrifft die Edge Function `smart-action` (OpenAI, Code NICHT im Repo) → Code ins Repo holen, Prompt auf natürliche, lokale Sprache
+(Spanien-Spanisch, „en directo“, lockerer Ton) umstellen, feste Begriffe als Glossar vorgeben, Beispiele vorher/nachher prüfen.
+
+**Beobachtung beim Test (11.11.2026):** Live sind nur 5 Events (alle wöchentlich). Mittwochs zeigt „Heute“ deshalb 0 Treffer.
+Ortsangaben enthalten teils „Spanien“ (aus den Daten, z. B. „Alhaurín de la Torre, Spanien“) – auch auf EN/ES.
 
 ## 0. ALS NÄCHSTES (Frank, 10.11.2026: „machen wir gleich morgen“): Sicherheits-Fixes aus dem Council
 
