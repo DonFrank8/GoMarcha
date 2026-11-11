@@ -161,8 +161,7 @@ body.is-standalone-app .hero-first-open__actions {
     radial-gradient(circle at 16% 14%, rgba(236, 72, 153, 0.18), rgba(236, 72, 153, 0) 35%),
     radial-gradient(circle at 82% 10%, rgba(124, 58, 237, 0.24), rgba(124, 58, 237, 0) 38%),
     radial-gradient(circle at 68% 78%, rgba(236, 72, 153, 0.16), rgba(236, 72, 153, 0) 38%),
-    linear-gradient(180deg, rgba(2, 6, 23, 0.72), rgba(15, 23, 42, 0.92)),
-    url("https://images.unsplash.com/photo-1470225620780-dba8ba36b745?auto=format&fit=crop&w=1600&q=70") center/cover;
+    linear-gradient(180deg, rgba(2, 6, 23, 0.72), rgba(15, 23, 42, 0.92)) ;
   filter: saturate(0.95) contrast(1.06);
   z-index: 0;
   animation: heroGradientDrift var(--hero-drift-duration) ease-in-out infinite alternate;
@@ -4044,9 +4043,7 @@ body::after {
   background:
     radial-gradient(circle at 14% 14%, rgba(245, 233, 218, 0.24), rgba(245, 233, 218, 0) 34%),
     radial-gradient(circle at 82% 16%, rgba(255, 122, 92, 0.26), rgba(255, 122, 92, 0) 40%),
-    linear-gradient(165deg, rgba(15, 23, 42, 0.36), rgba(15, 23, 42, 0.72)),
-    url("https://images.unsplash.com/photo-1506157786151-b8491531f063?auto=format&fit=crop&w=1800&q=70")
-      center / cover;
+    linear-gradient(165deg, rgba(15, 23, 42, 0.36), rgba(15, 23, 42, 0.72)) ;
   filter: saturate(1.02) contrast(1.04);
 }
 
@@ -4925,8 +4922,7 @@ body.body--detail-open { overflow: hidden; }
 /* ---- Titelbild: warme Bühnenlichter (vorläufig, bis eigenes Foto da ist) ---- */
 .hero::before {
   background:
-    linear-gradient(180deg, rgba(13, 10, 10, 0.25) 0%, rgba(13, 10, 10, 0.55) 55%, var(--m-bg) 100%),
-    url("https://images.unsplash.com/photo-1501281668745-f7f57925c3b4?auto=format&fit=crop&w=1600&q=70") center / cover;
+    linear-gradient(180deg, rgba(13, 10, 10, 0.25) 0%, rgba(13, 10, 10, 0.55) 55%, var(--m-bg) 100%) ;
   filter: none;
 }
 .hero::after { display: none; }
@@ -5569,3 +5565,15 @@ input, button, select, textarea { font-family: inherit; }
   cursor: pointer;
 }
 @media (min-width: 781px) { .flyer-viewer.is-zoomed .flyer-viewer__image { width: auto; max-width: none; height: 180vh; } }
+
+/* ---- Kopfbereich (Etappe 2): Abendverlauf in den Logo-Farben statt Stockfoto.
+   Ein echtes Foto von der Küste kann hier später als weitere Ebene dazukommen. ---- */
+.hero::before {
+  background:
+    radial-gradient(70% 120% at 88% -20%, rgba(255, 46, 136, 0.42), rgba(255, 46, 136, 0) 60%),
+    radial-gradient(60% 110% at 8% -30%, rgba(255, 193, 69, 0.34), rgba(255, 193, 69, 0) 60%),
+    radial-gradient(90% 80% at 50% 130%, rgba(139, 61, 255, 0.26), rgba(139, 61, 255, 0) 70%),
+    linear-gradient(180deg, #24122a 0%, #160c1f 55%, var(--m-bg) 100%);
+  filter: none;
+  animation: none;
+}
