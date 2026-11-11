@@ -5131,3 +5131,67 @@ body.body--detail-open { overflow: hidden; }
   .map-bottom-sheet .event-details__preview-meta:last-of-type { color: var(--m-accent); opacity: 1; font-weight: 700; }
   .map-bottom-sheet .event-details__preview-cta { min-height: 40px; padding: 0.45rem 0.9rem; font-size: 0.92rem; border-radius: 999px; }
 }
+
+/* =========================================================================
+   Marcha-Palette 2026/27 („Golden Hour wird Nacht“) – gilt für alles darüber.
+   EINE Aktionsfarbe (Orange). Pink/Lila/Gold nur für Marke und Highlights.
+   Farben bitte nur hier ändern.
+   ========================================================================= */
+:root {
+  --m-bg: #0b0712;
+  --m-surface: #17111f;
+  --m-surface-2: #211a2b;
+  --m-line: rgba(255, 244, 236, 0.1);
+  --m-text: #fff4ec;
+  --m-muted: #b3a6b8;
+  --m-accent: #ff6b35;
+  --m-accent-ink: #1e0b02;
+  --m-accent-soft: rgba(255, 107, 53, 0.16);
+  --m-gold: #ffc145;
+  --m-pink: #ff2e88;
+  --m-violet: #8b3dff;
+  --m-brand-gradient: linear-gradient(100deg, #ffc145 0%, #ff6b35 35%, #ff2e88 70%, #8b3dff 100%);
+
+  /* ältere Token-Namen auf dieselbe Palette legen */
+  --bg: var(--m-bg);
+  --bg-elevated: var(--m-surface);
+  --surface: var(--m-surface);
+  --surface-soft: var(--m-surface-2);
+  --surface-glass: rgba(23, 17, 31, 0.84);
+  --surface-border: var(--m-line);
+  --text: var(--m-text);
+  --text-muted: var(--m-muted);
+  --neon-purple: var(--m-violet);
+  --electric-blue: var(--m-pink);
+  --sunset: var(--m-accent);
+  --warning: var(--m-gold);
+  --glow-purple: 0 0 0 1px rgba(255, 107, 53, 0.4), 0 10px 24px rgba(255, 107, 53, 0.22);
+  --glow-blue: 0 0 0 1px rgba(255, 46, 136, 0.35), 0 10px 24px rgba(255, 46, 136, 0.2);
+  --shadow: 0 24px 56px rgba(0, 0, 0, 0.5);
+}
+body { background: var(--m-bg); color: var(--m-text); }
+
+/* Alle „ausgewählt“-Zustände gleich: Orange mit dunkler Schrift */
+.hero-time-chip.is-active,
+.quick-category-chip.is-active,
+.genre-chip.is-active,
+.map-sheet-chip.is-active,
+.view-toggle__button.is-active,
+.language-switch__button.is-active {
+  background: var(--m-accent);
+  border-color: var(--m-accent);
+  color: var(--m-accent-ink);
+  box-shadow: none;
+}
+
+/* Hauptknöpfe überall Orange */
+.button-secondary--primary,
+.hero-first-open__actions .button-secondary--primary,
+.event-detail-overlay .button-secondary--primary {
+  background: var(--m-accent);
+  border-color: var(--m-accent);
+  color: var(--m-accent-ink);
+  box-shadow: none;
+}
+.button-secondary--primary:hover { background: #ff7f50; border-color: #ff7f50; }
+.bottom-nav__item.is-active { color: var(--m-accent); }
