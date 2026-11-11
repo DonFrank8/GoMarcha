@@ -21,7 +21,12 @@ Frank-Feedback nach Live-Gang: Hinweis „Jeden Freitag“ geht auf der Karte un
 - Play Console: Store-Eintrag → App-Symbol (512 × 512 PNG) und Feature-Grafik tauschen; Screenshots (Canva „Marcha App Store Screens“) zeigen noch das alte Logo.
 - Neuen Build im Closed Test hochladen (zusammen mit dem nächsten ohnehin fälligen Build).
 
-**Etappe 2 (ca. 1 Woche):** neues Kartendesign (einheitlicher Rahmen statt Flyer-Pinnwand, Datum als Block),
+**Etappe 2 – gebaut 11.11.2026 auf Branch `redesign-etappe-2`, wartet auf Franks Freigabe (Vorschau-Artifact „Marcha Redesign Etappe 2“):**
+neue Schriften (Outfit/DM Sans), neue Event-Karte (Handy: Flyer frei, nur Herz + gelbes „Jeden Freitag“, Datum/Preis orange darunter; Computer: Kalender-Block),
+Computer: Liste volle Breite + Karte per Schalter, Detailseite (Info-Kacheln, feste Leiste Route/Merken/Teilen, Teilen-Menü), Flyer-Großansicht,
+Kopfbereich mit Abendverlauf statt Stockfoto, Karte: eine Markierung pro Serie (vorher 45, Tipp zeigte Termin im Jan. 2027), Cache v16.
+Noch offen aus Etappe 2: `style.css` komplett auf EIN Token-System umbauen (bisher nur die neu gebauten Teile bereinigt); rechtliche Seiten und Admin nutzen noch Poppins/Inter.
+Ursprünglicher Plan Etappe 2: neues Kartendesign (einheitlicher Rahmen statt Flyer-Pinnwand, Datum als Block),
 Desktop: Liste volle Breite, Karte nur per Schalter; Event-Detailseite mit Info-Leiste (Wann/Wo/Preis) und fester Aktionsleiste (Route/Merken/Teilen);
 neues Schriftpaar (z. B. Outfit/Unbounded + DM Sans statt Poppins/Inter); echtes Küsten-Foto statt Stock-Konzertfoto;
 `style.css` mit EINEM Token-System neu aufsetzen (heute 3 Designs übereinander: Basis, „Marbella Beach Vibe Refresh“ ab ~Z. 3989, „Redesign 2026“ ab ~Z. 4642, darüber jetzt die Palette am Dateiende).
