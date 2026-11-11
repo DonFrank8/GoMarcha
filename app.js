@@ -7593,13 +7593,43 @@ function setSavedOnly(nextValue) {
   dom.listSection?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
+// Wiederkehrende Events in der Liste nur einmal zeigen: pro Serie der nächste
+// passende Termin, an der Stelle, an der die Serie zuerst auftaucht.
+// Karte und Detailansicht bleiben unverändert (state.filteredEvents).
+function collapseRecurringForList(events) {
+  const earliestByParent = new Map();
+  events.forEach((event) => {
+    if (!event?.is_recurring_occurrence || !event.parent_event_id) return;
+    const key = String(event.parent_event_id);
+    const current = earliestByParent.get(key);
+    if (!current || String(event.event_date || "") < String(current.event_date || "")) {
+      earliestByParent.set(key, event);
+    }
+  });
+  if (!earliestByParent.size) return events;
+  const emitted = new Set();
+  const result = [];
+  events.forEach((event) => {
+    if (!event?.is_recurring_occurrence || !event.parent_event_id) {
+      result.push(event);
+      return;
+    }
+    const key = String(event.parent_event_id);
+    if (emitted.has(key)) return;
+    emitted.add(key);
+    result.push(earliestByParent.get(key));
+  });
+  return result;
+}
+
 function renderEventList() {
   placeSubmitTeaser(null);
   dom.eventList.innerHTML = "";
-  setResultCount(state.filteredEvents.length);
+  const listEvents = collapseRecurringForList(state.filteredEvents);
+  setResultCount(listEvents.length);
   renderSavedModeChrome();
 
-  if (!state.filteredEvents.length && state.savedOnly) {
+  if (!listEvents.length && state.savedOnly) {
     dom.eventList.innerHTML = `
       <div class="event-list__empty event-list__empty-state">
         <p>${t("saved_empty")}</p>
@@ -7611,7 +7641,7 @@ function renderEventList() {
     return;
   }
 
-  if (!state.filteredEvents.length) {
+  if (!listEvents.length) {
     dom.eventList.innerHTML = `
       <div class="event-list__empty event-list__empty-state">
         <p>${t("no_events_found")}</p>
@@ -7631,7 +7661,7 @@ function renderEventList() {
     return;
   }
 
-  state.filteredEvents.forEach((event, index) => {
+  listEvents.forEach((event, index) => {
     if (index === SUBMIT_TEASER_AFTER_CARDS) placeSubmitTeaser(dom.eventList);
     const card = createEventCard(event, index);
     card.classList.add("event-card--enter");
