@@ -5361,3 +5361,35 @@ input, button, select, textarea { font-family: inherit; }
   .event-card__place { font-size: 0.85rem; }
   .event-card__time { display: inline; color: var(--m-accent); font-weight: 700; margin-right: 0.45rem; }
 }
+
+/* =========================================================================
+   Computer (ab 781 px): Liste in voller Breite, Karte nur per Schalter.
+   Event-Details öffnen als Fenster über der Liste.
+   ========================================================================= */
+@media (min-width: 781px) {
+  .app-shell { grid-template-columns: minmax(0, 1fr); min-height: 0; }
+  .sidebar { position: static; max-height: none; overflow: visible; }
+  body[data-view-mode="list"] .map-column { display: none; }
+  body[data-view-mode="map"] .sidebar { display: none; }
+  body[data-view-mode="map"] .map-column { min-height: calc(100vh - 220px); }
+  body[data-view-mode="map"] .map-section,
+  body[data-view-mode="map"] #map { min-height: calc(100vh - 240px); }
+  .event-list {
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 1.6rem 1.1rem;
+    max-height: none;
+    overflow: visible;
+  }
+  .more-filters { max-width: 560px; }
+
+  .event-detail-overlay { background: rgba(5, 3, 9, 0.78); backdrop-filter: blur(6px); }
+  .event-detail-overlay > .event-details {
+    max-width: 680px;
+    margin: 2.2rem auto;
+    background: var(--m-bg) !important;
+    border: 1px solid var(--m-line) !important;
+    border-radius: 22px;
+    padding: 1.2rem 1.4rem 1.6rem !important;
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55) !important;
+  }
+}

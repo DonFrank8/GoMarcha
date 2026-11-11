@@ -7353,7 +7353,8 @@ function setViewMode(nextMode, { scroll = false } = {}) {
   if (dom.bottomNavMap) dom.bottomNavMap.classList.toggle("is-active", resolvedMode === "map");
   document.getElementById("bottomNavSaved")?.classList.toggle("is-active", resolvedMode === "list" && state.savedOnly);
   if (mapSheetIsAvailable()) {
-    const nextSheetState = resolvedMode === "map" && mapSheetIsMobileViewport() ? "peek" : "half";
+    // Karte zuerst frei zeigen (Handy und Computer), das Event-Fenster ist eingeklappt.
+    const nextSheetState = "peek";
     setMapBottomSheetState(resolvedMode === "map" ? nextSheetState : "peek");
   }
 
@@ -7419,7 +7420,8 @@ let eventDetailOverlayHome = null;
 
 function openEventFromCard(event) {
   const overlay = document.getElementById("eventDetailOverlay");
-  if (!overlay || !dom.eventDetails || !mapSheetIsMobileViewport()) {
+  // Details immer als eigenes Fenster (Handy: Vollbild, Computer: Fenster über Liste/Karte).
+  if (!overlay || !dom.eventDetails) {
     selectEvent(event, "list");
     return;
   }
@@ -7471,13 +7473,17 @@ function bindEventDetailOverlay() {
     (event) => {
       const target = event.target instanceof Element ? event.target : null;
       if (!target?.closest("button[data-action='details-preview']")) return;
-      if (!mapSheetIsMobileViewport() || !state.activeEvent) return;
+      if (!state.activeEvent) return;
       event.preventDefault();
       event.stopPropagation();
       openEventFromCard(state.activeEvent);
     },
     true
   );
+  // Computer: Klick auf den abgedunkelten Rand schließt das Fenster.
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay && !mapSheetIsMobileViewport()) closeEventDetailOverlay();
+  });
   overlay.addEventListener(
     "click",
     (event) => {
