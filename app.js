@@ -335,7 +335,7 @@ const NAVIGATION_URL_BUILDERS = {
 
 const I18N = {
   de: {
-    hero_title: "Erlebe die besten Events in deiner Nähe",
+    hero_title: "Livemusik & Partys an der Costa del Sol",
     hero_subtitle: "Live Musik, DJs und besondere Locations – alles an einem Ort.",
     hero_beta_label: "Early Access",
     hero_value_proposition: "Finde heute Live-Musik, DJs und besondere Spots in deiner Nähe.",
@@ -635,7 +635,7 @@ const I18N = {
     create_submit: "Speichern"
   },
   en: {
-    hero_title: "Discover the best events near you",
+    hero_title: "Live music & parties on the Costa del Sol",
     hero_subtitle: "Live music, DJs and unique venues – all in one place.",
     hero_beta_label: "Early Access",
     hero_value_proposition: "Find live music, DJs and unique spots happening near you today.",
@@ -935,7 +935,7 @@ const I18N = {
     create_submit: "Save"
   },
   es: {
-    hero_title: "Encuentra la mejor marcha cerca de ti",
+    hero_title: "Música en directo y fiesta en la Costa del Sol",
     hero_subtitle: "Música en vivo, DJs y lugares únicos – todo en un solo lugar.",
     hero_beta_label: "Acceso anticipado",
     hero_value_proposition: "Encuentra hoy música en vivo, DJs y lugares únicos cerca de ti.",
