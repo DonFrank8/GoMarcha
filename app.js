@@ -7506,12 +7506,105 @@ function bindEventDetailOverlay() {
     true
   );
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") closeEventDetailOverlay();
+    if (event.key === "Escape" && !isFlyerViewerOpen()) closeEventDetailOverlay();
   });
-  window.addEventListener("popstate", () => closeEventDetailOverlay({ fromHistory: true }));
+  window.addEventListener("popstate", () => {
+    // Zurück-Taste: zuerst die Flyer-Großansicht schließen, sonst das Detail-Fenster.
+    if (ignoreNextFlyerPopstate) {
+      ignoreNextFlyerPopstate = false;
+      return;
+    }
+    if (isFlyerViewerOpen()) {
+      closeFlyerViewer({ fromHistory: true });
+      return;
+    }
+    closeEventDetailOverlay({ fromHistory: true });
+  });
   window.matchMedia("(max-width: 780px)").addEventListener?.("change", (query) => {
     if (!query.matches) closeEventDetailOverlay();
   });
+}
+
+// ---- Flyer-Großansicht: Vollbild auf Schwarz, Antippen = vergrößern, ✕ / Esc / Wischen / Zurück = schließen ----
+let flyerViewer = null;
+let ignoreNextFlyerPopstate = false;
+
+function ensureFlyerViewer() {
+  if (flyerViewer) return flyerViewer;
+  const node = document.createElement("div");
+  node.className = "flyer-viewer";
+  node.hidden = true;
+  node.setAttribute("role", "dialog");
+  node.setAttribute("aria-modal", "true");
+  node.innerHTML = `
+    <button type="button" class="flyer-viewer__close" data-flyer-close aria-label="${t("details_close_short")}">✕</button>
+    <div class="flyer-viewer__stage"><img class="flyer-viewer__image" alt=""></div>
+  `;
+  document.body.append(node);
+  const stage = node.querySelector(".flyer-viewer__stage");
+  const image = node.querySelector(".flyer-viewer__image");
+  node.addEventListener("click", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (target?.closest("[data-flyer-close]")) {
+      closeFlyerViewer();
+      return;
+    }
+    if (target === image) {
+      node.classList.toggle("is-zoomed");
+      return;
+    }
+    if (!node.classList.contains("is-zoomed")) closeFlyerViewer();
+  });
+  let touchStartY = null;
+  stage.addEventListener("touchstart", (event) => {
+    touchStartY = event.touches.length === 1 && !node.classList.contains("is-zoomed") ? event.touches[0].clientY : null;
+  }, { passive: true });
+  stage.addEventListener("touchend", (event) => {
+    if (touchStartY === null) return;
+    const deltaY = (event.changedTouches[0]?.clientY ?? touchStartY) - touchStartY;
+    touchStartY = null;
+    if (deltaY > 90) closeFlyerViewer();
+  });
+  node.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.stopPropagation();
+      closeFlyerViewer();
+    }
+  });
+  flyerViewer = node;
+  return node;
+}
+
+function isFlyerViewerOpen() {
+  return Boolean(flyerViewer && !flyerViewer.hidden);
+}
+
+function openFlyerViewer(src, alt = "") {
+  if (!src) return;
+  const node = ensureFlyerViewer();
+  const image = node.querySelector(".flyer-viewer__image");
+  image.src = src;
+  image.alt = alt;
+  node.classList.remove("is-zoomed");
+  node.querySelector("[data-flyer-close]")?.setAttribute("aria-label", t("details_close_short"));
+  node.hidden = false;
+  try {
+    window.history.pushState({ marchaFlyer: true }, "", window.location.href);
+  } catch (error) {
+    // Ohne Verlauf reicht ✕ zum Schließen.
+  }
+  node.querySelector("[data-flyer-close]")?.focus({ preventScroll: true });
+}
+
+function closeFlyerViewer(options = { fromHistory: false }) {
+  if (!isFlyerViewerOpen()) return;
+  flyerViewer.hidden = true;
+  flyerViewer.classList.remove("is-zoomed");
+  if (!options.fromHistory && window.history.state?.marchaFlyer) {
+    // Eigenen Verlaufseintrag entfernen, ohne dabei das Detail-Fenster zu schließen.
+    ignoreNextFlyerPopstate = true;
+    window.history.back();
+  }
 }
 
 function createEventCard(event, index = 0) {
@@ -8948,6 +9041,12 @@ function bindEvents() {
       if (detailsCollapseButton) {
         setMapBottomSheetState("peek");
         window.setTimeout(() => map?.invalidateSize(), 100);
+        return;
+      }
+      const flyerHit = target.closest(".event-details__hero [data-gallery-item], .event-details__hero .event-details__image");
+      const flyerImage = flyerHit?.matches("img") ? flyerHit : flyerHit?.querySelector("img");
+      if (flyerImage) {
+        openFlyerViewer(flyerImage.currentSrc || flyerImage.src, flyerImage.alt || "");
         return;
       }
       const favoriteDetailButton = target.closest("button[data-action='details-favorite']");
