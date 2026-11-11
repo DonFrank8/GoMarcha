@@ -5195,3 +5195,31 @@ body { background: var(--m-bg); color: var(--m-text); }
 }
 .button-secondary--primary:hover { background: #ff7f50; border-color: #ff7f50; }
 .bottom-nav__item.is-active { color: var(--m-accent); }
+
+/* ---- Kompakter Kopfbereich: Events schon auf dem ersten Bildschirm ---- */
+.hero h1 {
+  font-size: clamp(1.45rem, 2.4vw + 0.6rem, 2.35rem);
+  margin: 0.35rem 0 0.1rem;
+}
+/* Suchfeld: kein zusätzlicher Glas-Rahmen um das Eingabefeld */
+.hero-search {
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  backdrop-filter: none;
+  margin-top: 0.55rem;
+}
+.hero-time-rail { margin-top: 0.6rem; }
+.quick-controls { margin-top: 0.35rem; }
+@media (min-width: 900px) {
+  .hero { padding-bottom: 0.6rem; }
+  /* Musikrichtungen und Liste/Karte in einer Zeile */
+  .quick-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  .quick-controls .quick-category-rail { flex: 1 1 auto; min-width: 0; }
+  .quick-controls .view-toggle { flex: none; }
+}
