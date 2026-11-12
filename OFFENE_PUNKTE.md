@@ -59,7 +59,7 @@ Test-Event mit Handy-Foto + „Eintritt frei“ eintragen und in der Moderation 
 - **E-Mail/Name der Einreicher bei FREIGEGEBENEN Events** – **ERLEDIGT 12.11.2026:** Branch `security-einreicher-daten` auf `main` (Website + Share-Worker mit fester Spaltenliste, Cache v18), Worker `gomarcha-event-share` von Frank im Cloudflare-Dashboard aktualisiert (Zeile `select` ersetzt, kein wrangler-Token vorhanden), SQL #18 ausgeführt. Test als Besucher: contact_email/submitted_by/verification_notes → „permission denied“, 33 freigegebene Events lesbar, Website zeigt 5 Events, Share-Links (63, 91, 56) mit Titel + Bild.
   Hinweis: Worker-Code im Dashboard und `workers/event-share/worker.js` sind inhaltlich gleich, aber nicht byte-gleich (Dashboard-Version ohne eigene Konstante). Beim nächsten `wrangler deploy` wird die Repo-Version übernommen – dafür braucht es einen Cloudflare-API-Token (Vorlage „Edit Cloudflare Workers“, Zone gomarcha.com).
   Rest-Lücke: angemeldete Nutzer (`authenticated`) sehen noch alle Spalten. Heute gibt es nur Franks Admin-Konto (geprüft 12.11.) → mit den Veranstalter-Konten schließen (Admin liest Einreicher-Daten dann über eine Admin-Funktion).
-- Security Advisor: `rls_auto_enable()` direkter Aufruf gesperrt – **SQL #19 ausgeführt 12.11.2026, getestet** („permission denied for function“). `marcha_auth_is_admin()` bleibt aufrufbar (nötig für RLS, harmlos). `pg_net` in public: lassen. **Frank:** „Leaked Password Protection“ in Authentication einschalten (falls im Gratis-Tarif nicht möglich: lassen).
+- Security Advisor: `rls_auto_enable()` direkter Aufruf gesperrt – **SQL #19 ausgeführt 12.11.2026, getestet** („permission denied for function“). `marcha_auth_is_admin()` bleibt aufrufbar (nötig für RLS, harmlos). `pg_net` in public: lassen. „Leaked Password Protection“: gibt es nur im Pro-Tarif (Supabase → Authentication → Attack Protection); Projekt läuft im Gratis-Tarif → bleibt aus (Frank, 12.11.2026).
 - Zwei Testbilder `pending/2026/11/11/sicherheitstest*.jpg` können in Storage gelöscht werden (harmlos).
 
 ### Ursprüngliche Council-Liste (10.11.2026)
@@ -101,6 +101,7 @@ Erst **Plan vorlegen**, dann umsetzen. Ergebnis eines Councils (4 Prüfer) vom 1
 - Später automatisieren (nach ein paar Wochen Handbetrieb): E-Mail-Domain passt zur Website, Google-Maps-Eintrag, SMS-Bestätigung. Reine E-Mail-Bestätigung reicht nicht gegen Fakes.
 - WhatsApp-Einreichung: **vorerst nicht** (Frank, 10.11.2026).
 - Plan vor dem Coden vorlegen (SQL: Tabelle `organizers`, Spalte `events.organizer_id`, Trigger, RLS; Frontend; Admin).
+- **Plan vorgelegt 12.11.2026** (Etappen A Datenbank, B Seite `veranstalter.html`, C Moderation fürs Handy + Mail bei neuer Anmeldung, D `smart-action` absichern). Frank: eigene Seite `veranstalter.html` = ja; Etappe A starten, **nachdem die übrigen offenen Punkte erledigt sind**. Noch zu klären: Freigabe neuer Veranstalter direkt aus der Mail oder über die Moderationsseite.
 
 ## 2. Supervisor: „Admins verwalten“
 
