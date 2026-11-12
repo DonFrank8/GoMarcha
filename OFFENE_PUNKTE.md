@@ -101,6 +101,10 @@ Erst **Plan vorlegen**, dann umsetzen. Ergebnis eines Councils (4 Prüfer) vom 1
 - Später automatisieren (nach ein paar Wochen Handbetrieb): E-Mail-Domain passt zur Website, Google-Maps-Eintrag, SMS-Bestätigung. Reine E-Mail-Bestätigung reicht nicht gegen Fakes.
 - WhatsApp-Einreichung: **vorerst nicht** (Frank, 10.11.2026).
 - Plan vor dem Coden vorlegen (SQL: Tabelle `organizers`, Spalte `events.organizer_id`, Trigger, RLS; Frontend; Admin).
+- **Etappe A ERLEDIGT 12.11.2026:** `supabase-veranstalter-konten.sql` (#20) von Frank ausgeführt, alle 5 Prüfungen ok.
+  Von Claude getestet: Besucher sehen `organizers` nicht und können nichts ändern, 33 freigegebene Events lesbar, Website zeigt 5 Events, Share-Links ok.
+  Test-Event ohne Konto (id 102): Status pending, kein Veranstalter, featured/promoted aus, recurring_social_enabled bleibt an → alter Weg funktioniert unverändert.
+  **Vor Etappe B (Pflicht):** Lücke „angemeldete Nutzer sehen contact_email/submitted_by/verification_notes“ schließen – admin.js liest Einreicher-Daten dann über eine Admin-Funktion, danach Spaltenrechte für `authenticated` einschränken (eigene SQL-Datei).
 - **Plan vorgelegt 12.11.2026** (Etappen A Datenbank, B Seite `veranstalter.html`, C Moderation fürs Handy + Mail bei neuer Anmeldung, D `smart-action` absichern). Frank: eigene Seite `veranstalter.html` = ja; Etappe A starten, **nachdem die übrigen offenen Punkte erledigt sind**. Freigabe neuer Veranstalter: Link in der Mail öffnet die Moderationsseite (Login nötig), keine Ein-Tipp-Freigabe direkt aus der Mail (Frank: B).
 
 ## 2. Supervisor: „Admins verwalten“
@@ -137,6 +141,8 @@ Erst **Plan vorlegen**, dann umsetzen. Ergebnis eines Councils (4 Prüfer) vom 1
 - Danach: Supabase-Standard-Mails gehen nur begrenzt raus (meist nur an Team-Mitglieder). Für Veranstalter-Mails Zoho-SMTP in Supabase einrichten (Authentication → Emails → SMTP Settings) mit dem Absender-Konto oben. Zoho-Daten liegen schon als Secrets (`SMTP_*`) für `notify-new-event` – prüfen, welches Konto dort hinterlegt ist.
 
 ## 6. Kleinere Punkte
+
+- **NEU 12.11.2026 – Google-Adresssuche im Einreichformular funktioniert nicht:** `places.googleapis.com/v1/places:autocomplete` antwortet 403 „The caller does not have permission“ (mit Schlüssel aus `index.html`, Referer gomarcha.com). Folge: neue Events ohne lat/lng → erscheinen nicht auf der Karte (Einreichen selbst klappt). Mit Frank in der Google Cloud Console prüfen: „Places API (New)“ aktiviert? Schlüssel-Einschränkungen (APIs + Websites)? Abrechnung aktiv?
 
 - **Titelbild**: Frank liefert ein eigenes Foto. Austausch in `style.css`, Abschnitt „Titelbild“ (aktuell Unsplash-Foto mit warmen Bühnenlichtern).
 - **Schnellfilter**: Frank entscheidet später, ob weitere dazukommen (z. B. Gratis, Strand/Beach, Heute Abend).
