@@ -36,6 +36,8 @@ const EVENT_ANALYTICS_TABLE = "event_analytics";
 // Neue Spalte in der Tabelle events? Hier UND in der SQL-Datei ergänzen.
 const EVENT_PUBLIC_COLUMNS =
   "id,name,location_name,city,country,event_date,event_time,genre,price_text,description,image_url,lat,lng,is_published,created_at,status,address,postal_code,geocoding_query,featured,promoted,is_recurring,recurrence_type,recurrence_interval,recurrence_days,recurrence_end_date,recurrence_until,recurrence_rule,recurrence_start_date,recurrence_weekday,recurrence_day_of_month,artist_name,title_de,title_en,title_es,description_de,description_en,description_es,artist_bio_de,artist_bio_en,artist_bio_es,image_urls,archived_at,original_event_id,is_featured,recurring_social_enabled,recurring_social_opt_out,end_time";
+// Admin: öffentliche Spalten + organizer_id; Einreicher-Daten kommen über marcha_admin_event_private.
+const EVENT_ADMIN_COLUMNS = `${EVENT_PUBLIC_COLUMNS},organizer_id`;
 const ANALYTICS_SESSION_VIEW_PREFIX = "marcha_analytics_view_";
 const TRANSLATION_TARGET_LANGUAGE_BY_CODE = Object.freeze({
   de: "German",
@@ -8830,7 +8832,7 @@ async function updateModerationStatus(eventId, nextStatus, verificationNotes) {
     .from(state.debug.tableName || "events")
     .update(payload)
     .eq("id", eventId)
-    .select("*")
+    .select("id,status")
     .single();
 
   console.log("[Marcha Debug] Moderation update data:", data);
@@ -9467,6 +9469,27 @@ function bindEvents() {
   bindAdminSocialAction(dom.socialQueueSkipButton, markSocialQueueSkippedForEvent);
 }
 
+// Einreicher-Daten (nur für Admins) über die geschützte Datenbank-Funktion ergänzen.
+async function mergeAdminEventPrivateFields(client, rows) {
+  const list = Array.isArray(rows) ? rows.filter(Boolean) : [];
+  const ids = [...new Set(list.map((row) => Number(row.id)).filter((id) => Number.isFinite(id)))];
+  if (!ids.length) return rows;
+  const { data, error } = await client.rpc("marcha_admin_event_private", { p_ids: ids });
+  if (error) {
+    console.warn("[Marcha Debug] Admin private fields not loaded:", error.message);
+    return rows;
+  }
+  const byId = new Map((data || []).map((item) => [Number(item.id), item]));
+  for (const row of list) {
+    const extra = byId.get(Number(row.id));
+    if (!extra) continue;
+    row.contact_email = extra.contact_email ?? null;
+    row.submitted_by = extra.submitted_by ?? null;
+    row.verification_notes = extra.verification_notes ?? null;
+  }
+  return rows;
+}
+
 async function fetchEventsFromSupabase() {
   if (!SUPABASE_URL || !SUPABASE_URL.includes("supabase.co")) {
     throw new Error("Supabase-URL ist ungültig.");
@@ -9477,8 +9500,10 @@ async function fetchEventsFromSupabase() {
 
   const client = supabaseClient();
   const tableName = state.debug.tableName || "events";
-  const columns = isSessionAdmin(state.adminSession) ? "*" : EVENT_PUBLIC_COLUMNS;
+  const isAdmin = isSessionAdmin(state.adminSession);
+  const columns = isAdmin ? EVENT_ADMIN_COLUMNS : EVENT_PUBLIC_COLUMNS;
   const { data, error } = await client.from(tableName).select(columns).order("event_date", { ascending: true });
+  if (isAdmin && !error) await mergeAdminEventPrivateFields(client, data);
 
   console.log("[Marcha Debug] Supabase table:", tableName);
   console.log("[Marcha Debug] Supabase data:", data);

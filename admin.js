@@ -2,7 +2,14 @@ const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
 const ADMIN_REQUIRED_ROLE = "admin";
 const ADMIN_ALLOWED_EMAILS = [];
-const ADMIN_DASHBOARD_BUILD = "2026.11.10-sicherheit-passwort";
+const ADMIN_DASHBOARD_BUILD = "2026.11.12-einreicher-daten";
+// Spalten der Tabelle events, die der Admin-Bereich direkt liest. Einreicher-Daten
+// (contact_email, submitted_by, verification_notes) kommen über die Admin-Funktion
+// marcha_admin_event_private (supabase-security-hardening-6.sql) dazu.
+// Neue Spalte in events? Hier, in app.js (EVENT_PUBLIC_COLUMNS) und in den SQL-Dateien ergänzen.
+const ADMIN_EVENT_COLUMNS =
+  "id,name,location_name,city,country,event_date,event_time,genre,price_text,description,image_url,lat,lng,is_published,created_at,status,address,postal_code,geocoding_query,featured,promoted,is_recurring,recurrence_type,recurrence_interval,recurrence_days,recurrence_end_date,recurrence_until,recurrence_rule,recurrence_start_date,recurrence_weekday,recurrence_day_of_month,artist_name,title_de,title_en,title_es,description_de,description_en,description_es,artist_bio_de,artist_bio_en,artist_bio_es,image_urls,archived_at,original_event_id,is_featured,recurring_social_enabled,recurring_social_opt_out,end_time,organizer_id";
+const ADMIN_EVENT_PRIVATE_FIELDS = ["contact_email", "submitted_by", "verification_notes"];
 if (typeof window !== "undefined") {
   window.PARTYRADAR_ADMIN_BUILD = ADMIN_DASHBOARD_BUILD;
   console.log("[admin-build]", ADMIN_DASHBOARD_BUILD);
@@ -570,6 +577,29 @@ const dom = {
 
 function supabaseClient() {
   return window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+}
+
+// Holt E-Mail/Name/Notizen der Einreicher über die Admin-Funktion und ergänzt sie in den Zeilen.
+// Schlägt die Abfrage fehl, bleiben die Zeilen unverändert (Liste lädt trotzdem).
+async function mergeAdminEventPrivateFields(client, rows) {
+  const list = Array.isArray(rows) ? rows.filter(Boolean) : [];
+  const ids = [...new Set(list.map((row) => Number(row.id)).filter((id) => Number.isFinite(id)))];
+  if (!ids.length) return rows;
+  const byId = new Map();
+  for (let i = 0; i < ids.length; i += 500) {
+    const { data, error } = await client.rpc("marcha_admin_event_private", { p_ids: ids.slice(i, i + 500) });
+    if (error) {
+      console.warn("admin private event fields not loaded", { message: error.message, code: error.code });
+      return rows;
+    }
+    for (const item of data || []) byId.set(Number(item.id), item);
+  }
+  for (const row of list) {
+    const extra = byId.get(Number(row.id));
+    if (!extra) continue;
+    for (const field of ADMIN_EVENT_PRIVATE_FIELDS) row[field] = extra[field] ?? null;
+  }
+  return rows;
 }
 
 function isEmailAllowed(email) {
@@ -4835,10 +4865,11 @@ async function findRecurringChildEventByDate(masterId, ymd) {
     const client = supabaseClient();
     const { data, error } = await client
       .from("events")
-      .select("*")
+      .select(ADMIN_EVENT_COLUMNS)
       .eq("original_event_id", idKey)
       .eq("event_date", ymd)
       .maybeSingle();
+    if (data) await mergeAdminEventPrivateFields(client, [data]);
     if (error) {
       logSupabaseOperationFailure("findRecurringChildEventByDate", error, {
         query: "events.select(*).eq(original_event_id).eq(event_date)",
@@ -4874,8 +4905,9 @@ async function createRecurringChildEventForOccurrence(master, occurrenceStart) {
     const client = supabaseClient();
     let body = buildRecurringChildEventInsertPayload(master, occurrenceStart);
     for (let attempt = 0; attempt < 4; attempt += 1) {
-      const { data, error } = await client.from("events").insert(body).select("*").maybeSingle();
+      const { data, error } = await client.from("events").insert(body).select(ADMIN_EVENT_COLUMNS).maybeSingle();
       if (!error && data) {
+        await mergeAdminEventPrivateFields(client, [data]);
         console.log("recurring child event created", {
           master_id: master.id,
           child_id: data.id,
@@ -7537,7 +7569,7 @@ async function ensureSocialReviewQueueForEvent(event) {
   // All approved events that fall within this ISO week
   const { data: weekEventsRaw, error: weekError } = await client
     .from("events")
-    .select("*")
+    .select(ADMIN_EVENT_COLUMNS)
     .eq("status", "approved")
     .gte("event_date", mondayStr)
     .lt("event_date", nextMondayStr);
@@ -7554,7 +7586,7 @@ async function ensureSocialReviewQueueForEvent(event) {
   // ── Recurring master events that have an occurrence this week → collection posts only ──
   const { data: recurringRaw, error: recurringError } = await client
     .from("events")
-    .select("*")
+    .select(ADMIN_EVENT_COLUMNS)
     .eq("status", "approved")
     .eq("is_recurring", true);
   if (recurringError) throw new Error(recurringError.message || "Wiederkehrende Events konnten nicht geladen werden.");
@@ -9175,7 +9207,7 @@ async function loadEvents() {
   while (true) {
     const query = client
       .from("events")
-      .select("*", offset === 0 ? { count: "exact" } : undefined)
+      .select(ADMIN_EVENT_COLUMNS, offset === 0 ? { count: "exact" } : undefined)
       .order("event_date", { ascending: true, nullsFirst: true })
       .range(offset, offset + pageSize - 1);
 
@@ -9201,6 +9233,7 @@ async function loadEvents() {
   }
 
   if (lastError && !rows.length) throw lastError;
+  await mergeAdminEventPrivateFields(client, rows);
 
   console.log("admin load events result", {
     count: rows.length,
