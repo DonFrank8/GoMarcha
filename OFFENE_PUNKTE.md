@@ -115,11 +115,10 @@ Erst **Plan vorlegen**, dann umsetzen. Ergebnis eines Councils (4 Prüfer) vom 1
 - Ist **ohne Login aufrufbar** → Fremde könnten OpenAI-Kosten verursachen. Ein Monatsbudget bei OpenAI ist gesetzt (Frank, 10.11.2026).
 - Mit den Veranstalter-Konten: nur noch angemeldete Veranstalter/Admins, Längengrenze pro Text.
 
-## 4. `social-queue-runner` neu deployen
+## 4. `social-queue-runner` neu deployen – ERLEDIGT 12.11.2026
 
-- Code-Fix (Admin-Rolle nur aus `app_metadata`) ist im Repo, auf dem Server läuft noch die alte Version.
-- Bis zum Deploy schützt das Secret `MARCHA_ADMIN_ALLOWED_EMAILS` (gesetzt, geprüft).
-- Deploy nur mit Franks Freigabe.
+- Frank hat die Repo-Version im Supabase-Dashboard eingespielt (Version 28). Von Claude geprüft: Code identisch mit dem Repo, Aufruf ohne Secret → 401.
+- Für künftige Deploys ohne Dashboard: Supabase-Zugangs-Token (Account → Access Tokens) bzw. Cloudflare-API-Token als Network Secret in der Claude-Umgebung hinterlegen (Formular in der App hat am 12.11. nicht funktioniert).
 
 ## 5. Zoho-E-Mail-Konten für Marcha + Mailserver für Supabase-Auth
 
