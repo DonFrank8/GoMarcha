@@ -104,7 +104,13 @@ Erst **Plan vorlegen**, dann umsetzen. Ergebnis eines Councils (4 Prüfer) vom 1
 - **Etappe A ERLEDIGT 12.11.2026:** `supabase-veranstalter-konten.sql` (#20) von Frank ausgeführt, alle 5 Prüfungen ok.
   Von Claude getestet: Besucher sehen `organizers` nicht und können nichts ändern, 33 freigegebene Events lesbar, Website zeigt 5 Events, Share-Links ok.
   Test-Event ohne Konto (id 102): Status pending, kein Veranstalter, featured/promoted aus, recurring_social_enabled bleibt an → alter Weg funktioniert unverändert.
-  **Vor Etappe B (Pflicht):** Lücke „angemeldete Nutzer sehen contact_email/submitted_by/verification_notes“ schließen – admin.js liest Einreicher-Daten dann über eine Admin-Funktion, danach Spaltenrechte für `authenticated` einschränken (eigene SQL-Datei).
+  **Vor Etappe B (Pflicht):** Lücke „angemeldete Nutzer sehen contact_email/submitted_by/verification_notes“ schließen.
+  **GEBAUT 12.11.2026 auf Branch `einreicher-daten-admin` (noch NICHT live):** admin.js + app.js lesen feste Spaltenliste, Einreicher-Daten über Admin-Funktion `marcha_admin_event_private`; Cache v19, Admin-Build `2026.11.12-einreicher-daten`.
+  **Nächste Session, in dieser Reihenfolge:**
+  1. Frank führt `supabase-security-hardening-6.sql` aus (nur neue Admin-Funktion, harmlos).
+  2. Frank testet den Admin-Bereich auf `https://einreicher-daten-admin.gomarcha-test.pages.dev/admin.html`: Liste lädt, bei einem Event stehen Einreicher-Name/E-Mail, Notiz speichern, Social-Wochenplanung öffnen. Ebenso Moderation auf der Startseite der Testseite (als Admin angemeldet).
+  3. Branch nach `main` (Freigabe Frank) → live prüfen.
+  4. Frank führt `supabase-security-hardening-7.sql` aus → Claude prüft mit einem Test-Konto (angemeldet, kein Admin), dass die drei Spalten gesperrt sind und der Admin-Bereich weiter alles zeigt.
 - **Plan vorgelegt 12.11.2026** (Etappen A Datenbank, B Seite `veranstalter.html`, C Moderation fürs Handy + Mail bei neuer Anmeldung, D `smart-action` absichern). Frank: eigene Seite `veranstalter.html` = ja; Etappe A starten, **nachdem die übrigen offenen Punkte erledigt sind**. Freigabe neuer Veranstalter: Link in der Mail öffnet die Moderationsseite (Login nötig), keine Ein-Tipp-Freigabe direkt aus der Mail (Frank: B).
 
 ## 2. Supervisor: „Admins verwalten“
