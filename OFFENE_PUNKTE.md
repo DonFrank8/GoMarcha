@@ -105,12 +105,8 @@ Erst **Plan vorlegen**, dann umsetzen. Ergebnis eines Councils (4 Prüfer) vom 1
   Von Claude getestet: Besucher sehen `organizers` nicht und können nichts ändern, 33 freigegebene Events lesbar, Website zeigt 5 Events, Share-Links ok.
   Test-Event ohne Konto (id 102): Status pending, kein Veranstalter, featured/promoted aus, recurring_social_enabled bleibt an → alter Weg funktioniert unverändert.
   **Vor Etappe B (Pflicht):** Lücke „angemeldete Nutzer sehen contact_email/submitted_by/verification_notes“ schließen.
-  **GEBAUT 12.11.2026 auf Branch `einreicher-daten-admin` (noch NICHT live):** admin.js + app.js lesen feste Spaltenliste, Einreicher-Daten über Admin-Funktion `marcha_admin_event_private`; Cache v19, Admin-Build `2026.11.12-einreicher-daten`.
-  **Nächste Session, in dieser Reihenfolge:**
-  1. Frank führt `supabase-security-hardening-6.sql` aus (nur neue Admin-Funktion, harmlos).
-  2. Frank testet den Admin-Bereich auf `https://einreicher-daten-admin.gomarcha-test.pages.dev/admin.html`: Liste lädt, bei einem Event stehen Einreicher-Name/E-Mail, Notiz speichern, Social-Wochenplanung öffnen. Ebenso Moderation auf der Startseite der Testseite (als Admin angemeldet).
-  3. Branch nach `main` (Freigabe Frank) → live prüfen.
-  4. Frank führt `supabase-security-hardening-7.sql` aus → Claude prüft mit einem Test-Konto (angemeldet, kein Admin), dass die drei Spalten gesperrt sind und der Admin-Bereich weiter alles zeigt.
+  **ERLEDIGT 12.11.2026:** Code live (Cache v19, Admin-Build `2026.11.12-einreicher-daten`; admin.js/app.js lesen feste Spaltenliste, Einreicher-Daten über `marcha_admin_event_private`), SQL #21 + #22 ausgeführt. Frank hat den Admin-Bereich auf der Testseite geprüft (Liste, Notiz speichern/löschen, Social Queue). Claude-Test: normales Konto liest 33 freigegebene Events, aber keine Einreicher-Spalten; Admin liest 35 Events + Einreicher-Daten über die Funktion, Speichern klappt.
+  Hinweis für künftigen Code: Spalten `contact_email`, `submitted_by`, `verification_notes` nie mehr per `select("*")` oder `SET x = x` lesen – nur über die Admin-Funktion.
 - **Plan vorgelegt 12.11.2026** (Etappen A Datenbank, B Seite `veranstalter.html`, C Moderation fürs Handy + Mail bei neuer Anmeldung, D `smart-action` absichern). Frank: eigene Seite `veranstalter.html` = ja; Etappe A starten, **nachdem die übrigen offenen Punkte erledigt sind**. Freigabe neuer Veranstalter: Link in der Mail öffnet die Moderationsseite (Login nötig), keine Ein-Tipp-Freigabe direkt aus der Mail (Frank: B).
 
 ## 2. Supervisor: „Admins verwalten“
