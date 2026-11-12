@@ -27,6 +27,7 @@
 | 16 | `supabase-security-hardening-2.sql` | **Sicherheits-Fix (Security Advisor 11.11.2026)**: Dateiliste im Bucket `event-images` nur noch für Admins (öffentliche Bild-Links bleiben), Trigger-Funktion aus #15 nicht direkt aufrufbar | HOCH | Ja | Abhängig von #15 |
 | 17 | `supabase-security-hardening-3.sql` | **DRINGENDER Sicherheits-Fix**: entfernt drei nicht im Repo angelegte Allow-All-Regeln auf `events` („Anyone can update events“, „Public can read events“, „Anyone can insert events“) | **KRITISCH** | Ja (DROP IF EXISTS) | Abhängig von #1, #15 |
 | 18 | `supabase-security-hardening-4.sql` | **Sicherheits-Fix 12.11.2026**: Besucher (anon) dürfen `contact_email`, `submitted_by`, `verification_notes` nicht mehr lesen (Spaltenrechte); anon ohne TRUNCATE/TRIGGER/REFERENCES. **Erst nach** Live-Gang von Website (Cache v18) und Worker-Deploy ausführen | HOCH | Ja | Abhängig von #17 |
+| 19 | `supabase-security-hardening-5.sql` | Security Advisor: direkter API-Aufruf von `rls_auto_enable()` für anon/authenticated gesperrt (Automatik bleibt aktiv) | NIEDRIG | Ja | keine |
 
 ---
 

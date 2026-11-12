@@ -1,6 +1,6 @@
 # Offene Punkte — Marcha
 
-Merkliste für die nächsten Sessions. Stand: 11.11.2026 (Redesign Etappe 1).
+Merkliste für die nächsten Sessions. Stand: 12.11.2026.
 Erledigtes hier streichen bzw. nach „Erledigt“ verschieben.
 
 ## Redesign (11.11.2026): neues Logo + Design in Etappen
@@ -21,7 +21,7 @@ Frank-Feedback nach Live-Gang: Hinweis „Jeden Freitag“ geht auf der Karte un
 - Play Console: Store-Eintrag → App-Symbol (512 × 512 PNG) und Feature-Grafik tauschen; Screenshots (Canva „Marcha App Store Screens“) zeigen noch das alte Logo.
 - Neuen Build im Closed Test hochladen (zusammen mit dem nächsten ohnehin fälligen Build).
 
-**Etappe 2 – gebaut 11.11.2026 auf Branch `redesign-etappe-2`, wartet auf Franks Freigabe (Vorschau-Artifact „Marcha Redesign Etappe 2“):**
+**Etappe 2 – LIVE (auf `main`, Stand 12.11.2026 geprüft):**
 neue Schriften (Outfit/DM Sans), neue Event-Karte (Handy: Flyer frei, nur Herz + gelbes „Jeden Freitag“, Datum/Preis orange darunter; Computer: Kalender-Block),
 Computer: Liste volle Breite + Karte per Schalter, Detailseite (Info-Kacheln, feste Leiste Route/Merken/Teilen, Teilen-Menü), Flyer-Großansicht,
 Kopfbereich mit Abendverlauf statt Stockfoto, Karte: eine Markierung pro Serie (vorher 45, Tipp zeigte Termin im Jan. 2027), Cache v16.
@@ -52,12 +52,13 @@ Ortsangaben enthalten teils „Spanien“ (aus den Daten, z. B. „Alhaurín de 
 - **Gefunden + entfernt:** drei nicht im Repo angelegte Allow-All-Regeln auf `events` („Anyone can update events“ – jeder konnte Events ändern; „Public can read events“ – jeder konnte auch pending/rejected inkl. E-Mail lesen; „Anyone can insert events“).
 - Test als Besucher danach: pending lesen 0, Event ändern blockiert, Upload pending/ ok, Dateiliste leer, Bild-Links ok, 33 freigegebene Events lesbar.
 
-**Code auf Branch `security-fixes` (noch NICHT live):** automatische Bildverkleinerung vor Upload, Preis-Pflicht mit Häkchen „Eintritt frei“, leerer Preis = „Preis auf Anfrage“, supabase-js fest 2.118.0, Cache v17.
-Nach Live-Gang: Frank trägt selbst ein Test-Event „TEST – bitte löschen“ mit Handy-Foto + „Eintritt frei“ ein und löscht es in der Moderation (automatischer Test-Eintrag durch Claude wurde von der Umgebung blockiert).
+**Code LIVE (auf `main`, Cache v17):** automatische Bildverkleinerung vor Upload, Preis-Pflicht mit Häkchen „Eintritt frei“, leerer Preis = „Preis auf Anfrage“, supabase-js fest 2.118.0, Cache v17.
+Test-Event mit Handy-Foto + „Eintritt frei“ eintragen und in der Moderation löschen: **von Frank am 12.11.2026 erledigt, alles funktioniert.**
 
 **Noch offen:**
-- **E-Mail/Name der Einreicher bei FREIGEGEBENEN Events** sind für jeden über die API lesbar (RLS gilt pro Zeile). Lösung: Spaltenrechte für `anon` entziehen (`contact_email`, `submitted_by`, `verification_notes`) + Website lädt feste Spaltenliste statt `select("*")`.
-- Security Advisor: `rls_auto_enable()` (Event-Trigger, nicht aus dem Repo, vermutlich Supabase-Automatik „RLS für neue Tabellen“) – ansehen; `pg_net` in public (lassen); „Leaked Password Protection“ in Auth einschalten, falls im Tarif möglich.
+- **E-Mail/Name der Einreicher bei FREIGEGEBENEN Events** für jeden lesbar → **Fix gebaut 12.11.2026** auf Branch `security-einreicher-daten` (Website + Share-Worker mit fester Spaltenliste, Cache v18, SQL #18). Reihenfolge: 1) Branch nach `main` (Freigabe Frank), 2) Worker `workers/event-share` neu deployen (`wrangler deploy`), 3) SQL #18 ausführen, 4) Website + einen Share-Link prüfen.
+  Rest-Lücke: angemeldete Nutzer (`authenticated`) sehen noch alle Spalten. Heute gibt es nur Franks Admin-Konto (geprüft 12.11.) → mit den Veranstalter-Konten schließen (Admin liest Einreicher-Daten dann über eine Admin-Funktion).
+- Security Advisor (geprüft 12.11.2026): `rls_auto_enable()` ist die Supabase-Automatik „RLS für neue Tabellen“ (bleibt) → nur direkter Aufruf gesperrt, SQL #19. `marcha_auth_is_admin()` bleibt aufrufbar (nötig für RLS, harmlos). `pg_net` in public: lassen. **Frank:** „Leaked Password Protection“ in Authentication einschalten (falls im Gratis-Tarif nicht möglich: lassen).
 - Zwei Testbilder `pending/2026/11/11/sicherheitstest*.jpg` können in Storage gelöscht werden (harmlos).
 
 ### Ursprüngliche Council-Liste (10.11.2026)
