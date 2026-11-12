@@ -101,7 +101,7 @@ Erst **Plan vorlegen**, dann umsetzen. Ergebnis eines Councils (4 Prüfer) vom 1
 - Später automatisieren (nach ein paar Wochen Handbetrieb): E-Mail-Domain passt zur Website, Google-Maps-Eintrag, SMS-Bestätigung. Reine E-Mail-Bestätigung reicht nicht gegen Fakes.
 - WhatsApp-Einreichung: **vorerst nicht** (Frank, 10.11.2026).
 - Plan vor dem Coden vorlegen (SQL: Tabelle `organizers`, Spalte `events.organizer_id`, Trigger, RLS; Frontend; Admin).
-- **Plan vorgelegt 12.11.2026** (Etappen A Datenbank, B Seite `veranstalter.html`, C Moderation fürs Handy + Mail bei neuer Anmeldung, D `smart-action` absichern). Frank: eigene Seite `veranstalter.html` = ja; Etappe A starten, **nachdem die übrigen offenen Punkte erledigt sind**. Noch zu klären: Freigabe neuer Veranstalter direkt aus der Mail oder über die Moderationsseite.
+- **Plan vorgelegt 12.11.2026** (Etappen A Datenbank, B Seite `veranstalter.html`, C Moderation fürs Handy + Mail bei neuer Anmeldung, D `smart-action` absichern). Frank: eigene Seite `veranstalter.html` = ja; Etappe A starten, **nachdem die übrigen offenen Punkte erledigt sind**. Freigabe neuer Veranstalter: Link in der Mail öffnet die Moderationsseite (Login nötig), keine Ein-Tipp-Freigabe direkt aus der Mail (Frank: B).
 
 ## 2. Supervisor: „Admins verwalten“
 
