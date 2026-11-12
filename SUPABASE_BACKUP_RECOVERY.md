@@ -209,10 +209,10 @@ Diese Secrets müssen nach einem Projekt-Restore in Supabase neu gesetzt werden.
 | Secret-Name | Verwendung | Funktion |
 |-------------|-----------|----------|
 | `SUPABASE_SERVICE_ROLE_KEY` | DB-Zugriff ohne RLS | alle Edge Functions |
-| `POSTIZ_API_KEY` | Postiz API-Authentifizierung | `process-social-queue`, `social-queue-runner` |
-| `POSTIZ_BASE_URL` | Postiz API-Endpunkt | `process-social-queue` |
+| `POSTIZ_API_KEY` | Postiz API-Authentifizierung | `social-queue-runner` |
+| `POSTIZ_BASE_URL` | nicht mehr genutzt (alte Funktion `process-social-queue`, gelöscht 12.11.2026) | — |
 | `POSTIZ_API_BASE` | Postiz API-Endpunkt (Runner) | `social-queue-runner` |
-| `POSTIZ_INTEGRATION_IDS` | Komma-getrennnte Integration-IDs | `process-social-queue` |
+| `POSTIZ_INTEGRATION_IDS` | nicht mehr genutzt (alte Funktion `process-social-queue`, gelöscht 12.11.2026) | — |
 | `POSTIZ_INSTAGRAM_INTEGRATION_ID` | Instagram Channel-ID in Postiz | `social-queue-runner` |
 | `POSTIZ_FACEBOOK_INTEGRATION_ID` | Facebook Channel-ID in Postiz | `social-queue-runner` |
 | `MARCHA_SOCIAL_RUNNER_SECRET` | Bearer-Token für Runner-Webhook | `social-queue-runner` |
@@ -311,7 +311,6 @@ supabase secrets set POSTIZ_API_KEY=<wert>
 
 ```bash
 supabase functions deploy event-share
-supabase functions deploy process-social-queue
 supabase functions deploy social-queue-runner
 ```
 

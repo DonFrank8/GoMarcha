@@ -71,7 +71,7 @@ Erst **Plan vorlegen**, dann umsetzen. Ergebnis eines Councils (4 Prüfer) vom 1
 3. **MITTEL – Einreicher können `featured`, `promoted`, `is_featured`, `archived_at`, `original_event_id`, `recurring_social_enabled` mitsenden** (Insert-Policy prüft nur `status`). → `BEFORE INSERT`-Trigger setzt diese Felder für Nicht-Admins zurück.
 4. **Vertrauen – fehlender Preis wird als „Gratis“/„Eintritt frei“ angezeigt** (`normalizeEvent`: `price_text || t("details_free")`, und `isFreePrice` zählt leer als gratis). → „Preis auf Anfrage“ o. ä. anzeigen.
 5. **supabase-js ohne feste Version** (`@supabase/supabase-js@2` in `index.html` und `admin.html`) → auf exakte Version festlegen.
-6. `social-queue-runner` neu deployen (siehe Punkt 4 unten), `smart-action`-Code ins Repo holen, Ordner `process-social-queue` löschen.
+6. `social-queue-runner` neu deployen (siehe Punkt 4 unten), `smart-action`-Code ins Repo holen, Ordner `process-social-queue` löschen (**erledigt 12.11.2026**).
 7. Spam/Statistik: Längengrenzen (CHECK) für Event-Texte, `qr_tracking`/`event_analytics` begrenzen; Captcha (Cloudflare Turnstile) später. `NOTIFY_WEBHOOK_SECRET` ist gesetzt (gesehen am 10.11.2026).
 8. Frank: Supabase → **Advisors → Security** öffnen und Ergebnis zeigen (Tabelle `events` wird im Repo nirgends angelegt, weitere Tabellen sind nicht prüfbar).
 
@@ -135,7 +135,6 @@ Erst **Plan vorlegen**, dann umsetzen. Ergebnis eines Councils (4 Prüfer) vom 1
 - **Titelbild**: Frank liefert ein eigenes Foto. Austausch in `style.css`, Abschnitt „Titelbild“ (aktuell Unsplash-Foto mit warmen Bühnenlichtern).
 - **Schnellfilter**: Frank entscheidet später, ob weitere dazukommen (z. B. Gratis, Strand/Beach, Heute Abend).
 - **Logo und Farbschema** können sich noch ändern; Farben stehen zentral in `style.css` → Abschnitt „Redesign 2026“ (`--m-accent` usw.).
-- Ordner `supabase/functions/process-social-queue/` kann gelöscht werden (nicht mehr deployt, geprüft 10.11.2026).
 - Desktop-Kopfbereich könnte noch kompakter werden.
 
 ## Testumgebung

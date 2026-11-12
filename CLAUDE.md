@@ -41,7 +41,7 @@ Der Inhaber (Frank) ist **kein Programmierer**. Er gibt Aufgaben vor, prüft Erg
 | Skripte | Node ≥ 18 | `scripts/` (Backup, Social-QA, Recurring-Logik) |
 
 Hinweise:
-- `supabase/functions/process-social-queue/` ist **veraltet und nicht mehr deployt** (im Dashboard geprüft, Nov. 2026; abgelöst durch `social-queue-runner`).
+- Die frühere Funktion `process-social-queue` wurde am 12.11.2026 aus dem Repo gelöscht (war seit Nov. 2026 nicht mehr deployt; abgelöst durch `social-queue-runner`).
 - `smart-action` (Übersetzung) wird von `app.js` (`translateText`) und `admin.js` aufgerufen und ist **ohne Login aufrufbar** (JWT-Prüfung aus). Bekanntes Risiko: Fremde könnten über den öffentlichen Anon-Key OpenAI-Kosten verursachen. Absicherung (nur angemeldete Veranstalter/Admins, Längengrenze) ist für die Veranstalter-Konten geplant; bis dahin begrenzt ein Monatsbudget bei OpenAI die Kosten.
 - Share-Vorschau gibt es doppelt: Cloudflare Worker (`workers/event-share/`, Route `/e/*`) und Edge Function `event-share`. Bei Änderungen an der Vorschau beide prüfen.
 
