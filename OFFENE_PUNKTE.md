@@ -148,6 +148,8 @@ Erst **Plan vorlegen**, dann umsetzen. Ergebnis eines Councils (4 Prüfer) vom 1
 
 ## 6. Kleinere Punkte
 
+- **Admin-Bedienung (Frank, 12.11.2026):** Notizen speichern ist nicht intuitiv (eigener Knopf „💾 Notizen“ auf der Karte, nicht im „Bearbeiten“-Dialog). Außerdem zeigt der Admin-Bereich Einreicher-Name/E-Mail nirgends an (nur in der Suche). → Beim Umbau der Moderation (Veranstalter Etappe C) mitlösen.
+
 - **NEU 12.11.2026 – Google-Adresssuche im Einreichformular funktioniert nicht:** `places.googleapis.com/v1/places:autocomplete` antwortet 403 „The caller does not have permission“ (mit Schlüssel aus `index.html`, Referer gomarcha.com). Folge: neue Events ohne lat/lng → erscheinen nicht auf der Karte (Einreichen selbst klappt). Mit Frank in der Google Cloud Console prüfen: „Places API (New)“ aktiviert? Schlüssel-Einschränkungen (APIs + Websites)? Abrechnung aktiv?
 
 - **Titelbild**: Frank liefert ein eigenes Foto. Austausch in `style.css`, Abschnitt „Titelbild“ (aktuell Unsplash-Foto mit warmen Bühnenlichtern).
