@@ -8,3 +8,6 @@ verify_jwt = false
 
 [functions.notify-new-event]
 verify_jwt = false
+
+[functions.smart-action]
+verify_jwt = false

@@ -32,7 +32,7 @@ Der Inhaber (Frank) ist **kein Programmierer**. Er gibt Aufgaben vor, prüft Erg
 | DNS/SSL | Cloudflare | — |
 | Event-Share-Vorschau | Cloudflare Worker (Route `www.gomarcha.com/e/*`) | `workers/event-share/` |
 | Backend | Supabase (Postgres, Auth per Magic Link, Storage-Bucket `event-images`) | `supabase/` |
-| Edge Functions | Deno/TypeScript; im Repo laut `supabase/config.toml`: `social-queue-runner`, `event-share`, `notify-new-event`. Zusätzlich deployt, aber **nicht im Repo**: `smart-action` (Übersetzung DE/EN/ES über OpenAI, Secret `OPENAI_API_KEY`) | `supabase/functions/` |
+| Edge Functions | Deno/TypeScript; im Repo laut `supabase/config.toml`: `social-queue-runner`, `event-share`, `notify-new-event`. `smart-action` (Übersetzung DE/EN/ES über OpenAI, Secret `OPENAI_API_KEY`; Code am 12.11.2026 aus Version 20 ins Repo geholt) | `supabase/functions/` |
 | Social Media | Postiz (Facebook, Instagram), Captions aus festen spanischen Vorlagen (kein KI-Dienst; KI nur für Übersetzungen über `smart-action`) | `supabase/functions/social-queue-runner/` |
 | Admin-Benachrichtigung | E-Mail per Zoho SMTP bei neuem Event | `supabase/functions/notify-new-event/` |
 | Rechtliche Seiten | Statisches HTML | `legal.html`, `privacy.html`, `data-deletion.html` |

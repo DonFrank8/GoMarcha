@@ -111,7 +111,7 @@ Erst **Plan vorlegen**, dann umsetzen. Ergebnis eines Councils (4 Prüfer) vom 1
 
 ## 3. Übersetzung `smart-action` absichern
 
-- Funktion ist deployt, aber **nicht im Repo**. Code aus dem Supabase-Dashboard (Edge Functions → smart-action → Code) ins Repo holen.
+- Code liegt seit 12.11.2026 im Repo (`supabase/functions/smart-action/index.ts`, deployte Version 20, unverändert übernommen).
 - Ist **ohne Login aufrufbar** → Fremde könnten OpenAI-Kosten verursachen. Ein Monatsbudget bei OpenAI ist gesetzt (Frank, 10.11.2026).
 - Mit den Veranstalter-Konten: nur noch angemeldete Veranstalter/Admins, Längengrenze pro Text.
 
