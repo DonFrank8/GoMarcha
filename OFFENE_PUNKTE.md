@@ -38,7 +38,7 @@ Lösungsidee: Stimmungen als Obergruppen mit fester Zuordnung (Latin = Salsa, Ba
 „Beach & Sunset“/„Rooftop“ brauchen eine Angabe pro Location → mit den Veranstalter-Konten.
 
 **Übersetzungen müssen besser werden (Frank):** Automatische Übersetzungen klingen nicht natürlich/nativ.
-Betrifft die Edge Function `smart-action` (OpenAI, Code NICHT im Repo) → Code ins Repo holen, Prompt auf natürliche, lokale Sprache
+Betrifft die Edge Function `smart-action` (OpenAI, Code seit 12.11.2026 im Repo) → Prompt auf natürliche, lokale Sprache
 (Spanien-Spanisch, „en directo“, lockerer Ton) umstellen, feste Begriffe als Glossar vorgeben, Beispiele vorher/nachher prüfen.
 
 **Beobachtung beim Test (11.11.2026):** Live sind nur 5 Events (alle wöchentlich). Mittwochs zeigt „Heute“ deshalb 0 Treffer.
@@ -60,7 +60,7 @@ Test-Event mit Handy-Foto + „Eintritt frei“ eintragen und in der Moderation 
   Hinweis: Worker-Code im Dashboard und `workers/event-share/worker.js` sind inhaltlich gleich, aber nicht byte-gleich (Dashboard-Version ohne eigene Konstante). Beim nächsten `wrangler deploy` wird die Repo-Version übernommen – dafür braucht es einen Cloudflare-API-Token (Vorlage „Edit Cloudflare Workers“, Zone gomarcha.com).
   Rest-Lücke: angemeldete Nutzer (`authenticated`) sehen noch alle Spalten. Heute gibt es nur Franks Admin-Konto (geprüft 12.11.) → mit den Veranstalter-Konten schließen (Admin liest Einreicher-Daten dann über eine Admin-Funktion).
 - Security Advisor: `rls_auto_enable()` direkter Aufruf gesperrt – **SQL #19 ausgeführt 12.11.2026, getestet** („permission denied for function“). `marcha_auth_is_admin()` bleibt aufrufbar (nötig für RLS, harmlos). `pg_net` in public: lassen. „Leaked Password Protection“: gibt es nur im Pro-Tarif (Supabase → Authentication → Attack Protection); Projekt läuft im Gratis-Tarif → bleibt aus (Frank, 12.11.2026).
-- Zwei Testbilder `pending/2026/11/11/sicherheitstest*.jpg` können in Storage gelöscht werden (harmlos).
+- Zwei Testbilder `pending/2026/11/11/sicherheitstest*.jpg` – von Frank gelöscht (12.11.2026).
 
 ### Ursprüngliche Council-Liste (10.11.2026)
 
