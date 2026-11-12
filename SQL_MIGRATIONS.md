@@ -28,6 +28,7 @@
 | 17 | `supabase-security-hardening-3.sql` | **DRINGENDER Sicherheits-Fix**: entfernt drei nicht im Repo angelegte Allow-All-Regeln auf `events` („Anyone can update events“, „Public can read events“, „Anyone can insert events“) | **KRITISCH** | Ja (DROP IF EXISTS) | Abhängig von #1, #15 |
 | 18 | `supabase-security-hardening-4.sql` | **Sicherheits-Fix 12.11.2026**: Besucher (anon) dürfen `contact_email`, `submitted_by`, `verification_notes` nicht mehr lesen (Spaltenrechte); anon ohne TRUNCATE/TRIGGER/REFERENCES. **Erst nach** Live-Gang von Website (Cache v18) und Worker-Deploy ausführen | HOCH | Ja | Abhängig von #17 |
 | 19 | `supabase-security-hardening-5.sql` | Security Advisor: direkter API-Aufruf von `rls_auto_enable()` für anon/authenticated gesperrt (Automatik bleibt aktiv) | NIEDRIG | Ja | keine |
+| 20 | `supabase-veranstalter-konten.sql` | **Veranstalter-Konten Etappe A**: Tabelle `organizers` (RLS, Status nur durch Admin), Spalte `events.organizer_id`, Trigger `marcha_events_guard` (ersetzt Insert-Trigger aus #15, schützt jetzt auch UPDATE; geprüfte Veranstalter → direkt `approved`), RLS „eigene Events lesen/bearbeiten“, Upload-Ordner `org/<uid>/`. Für Besucher ändert sich nichts | HOCH | Ja | Abhängig von #14–#18 |
 
 ---
 
