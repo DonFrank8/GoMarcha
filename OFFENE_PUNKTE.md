@@ -122,6 +122,13 @@ Erst **Plan vorlegen**, dann umsetzen. Ergebnis eines Councils (4 Prüfer) vom 1
 
 ## 5. Zoho-E-Mail-Konten für Marcha + Mailserver für Supabase-Auth
 
+**ERLEDIGT 12.11.2026:**
+- Cloudflare-DNS: SPF (`v=spf1 include:zohomail.eu ~all`), DMARC (`_dmarc`, `p=none`, Berichte an info@) und DKIM (Selector `zmail`, in Zoho verifiziert) eingetragen.
+- Supabase → Authentication → SMTP: Zoho (`smtp.zoho.eu:465`, Absender „Marcha <info@gomarcha.com>“, eigenes Zoho-App-Passwort, nirgends sonst gespeichert – bei Verlust neues anlegen).
+- Test „Passwort vergessen?“: Mail kommt an, Gmail meldet SPF/DKIM/DMARC = pass. Anfangs Warnhinweis in Gmail (wohl: englische Standardvorlage + Link auf `*.supabase.co`), nach „sicher“ markieren weg.
+- **Offen (mit Veranstalter-Konten):** eigene Mail-Vorlagen DE/ES/EN mit Logo (Authentication → Emails → Templates). Optional später: eigene Auth-Domain, damit Links auf gomarcha.com zeigen (kostenpflichtig). `noreply@` vorerst nicht nötig.
+
+**Ursprüngliche Notiz:**
 - **To-do Frank (eingetragen 10.11.2026, Kalender 11.11.):** Zoho-E-Mail-Konten für Marcha einrichten bzw. ordnen. Vorschlag, mit Frank abzustimmen:
   - `info@gomarcha.com` – öffentliche Kontaktadresse (Impressum, Veranstalter-Anfragen, Promotion-Verkauf)
   - `noreply@gomarcha.com` (oder `hola@…`) – Absender für automatische Mails (Login-Links, Bestätigungen, Benachrichtigungen)
