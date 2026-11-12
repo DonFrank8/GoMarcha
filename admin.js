@@ -2,7 +2,7 @@ const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
 const ADMIN_REQUIRED_ROLE = "admin";
 const ADMIN_ALLOWED_EMAILS = [];
-const ADMIN_DASHBOARD_BUILD = "2026.11.12-einreicher-daten";
+const ADMIN_DASHBOARD_BUILD = "2026.11.12-einreicher-anzeige";
 // Spalten der Tabelle events, die der Admin-Bereich direkt liest. Einreicher-Daten
 // (contact_email, submitted_by, verification_notes) kommen über die Admin-Funktion
 // marcha_admin_event_private (supabase-security-hardening-6.sql) dazu.
@@ -6779,6 +6779,12 @@ function renderEventCard(event) {
         ${shortNoticeMarkup}
         <p class="event-card__teaser">${escapeHtml((event.description || "").slice(0, 220))}${String(event.description || "").length > 220 ? "…" : ""}</p>
         ${geoWarningMarkup}
+        <p class="event-card__meta-line event-card__submitter">
+          <strong>Eingereicht von:</strong>
+          ${escapeHtml(String(event.submitted_by || "").trim() || "—")}${String(event.contact_email || "").trim()
+            ? ` · <a href="mailto:${escapeHtml(String(event.contact_email).trim())}">${escapeHtml(String(event.contact_email).trim())}</a>`
+            : ""}
+        </p>
         <label class="event-card__notes">
           <span class="event-card__notes-label">Moderation</span>
           <textarea data-notes rows="2" placeholder="Interne Notizen…">${escapeHtml(event.verification_notes)}</textarea>
