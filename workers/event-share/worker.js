@@ -162,6 +162,9 @@ function isRootRequest(url) {
   return url.pathname === "/" || url.pathname === "";
 }
 
+const EVENT_PUBLIC_COLUMNS =
+  "id,name,location_name,city,country,event_date,event_time,genre,price_text,description,image_url,lat,lng,is_published,created_at,status,address,postal_code,geocoding_query,featured,promoted,is_recurring,recurrence_type,recurrence_interval,recurrence_days,recurrence_end_date,recurrence_until,recurrence_rule,recurrence_start_date,recurrence_weekday,recurrence_day_of_month,artist_name,title_de,title_en,title_es,description_de,description_en,description_es,artist_bio_de,artist_bio_en,artist_bio_es,image_urls,archived_at,original_event_id,is_featured,recurring_social_enabled,recurring_social_opt_out,end_time";
+
 async function fetchEvent(eventId, env) {
   const supabaseUrl = String(env.SUPABASE_URL || "").replace(/\/+$/, "");
   const supabaseKey = String(env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_ANON_KEY || "").trim();
@@ -169,7 +172,8 @@ async function fetchEvent(eventId, env) {
 
   const endpoint = new URL(`${supabaseUrl}/rest/v1/events`);
   endpoint.searchParams.set("id", `eq.${eventId}`);
-  endpoint.searchParams.set("select", "*");
+  // Feste Spaltenliste: Einreicher-Daten sind für den Anon-Key gesperrt.
+  endpoint.searchParams.set("select", EVENT_PUBLIC_COLUMNS);
   endpoint.searchParams.set("limit", "1");
 
   const response = await fetch(endpoint.toString(), {

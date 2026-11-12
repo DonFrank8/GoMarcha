@@ -31,6 +31,11 @@ const LANGUAGE_STORAGE_KEY = "vibeon.language";
 const SOURCE_STORAGE_KEY = "source";
 const SOURCE_TRACKED_SESSION_STORAGE_KEY = "qr_tracked_this_session";
 const EVENT_ANALYTICS_TABLE = "event_analytics";
+// Spalten, die Besucher lesen dürfen. Einreicher-Daten (contact_email, submitted_by,
+// verification_notes) sind für anon gesperrt (supabase-security-hardening-4.sql).
+// Neue Spalte in der Tabelle events? Hier UND in der SQL-Datei ergänzen.
+const EVENT_PUBLIC_COLUMNS =
+  "id,name,location_name,city,country,event_date,event_time,genre,price_text,description,image_url,lat,lng,is_published,created_at,status,address,postal_code,geocoding_query,featured,promoted,is_recurring,recurrence_type,recurrence_interval,recurrence_days,recurrence_end_date,recurrence_until,recurrence_rule,recurrence_start_date,recurrence_weekday,recurrence_day_of_month,artist_name,title_de,title_en,title_es,description_de,description_en,description_es,artist_bio_de,artist_bio_en,artist_bio_es,image_urls,archived_at,original_event_id,is_featured,recurring_social_enabled,recurring_social_opt_out,end_time";
 const ANALYTICS_SESSION_VIEW_PREFIX = "marcha_analytics_view_";
 const TRANSLATION_TARGET_LANGUAGE_BY_CODE = Object.freeze({
   de: "German",
@@ -9472,7 +9477,8 @@ async function fetchEventsFromSupabase() {
 
   const client = supabaseClient();
   const tableName = state.debug.tableName || "events";
-  const { data, error } = await client.from(tableName).select("*").order("event_date", { ascending: true });
+  const columns = isSessionAdmin(state.adminSession) ? "*" : EVENT_PUBLIC_COLUMNS;
+  const { data, error } = await client.from(tableName).select(columns).order("event_date", { ascending: true });
 
   console.log("[Marcha Debug] Supabase table:", tableName);
   console.log("[Marcha Debug] Supabase data:", data);
