@@ -179,6 +179,10 @@ Cron-Secrets künftig im Supabase Vault (Ablage des bestehenden Secrets ist nich
 
 ### Phase 1 — P1: Marcha Event Scout
 
+> **Zurückgestellt (Frank, 13.11.2026)** nach der Quellen-Inventur (`QUELLEN_INVENTUR.md`). Frank sucht und trägt Events selbst ein und spricht Bars und Bands persönlich an.
+> Wieder aufnehmen, wenn Quellen zugestimmt haben oder Málaga Open Data genutzt werden soll.
+> **Ersatz mit sofortigem Nutzen: P1.0 KI-Schnelleintrag im Admin.** Frank fügt Text, einen Link-Text oder ein Flyer-Foto ein. Claude Haiku füllt Titel, Datum, Uhrzeit, Ort, Preis, Genre und die Übersetzungen DE/EN/ES vor. Frank prüft und speichert (Stufe 1). Technik: eigene Edge Function, nur für Admins (JWT + `app_metadata.role`), Anthropic-Key mit Limit (F7), Protokoll über `agent_runs` (G1). Die Flyer werden nur zum Auslesen genutzt und nicht übernommen.
+
 | ID | Aufgabe | Status | Abhängigkeit |
 |---|---|---|---|
 | P1.1 | `event_sources` (Name, URL, Typ ical/jsonld/rss/html, aktiv, Erlaubnis/AGB-Notiz mit Datum, letzter Abruf, Inhalts-Prüfsumme, Erfolgsquote, `autonomy_level`, `is_test`) | 🆕 | G1, Q1 |

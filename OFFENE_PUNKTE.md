@@ -38,6 +38,8 @@ Erledigtes hier streichen bzw. nach „Erledigt“ verschieben.
 - Bars und Locations haben keine Feeds.
 - → Ohne persönliche Zustimmung und Veranstalter-Konten bleibt der Scout klein. Anfrage-Vorlage auf Spanisch liegt bei.
 
+**Entscheidung Frank (13.11.2026, nach der Inventur):** Der Event Scout (Phase 1) wird **zurückgestellt**. Frank sucht Events selbst, trägt sie ein und schreibt Bars und Bands persönlich an. Weiter geht es mit den offenen Punkten: Veranstalter-Konten B–D, Fundament, SEO. Neu vorgeschlagen ist ein **KI-Schnelleintrag im Admin**: Text oder Flyer einfügen, die Felder werden vorausgefüllt, Frank prüft (Stufe 1). Das spart Zeit bei der Handarbeit.
+
 **Nächster Schritt:**
 - **Frank:** Supabase Pro aktivieren, Google Places prüfen, NIF liefern, Anthropic-Key mit Limit anlegen.
 - **Claude:** Quellen-Inventur (nur Recherche) und SEO-Schnellkorrekturen (canonical, robots.txt) als Branch zur Prüfung.
