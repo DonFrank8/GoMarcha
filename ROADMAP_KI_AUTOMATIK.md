@@ -159,7 +159,7 @@ Abhängigkeit: F2 (Adressen/Koordinaten für JSON-LD). Aufwand (Schätzung): 2�
 
 | ID | Aufgabe | Status |
 |---|---|---|
-| Q1 | Liste von ca. 15 Quellen-Kandidaten (Veranstalter-Websites, Rathaus-/Tourismuskalender, Locations): gibt es iCal/JSON-LD, robots.txt, Nutzungsbedingungen, Ansprechpartner, geschätzte Events/Woche. Recherche durch Claude, **nur lesend** | 🆕 |
+| Q1 | Liste von ca. 15 Quellen-Kandidaten: gibt es iCal/JSON-LD, Nutzungsbedingungen, Ansprechpartner. **Erledigt 13.11.2026 → `QUELLEN_INVENTUR.md`**: Nur Málaga Open Data ist offen lizenziert; Gemeinden verlangen Erlaubnis; Bars/Locations haben keine Feeds | ✅ |
 | Q2 | Frank fragt Quellen persönlich („¿Podemos listar vuestros eventos en Marcha?“) – zugleich Nachfrage-Test und Erlaubnis | 🆕 👤 |
 | Q3 | Entscheidung: Gibt es genug erlaubte Quellen? Wenn nein → Schwerpunkt Veranstalter-Konten + persönliche Akquise statt Scout | 🆕 👤 |
 

@@ -32,6 +32,12 @@ Erledigtes hier streichen bzw. nach „Erledigt“ verschieben.
 - Backup-Skript ohne `organizers`; enthält `qr_tracking`, das es nicht gibt.
 - `MARCHA_POSTIZ_POST_MODE` gilt global, nicht pro Post.
 
+**Quellen-Inventur erledigt (13.11.2026, `QUELLEN_INVENTUR.md`):**
+- Nur Málaga Open Data (Agenda-CSV, offene Lizenz) ist sofort nutzbar.
+- Fuengirola hat einen Feed, verlangt aber eine schriftliche Erlaubnis.
+- Bars und Locations haben keine Feeds.
+- → Ohne persönliche Zustimmung und Veranstalter-Konten bleibt der Scout klein. Anfrage-Vorlage auf Spanisch liegt bei.
+
 **Nächster Schritt:**
 - **Frank:** Supabase Pro aktivieren, Google Places prüfen, NIF liefern, Anthropic-Key mit Limit anlegen.
 - **Claude:** Quellen-Inventur (nur Recherche) und SEO-Schnellkorrekturen (canonical, robots.txt) als Branch zur Prüfung.
