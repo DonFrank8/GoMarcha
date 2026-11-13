@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Marcha | Para organizadores</title>
+  <meta name="description" content="Publica tus conciertos y eventos en Marcha: cuenta gratuita para locales, bares, bandas y DJs de la Costa del Sol.">
+  <link rel="canonical" href="https://www.gomarcha.com/veranstalter.html">
+  <link rel="icon" href="/assets/favicon-v5.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@600;700&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./veranstalter.css?v=2026.11.13-b1">
+</head>
+<body>
+  <header class="org-header">
+    <a href="./" class="org-header__brand" aria-label="Marcha">
+      <img src="/assets/logo-v5.svg" alt="Marcha" width="140" height="36">
+    </a>
+    <div class="org-lang" role="group" aria-label="Idioma">
+      <button type="button" data-lang="es">ES</button>
+      <button type="button" data-lang="en">EN</button>
+      <button type="button" data-lang="de">DE</button>
+    </div>
+  </header>
+
+  <main class="org-main">
+    <h1 data-t="title">Para organizadores</h1>
+    <p class="org-lead" data-t="lead"></p>
+
+    <p id="orgMessage" class="org-message" role="status" aria-live="polite" hidden></p>
+
+    <!-- Laden -->
+    <section id="viewLoading" class="org-card">
+      <p data-t="loading">…</p>
+    </section>
+
+    <!-- Anmelden per E-Mail-Link -->
+    <section id="viewLogin" class="org-card" hidden>
+      <h2 data-t="login_title"></h2>
+      <p data-t="login_text"></p>
+      <form id="loginForm" class="org-form">
+        <label for="loginEmail" data-t="email">E-mail</label>
+        <input id="loginEmail" type="email" autocomplete="email" required maxlength="254">
+        <button type="submit" class="org-button" data-t="login_button"></button>
+      </form>
+      <p class="org-small" data-t="login_privacy"></p>
+    </section>
+
+    <!-- E-Mail verschickt -->
+    <section id="viewCheckMail" class="org-card" hidden>
+      <h2 data-t="check_title"></h2>
+      <p data-t="check_text"></p>
+      <button type="button" class="org-link" id="backToLogin" data-t="check_back"></button>
+    </section>
+
+    <!-- Profil anlegen / bearbeiten -->
+    <section id="viewProfile" class="org-card" hidden>
+      <h2 id="profileTitle" data-t="profile_title_new"></h2>
+      <p id="profileIntro" data-t="profile_text"></p>
+      <form id="profileForm" class="org-form">
+        <label for="pName" data-t="f_name"></label>
+        <input id="pName" required maxlength="200">
+
+        <label for="pKind" data-t="f_kind"></label>
+        <select id="pKind" required>
+          <option value="location" data-t="kind_location"></option>
+          <option value="bar" data-t="kind_bar"></option>
+          <option value="band" data-t="kind_band"></option>
+          <option value="dj" data-t="kind_dj"></option>
+          <option value="other" data-t="kind_other"></option>
+        </select>
+
+        <label for="pContact" data-t="f_contact"></label>
+        <input id="pContact" required maxlength="200" autocomplete="name">
+
+        <label for="pPhone" data-t="f_phone"></label>
+        <input id="pPhone" required minlength="3" maxlength="40" type="tel" autocomplete="tel">
+
+        <label for="pAddress" data-t="f_address"></label>
+        <input id="pAddress" required minlength="3" maxlength="300" autocomplete="street-address">
+
+        <label for="pCity" data-t="f_city"></label>
+        <input id="pCity" maxlength="120" autocomplete="address-level2">
+
+        <label for="pWebsite" data-t="f_website"></label>
+        <input id="pWebsite" maxlength="300" type="text" inputmode="url" autocomplete="url" placeholder="www.…">
+
+        <label for="pInstagram" data-t="f_instagram"></label>
+        <input id="pInstagram" maxlength="100" placeholder="@">
+
+        <div class="org-actions">
+          <button type="submit" class="org-button" data-t="save"></button>
+          <button type="button" class="org-link" id="cancelProfile" data-t="cancel" hidden></button>
+        </div>
+      </form>
+    </section>
+
+    <!-- Übersicht -->
+    <section id="viewDashboard" hidden>
+      <div class="org-card">
+        <div class="org-row">
+          <h2 id="dashName"></h2>
+          <span id="dashStatus" class="org-badge"></span>
+        </div>
+        <p id="dashStatusText"></p>
+        <div class="org-actions">
+          <a class="org-button" href="./index.html?submit=1" data-t="new_event"></a>
+          <button type="button" class="org-link" id="editProfile" data-t="edit_profile"></button>
+        </div>
+        <p class="org-small" data-t="photo_tip"></p>
+      </div>
+
+      <div class="org-card">
+        <h2 data-t="my_events"></h2>
+        <ul id="eventList" class="org-events"></ul>
+        <p id="eventEmpty" data-t="no_events" hidden></p>
+      </div>
+
+      <p class="org-footer-actions">
+        <span id="dashEmail" class="org-small"></span>
+        <button type="button" class="org-link" id="logoutButton" data-t="logout"></button>
+      </p>
+    </section>
+  </main>
+
+  <footer class="org-footer">
+    <a href="./" data-t="back_home"></a>
+    <a href="./privacy.html" data-t="privacy"></a>
+    <a href="./legal.html" data-t="legal"></a>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.js"></script>
+  <script src="./veranstalter.js?v=2026.11.13-b1"></script>
+</body>
+</html>

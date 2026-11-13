@@ -610,6 +610,7 @@ const I18N = {
     form_label_submitted_by: "Dein Name (Einreicher)",
     form_label_contact_email: "Kontakt E-Mail",
     form_label_contact_email_remember: "E-Mail auf diesem Gerät merken",
+    footer_organizers: "Für Veranstalter",
     footer_privacy: "Datenschutz",
     footer_legal: "Impressum",
     footer_data_deletion: "Datenlöschung",
@@ -927,6 +928,7 @@ const I18N = {
     form_label_submitted_by: "Your Name (Submitter)",
     form_label_contact_email: "Contact email",
     form_label_contact_email_remember: "Remember email on this device",
+    footer_organizers: "For organizers",
     footer_privacy: "Privacy policy",
     footer_legal: "Legal notice",
     footer_data_deletion: "Data deletion",
@@ -1244,6 +1246,7 @@ const I18N = {
     form_label_submitted_by: "Tu nombre (remitente)",
     form_label_contact_email: "Correo de contacto",
     form_label_contact_email_remember: "Recordar el correo en este dispositivo",
+    footer_organizers: "Para organizadores",
     footer_privacy: "Política de privacidad",
     footer_legal: "Aviso legal",
     footer_data_deletion: "Eliminación de datos",
@@ -9590,6 +9593,10 @@ async function startApp() {
   setViewMode("list");
   bindEvents();
   bindEventDetailOverlay();
+  // Direktlink ?submit=1 (z. B. von veranstalter.html) öffnet das Eintrage-Formular.
+  if (new URLSearchParams(window.location.search).get("submit") === "1") {
+    openSubmitModal();
+  }
   setupEventLocationAutocomplete();
   renderNearbyFilterControls();
   countVisitOnce();
