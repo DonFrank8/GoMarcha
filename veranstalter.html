@@ -96,6 +96,16 @@
       </form>
     </section>
 
+    <!-- Als Admin angemeldet -->
+    <section id="viewAdmin" class="org-card" hidden>
+      <h2 data-t="admin_title"></h2>
+      <p data-t="admin_text"></p>
+      <div class="org-actions">
+        <a class="org-button" href="./admin.html" data-t="admin_open"></a>
+        <button type="button" class="org-link" id="adminLogout" data-t="logout"></button>
+      </div>
+    </section>
+
     <!-- Übersicht -->
     <section id="viewDashboard" hidden>
       <div class="org-card">
@@ -131,6 +141,6 @@
   </footer>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.js"></script>
-  <script src="./veranstalter.js?v=2026.11.13-b1"></script>
+  <script src="./veranstalter.js?v=2026.11.13-b2"></script>
 </body>
 </html>

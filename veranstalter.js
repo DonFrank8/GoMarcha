@@ -75,7 +75,9 @@
       msg_error: "Algo ha fallado. Inténtalo de nuevo.",
       msg_rate: "Has pedido varios enlaces seguidos. Espera un minuto y vuelve a intentarlo.",
       msg_link_invalid: "El enlace ya no es válido. Pide uno nuevo.",
-      msg_admin: "Estás conectado como administrador. Para moderar usa el panel de administración."
+      admin_title: "Estás conectado como administrador",
+      admin_text: "Esta página es para organizadores. Para moderar, usa el panel de administración. Para probar la página como organizador, sal y entra con otro e-mail (o usa una ventana privada).",
+      admin_open: "Abrir administración"
     },
     en: {
       title: "For organizers",
@@ -132,7 +134,9 @@
       msg_error: "Something went wrong. Please try again.",
       msg_rate: "You've requested several links in a row. Please wait a minute and try again.",
       msg_link_invalid: "This link is no longer valid. Please request a new one.",
-      msg_admin: "You're signed in as an admin. Please use the admin area for moderation."
+      admin_title: "You're signed in as an admin",
+      admin_text: "This page is for organizers. Please use the admin area for moderation. To test the page as an organizer, sign out and sign in with a different email (or use a private window).",
+      admin_open: "Open admin area"
     },
     de: {
       title: "Für Veranstalter",
@@ -189,12 +193,14 @@
       msg_error: "Etwas ist schiefgelaufen. Bitte versuch es noch einmal.",
       msg_rate: "Du hast mehrere Links kurz hintereinander angefordert. Warte bitte eine Minute und versuch es dann noch einmal.",
       msg_link_invalid: "Der Link ist nicht mehr gültig. Bitte fordere einen neuen an.",
-      msg_admin: "Du bist als Admin angemeldet. Zum Moderieren bitte den Admin-Bereich nutzen."
+      admin_title: "Du bist als Admin angemeldet",
+      admin_text: "Diese Seite ist für Veranstalter. Zum Moderieren nutze bitte den Admin-Bereich. Um die Seite als Veranstalter zu testen, melde dich ab und mit einer anderen E-Mail-Adresse an (oder nutze ein privates Fenster).",
+      admin_open: "Admin-Bereich öffnen"
     }
   };
 
   const $ = (id) => document.getElementById(id);
-  const VIEWS = ["viewLoading", "viewLogin", "viewCheckMail", "viewProfile", "viewDashboard"];
+  const VIEWS = ["viewLoading", "viewLogin", "viewCheckMail", "viewProfile", "viewDashboard", "viewAdmin"];
   const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   const state = { lang: "es", session: null, organizer: null };
 
@@ -275,7 +281,10 @@
       return;
     }
     if (isAdminSession(state.session)) {
-      message(t("msg_admin"));
+      // Admins legen hier kein Veranstalter-Profil an (Verwechslungsschutz).
+      state.organizer = null;
+      show("viewAdmin");
+      return;
     }
     try {
       state.organizer = await loadOrganizer();
@@ -480,12 +489,14 @@
     $("profileForm").addEventListener("submit", saveProfile);
     $("cancelProfile").addEventListener("click", () => { message(""); show("viewDashboard"); });
     $("editProfile").addEventListener("click", () => { message(""); openProfileForm(true); });
-    $("logoutButton").addEventListener("click", async () => {
+    const logout = async () => {
       await client.auth.signOut();
       state.session = null;
       state.organizer = null;
       route();
-    });
+    };
+    $("logoutButton").addEventListener("click", logout);
+    $("adminLogout").addEventListener("click", logout);
   }
 
   async function start() {
