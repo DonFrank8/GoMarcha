@@ -1,7 +1,40 @@
 # Offene Punkte — Marcha
 
-Merkliste für die nächsten Sessions. Stand: 12.11.2026.
+Merkliste für die nächsten Sessions. Stand: 13.11.2026.
 Erledigtes hier streichen bzw. nach „Erledigt“ verschieben.
+
+## KI-Automatik (neues Großprojekt, Council 13.11.2026)
+
+**Ausführlich:** `ROADMAP_KI_AUTOMATIK.md` (Aufgaben-IDs, Abhängigkeiten, Tests, Kosten). Hier nur die Übersicht.
+
+**Grundsatz:** keine Agenten-Plattform, sondern gemeinsame Automatik-Grundlage in Supabase (pg_cron + Edge Functions + Zwischentabellen + Admin-Bereich „Automatik“) und feste Abläufe. Autonomie in Stufen pro Aktion (0 Vorschlag · 1 Freigabe · 2 automatisch mit Rückgängig · 3 voll automatisch), hochstufen nur nach Zahlen. Kein n8n, kein Scraping von Instagram/Facebook, kein automatischer Mailversand.
+
+**Franks Entscheidungen (13.11.2026):** Stufenmodell ja · Quellen = Zustimmung oder offener Feed mit erlaubenden Bedingungen · Supabase Pro ja · Anwalt vorerst nicht (Auslöser: vor Vertrieb, vor bezahltem Angebot, bei erster Beschwerde) · SEO früh · geteilte Links öffnen echte Event-Seite mit Knopf „In der App öffnen“ · Social-Posts bleiben auf Freigabe.
+
+**Reihenfolge:**
+- **Etappe 0 (parallel):**
+  - F Fundament: smart-action absichern, Places 403, Supabase Pro, Backup-Skript (Bilder sind nicht in Supabase-Backups!), Deploy-Token, Kategorienliste, Anthropic-Key mit Limit
+  - M Messung: Besucher-Tracking, `qr_tracking`, Handzeit pro Event
+  - R Recht: NIF, Aviso Legal, Datenschutz auf Spanisch mit KI-Dienstleistern, Kennzeichnung
+  - S SEO: canonical auf www, robots.txt, echte Event-Seite ohne Weiterleitung + JSON-LD, Sitemap, vergangene Events 410, Search Console
+  - Q Quellen-Inventur und persönliche Anfragen bei den Quellen
+- **Etappe 1:** G Automatik-Grundlage (`agent_settings`, `agent_runs`, Not-Aus, Budget, Alarm, Admin-Bereich) = Keimzelle des AI Managers
+- **Etappe 2:** Phase 1 Event Scout (Durchstich mit 3–10 erlaubten Feeds, Zwischentabelle `event_candidates`, Quellenangabe/Entfernen/Opt-out) → **8-Wochen-Prüfung** (≥ 3 Events an jedem Wochentag, ≥ 60 % ohne Korrektur, < 2 h/Woche Prüfzeit). Nicht bestanden → Schwerpunkt Akquise statt mehr Automatik.
+- **Etappe 3:** Phase 2 Marketing light (KI-Captions DE/ES/EN, Posts ohne Event, Digest) und Phase 4 Business Analyst (SQL-Kennzahlen, Datenprobleme, Wochenbericht)
+- **Etappe 4:** Phase 3 Sales Agent – **blockiert** bis Rechtsprüfung + Nachfrage-Test; nur Listen und Entwürfe, nie Versand
+- **Etappe 5:** Phase 5 AI Manager (Koordination, Autonomie-Hochstufung), wenn Phasen 1–4 einzeln stabil laufen
+- Veranstalter-Konten B–D (Abschnitt 1) laufen parallel und haben Vorrang vor Etappe 3.
+
+**Neue Befunde aus dem Council (im Code geprüft):**
+- `marcha_events_guard` lässt die Service Role durch → Agenten dürfen nie direkt in `events` schreiben.
+- `index.html` canonical zeigt auf `https://gomarcha.com/` (ohne www), die Seite läuft aber auf www.
+- Share-Seite `/e/<id>` leitet sofort weiter → für Google kaum indexierbar.
+- Backup-Skript ohne `organizers`; enthält `qr_tracking`, das es nicht gibt.
+- `MARCHA_POSTIZ_POST_MODE` gilt global, nicht pro Post.
+
+**Nächster Schritt:**
+- **Frank:** Supabase Pro aktivieren, Google Places prüfen, NIF liefern, Anthropic-Key mit Limit anlegen.
+- **Claude:** Quellen-Inventur (nur Recherche) und SEO-Schnellkorrekturen (canonical, robots.txt) als Branch zur Prüfung.
 
 ## Redesign (11.11.2026): neues Logo + Design in Etappen
 
