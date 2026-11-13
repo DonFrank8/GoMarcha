@@ -2866,3 +2866,22 @@ body.admin-is-logged-in .admin-shell {
 }
 .admin-org-card__actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .admin-org-card__actions .button { min-height: 44px; }
+
+/* ---------------------------------------------------------------------------
+   KI-Schnelleintrag (admin-quick-entry.js, 13.11.2026)
+   --------------------------------------------------------------------------- */
+.admin-quick, .admin-quick__form { display: grid; gap: 8px; margin-top: 12px; }
+.admin-quick__label, .admin-quick__field label { font-weight: 600; font-size: 0.92rem; }
+.admin-quick textarea, .admin-quick__form input[type=text], .admin-quick__form input[type=date],
+.admin-quick__form input[type=time], .admin-quick__form select, .admin-quick__form textarea {
+  width: 100%; box-sizing: border-box; border-radius: 10px; padding: 9px 10px; font: inherit; font-size: 16px;
+  background: rgba(0, 0, 0, 0.25); color: inherit; border: 1px solid rgba(255, 255, 255, 0.15);
+}
+.admin-quick__preview { max-width: 260px; max-height: 320px; border-radius: 10px; object-fit: contain; }
+.admin-quick__field { display: grid; gap: 4px; padding: 6px; border-radius: 10px; }
+.admin-quick__field.is-unsure { background: rgba(255, 200, 87, 0.12); outline: 1px solid rgba(255, 200, 87, 0.6); }
+.admin-quick__inline { display: inline-flex; gap: 6px; align-items: center; font-weight: 500; }
+.admin-quick__notes { padding: 8px 10px; border-radius: 10px; background: rgba(255, 200, 87, 0.12); }
+.admin-quick__dupes { padding: 8px 10px; border-radius: 10px; background: rgba(255, 107, 107, 0.14); }
+.admin-quick__actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.admin-quick__actions .button { min-height: 44px; }
