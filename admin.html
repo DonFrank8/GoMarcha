@@ -19,7 +19,7 @@
   <script>
     (function () {
       // Must match ADMIN_DASHBOARD_BUILD in admin.js (GitHub Pages serves repo root).
-      var cacheBuster = "2026.11.12-einreicher-gmail";
+      var cacheBuster = "2026.11.13-veranstalter";
       window.PARTYRADAR_ADMIN_BUILD = cacheBuster;
       var stylesheet = document.createElement("link");
       stylesheet.rel = "stylesheet";
@@ -127,6 +127,10 @@
           <button type="button" class="admin-nav-item" data-admin-nav="social">
             <span class="admin-nav-item__icon" aria-hidden="true">↗</span>
             Social Queue
+          </button>
+          <button type="button" class="admin-nav-item" data-admin-nav="organizers">
+            <span class="admin-nav-item__icon" aria-hidden="true">☺</span>
+            Veranstalter <span id="adminOrganizersBadge" class="admin-org-badge" hidden></span>
           </button>
           <button type="button" class="admin-nav-item" data-admin-nav="analytics">
             <span class="admin-nav-item__icon" aria-hidden="true">◇</span>
@@ -296,6 +300,15 @@
           <div id="adminSocialQueuePanel" class="admin-social-cards"></div>
         </section>
 
+        <section id="adminViewOrganizers" class="admin-view" hidden>
+          <div class="card card--glass">
+            <h2 class="admin-view__h">Veranstalter</h2>
+            <p class="card__intro">Konten von Locations, Bars, Bands und DJs. <strong>Freigeben</strong> = ihre Events gehen künftig direkt online. <strong>Sperren</strong> = sie können nichts mehr eintragen oder ändern. Bei Freigabe bekommt der Veranstalter automatisch eine Mail.</p>
+            <p id="adminOrganizersFeedback" class="feedback" hidden></p>
+            <div id="adminOrganizersList" class="admin-org-list"></div>
+          </div>
+        </section>
+
         <section id="adminViewAnalytics" class="admin-view" hidden>
           <div class="card card--glass">
             <h2 class="admin-view__h">Analytics</h2>
@@ -327,6 +340,7 @@
         <button type="button" class="admin-bottom-nav__btn is-active" data-admin-nav="dashboard">▣</button>
         <button type="button" class="admin-bottom-nav__btn" data-admin-nav="events">◎</button>
         <button type="button" class="admin-bottom-nav__btn" data-admin-nav="social">↗</button>
+        <button type="button" class="admin-bottom-nav__btn" data-admin-nav="organizers" aria-label="Veranstalter">☺</button>
         <button type="button" class="admin-bottom-nav__btn" data-admin-nav="analytics">◇</button>
         <button type="button" class="admin-bottom-nav__btn" data-admin-nav="settings">⚙</button>
       </nav>
@@ -343,6 +357,7 @@
     });
   </script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.js"></script>
+  <script src="./admin-organizers.js?v=2026.11.13-veranstalter"></script>
   <script src="./social-post-image.js?v=2026.05.25-social-queue-legacy-merge-ui"></script>
   <script>
     (function () {

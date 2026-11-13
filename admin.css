@@ -2831,3 +2831,38 @@ body.admin-is-logged-in .admin-shell {
 .admin-settings-account { margin-top: 1.2rem; display: grid; gap: 0.6rem; }
 .admin-settings-account h3 { margin: 0; font-size: 1rem; }
 .admin-settings-account .admin-password-dialog__actions { justify-content: flex-start; }
+
+/* ---------------------------------------------------------------------------
+   Bereich „Veranstalter“ (admin-organizers.js, Etappe C, 13.11.2026)
+   --------------------------------------------------------------------------- */
+.admin-org-badge {
+  display: inline-block; min-width: 1.4em; padding: 0 6px; margin-left: 4px;
+  border-radius: 999px; background: #ff7a3d; color: #1e0b02;
+  font-size: 0.75rem; font-weight: 700; text-align: center; line-height: 1.5;
+}
+.admin-org-list { display: grid; gap: 14px; margin-top: 12px; }
+.admin-org-card {
+  border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 14px; padding: 14px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.admin-org-card--pending { border-color: rgba(255, 200, 87, 0.55); }
+.admin-org-card--blocked { opacity: 0.75; }
+.admin-org-card__head { display: flex; gap: 10px; justify-content: space-between; align-items: flex-start; }
+.admin-org-card__name { margin: 0; font-size: 1.1rem; }
+.admin-org-card__meta { font-size: 0.85rem; opacity: 0.75; }
+.admin-org-status { border-radius: 999px; padding: 3px 10px; font-size: 0.8rem; font-weight: 700; white-space: nowrap; }
+.admin-org-status--pending { background: rgba(255, 200, 87, 0.18); color: #ffc857; }
+.admin-org-status--verified { background: rgba(95, 211, 141, 0.18); color: #5fd38d; }
+.admin-org-status--blocked { background: rgba(255, 107, 107, 0.18); color: #ff6b6b; }
+.admin-org-card__details {
+  display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px;
+  margin: 12px 0; font-size: 0.92rem;
+}
+.admin-org-card__details dt { opacity: 0.7; }
+.admin-org-card__details dd { margin: 0; overflow-wrap: anywhere; }
+.admin-org-card__notes {
+  width: 100%; box-sizing: border-box; border-radius: 10px; padding: 8px 10px; font: inherit;
+  background: rgba(0, 0, 0, 0.25); color: inherit; border: 1px solid rgba(255, 255, 255, 0.15);
+}
+.admin-org-card__actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.admin-org-card__actions .button { min-height: 44px; }

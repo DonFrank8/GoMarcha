@@ -2,7 +2,7 @@ const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
 const ADMIN_REQUIRED_ROLE = "admin";
 const ADMIN_ALLOWED_EMAILS = [];
-const ADMIN_DASHBOARD_BUILD = "2026.11.12-einreicher-gmail";
+const ADMIN_DASHBOARD_BUILD = "2026.11.13-veranstalter";
 // Spalten der Tabelle events, die der Admin-Bereich direkt liest. Einreicher-Daten
 // (contact_email, submitted_by, verification_notes) kommen über die Admin-Funktion
 // marcha_admin_event_private (supabase-security-hardening-6.sql) dazu.
@@ -6646,6 +6646,10 @@ function renderMainNav() {
   if (dom.viewSocial) dom.viewSocial.hidden = state.navSection !== "social";
   if (dom.viewAnalytics) dom.viewAnalytics.hidden = state.navSection !== "analytics";
   if (dom.viewSettings) dom.viewSettings.hidden = state.navSection !== "settings";
+  // Bereich „Veranstalter“ (eigene Datei admin-organizers.js)
+  const organizersView = document.getElementById("adminViewOrganizers");
+  if (organizersView) organizersView.hidden = state.navSection !== "organizers";
+  window.dispatchEvent(new CustomEvent("marcha-admin-nav", { detail: { section: state.navSection } }));
   document.body.classList.toggle("admin-route-social", state.navSection === "social");
 }
 
