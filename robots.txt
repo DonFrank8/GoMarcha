@@ -1,0 +1,7 @@
+# robots.txt – www.gomarcha.com
+# Alle öffentlichen Seiten dürfen gelesen werden.
+# Der Admin-Bereich ist zusätzlich per <meta name="robots" content="noindex"> gesperrt
+# (nicht hier per Disallow, damit Suchmaschinen den noindex-Hinweis sehen können).
+# Sitemap-Zeile folgt mit Roadmap-Aufgabe S4 (sitemap.xml über den Cloudflare Worker).
+User-agent: *
+Allow: /
