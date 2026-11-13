@@ -17,7 +17,10 @@
   const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
   const LANGUAGE_STORAGE_KEY = "vibeon.language"; // gleicher Schlüssel wie app.js – nicht umbenennen
   const ORGANIZER_COLUMNS = "id,name,kind,contact_person,phone,address,city,website,instagram,status,created_at,verified_at";
-  const EVENT_COLUMNS = "id,name,title_de,title_en,title_es,event_date,event_time,location_name,city,status,is_recurring,recurrence_type,archived_at";
+  const EVENT_COLUMNS = "id,name,title_de,title_en,title_es,event_date,event_time,end_time,location_name,address,city,genre,price_text,description,description_de,description_en,description_es,image_url,image_urls,status,is_recurring,recurrence_type,archived_at";
+  const SMART_ACTION_URL = `${SUPABASE_URL}/functions/v1/smart-action`;
+  const TRANSLATION_TARGET = { de: "German", en: "English", es: "Spanish" };
+  const UPLOAD_MAX_EDGE_PX = 2000;
 
   const TEXT = {
     es: {
@@ -67,6 +70,25 @@
       ev_archived: "Archivado",
       recurring: "Se repite",
       logged_in_as: "Conectado como",
+      edit: "Editar",
+      edit_title: "Editar evento",
+      edit_recurring_note: "Evento que se repite: para cambiar los días, escríbenos a info@gomarcha.com.",
+      e_image: "Foto *",
+      e_name: "Nombre del evento *",
+      e_date: "Fecha *",
+      e_time: "Hora de inicio *",
+      e_end_time: "Hora de fin (opcional)",
+      e_location: "Local *",
+      e_address: "Dirección",
+      e_city: "Localidad *",
+      e_genre: "Estilo de música *",
+      e_price: "Precio (p. ej. 10 € o «Entrada libre»)",
+      e_description: "Descripción",
+      msg_need_image: "Añade una foto: sin foto el evento no se puede publicar.",
+      msg_need_date: "Indica la fecha.",
+      msg_saved_live: "Cambios guardados y publicados.",
+      msg_saved_review: "Cambios guardados. Revisamos el evento antes de volver a publicarlo.",
+      msg_uploading: "Subiendo foto…",
       logout: "Salir",
       back_home: "Volver a Marcha",
       privacy: "Privacidad",
@@ -126,6 +148,25 @@
       ev_archived: "Archived",
       recurring: "Repeats",
       logged_in_as: "Signed in as",
+      edit: "Edit",
+      edit_title: "Edit event",
+      edit_recurring_note: "Repeating event: to change the days, email us at info@gomarcha.com.",
+      e_image: "Photo *",
+      e_name: "Event name *",
+      e_date: "Date *",
+      e_time: "Start time *",
+      e_end_time: "End time (optional)",
+      e_location: "Venue *",
+      e_address: "Address",
+      e_city: "Town *",
+      e_genre: "Music style *",
+      e_price: "Price (e.g. €10 or “Free entry”)",
+      e_description: "Description",
+      msg_need_image: "Please add a photo: events without a photo can't be published.",
+      msg_need_date: "Please enter the date.",
+      msg_saved_live: "Changes saved and live.",
+      msg_saved_review: "Changes saved. We'll review the event before it goes live again.",
+      msg_uploading: "Uploading photo…",
       logout: "Sign out",
       back_home: "Back to Marcha",
       privacy: "Privacy",
@@ -185,6 +226,25 @@
       ev_archived: "Archiviert",
       recurring: "Wiederholt sich",
       logged_in_as: "Angemeldet als",
+      edit: "Bearbeiten",
+      edit_title: "Event bearbeiten",
+      edit_recurring_note: "Wiederkehrendes Event: Um die Tage zu ändern, schreib uns an info@gomarcha.com.",
+      e_image: "Foto *",
+      e_name: "Name des Events *",
+      e_date: "Datum *",
+      e_time: "Beginn *",
+      e_end_time: "Ende (freiwillig)",
+      e_location: "Location *",
+      e_address: "Adresse",
+      e_city: "Ort *",
+      e_genre: "Musikrichtung *",
+      e_price: "Preis (z. B. 10 € oder „Eintritt frei“)",
+      e_description: "Beschreibung",
+      msg_need_image: "Bitte füge ein Foto hinzu – ohne Foto kann das Event nicht veröffentlicht werden.",
+      msg_need_date: "Bitte gib das Datum an.",
+      msg_saved_live: "Änderungen gespeichert und online.",
+      msg_saved_review: "Änderungen gespeichert. Wir sehen uns das Event an, bevor es wieder online geht.",
+      msg_uploading: "Foto wird hochgeladen …",
       logout: "Abmelden",
       back_home: "Zurück zu Marcha",
       privacy: "Datenschutz",
@@ -200,9 +260,9 @@
   };
 
   const $ = (id) => document.getElementById(id);
-  const VIEWS = ["viewLoading", "viewLogin", "viewCheckMail", "viewProfile", "viewDashboard", "viewAdmin"];
+  const VIEWS = ["viewLoading", "viewLogin", "viewCheckMail", "viewProfile", "viewDashboard", "viewAdmin", "viewEdit"];
   const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const state = { lang: "es", session: null, organizer: null };
+  const state = { lang: "es", session: null, organizer: null, events: [], editing: null };
 
   // ---------------------------------------------------------------- Sprache
   function detectLanguage() {
@@ -407,6 +467,7 @@
     let events = [];
     try {
       events = await loadOwnEvents();
+      state.events = events;
     } catch (error) {
       console.error("Events laden fehlgeschlagen:", error);
       message(t("msg_error"), "error");
@@ -432,16 +493,158 @@
       const badge = document.createElement("span");
       badge.className = `org-badge org-badge--${status === "archived" ? "pending" : status}`;
       badge.textContent = t(`ev_${status}`);
+      const side = document.createElement("div");
+      side.className = "org-events__side";
       if (status === "approved") {
         const link = document.createElement("a");
         link.href = `/e/${encodeURIComponent(ev.id)}`;
         link.append(badge);
-        li.append(info, link);
+        side.append(link);
       } else {
-        li.append(info, badge);
+        side.append(badge);
       }
+      if (status !== "archived" && state.organizer?.status !== "blocked") {
+        const edit = document.createElement("button");
+        edit.type = "button";
+        edit.className = "org-link org-events__edit";
+        edit.textContent = t("edit");
+        edit.addEventListener("click", () => openEdit(ev));
+        side.append(edit);
+      }
+      li.append(info, side);
       list.append(li);
     });
+  }
+
+  // ---------------------------------------------------------------- Bearbeiten (B2)
+  function openEdit(ev) {
+    state.editing = ev;
+    message("");
+    $("eName").value = eventTitle(ev) === "–" ? "" : (ev.name || eventTitle(ev));
+    $("eDate").value = ev.event_date || "";
+    $("eDateRow").hidden = Boolean(ev.is_recurring);
+    $("eDate").required = !ev.is_recurring;
+    $("editRecurringNote").hidden = !ev.is_recurring;
+    $("eTime").value = ev.event_time ? String(ev.event_time).slice(0, 5) : "";
+    $("eEndTime").value = ev.end_time ? String(ev.end_time).slice(0, 5) : "";
+    $("eLocation").value = ev.location_name || "";
+    $("eAddress").value = ev.address || "";
+    $("eCity").value = ev.city || "";
+    $("eGenre").value = ev.genre || "";
+    $("ePrice").value = ev.price_text || "";
+    $("eDescription").value = ev[`description_${state.lang}`] || ev.description || "";
+    $("eImage").value = "";
+    const preview = $("eImagePreview");
+    preview.hidden = !ev.image_url;
+    if (ev.image_url) preview.src = ev.image_url;
+    show("viewEdit");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function resizeImage(file) {
+    try {
+      const bitmap = await createImageBitmap(file);
+      const scale = Math.min(1, UPLOAD_MAX_EDGE_PX / Math.max(bitmap.width, bitmap.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(bitmap.width * scale);
+      canvas.height = Math.round(bitmap.height * scale);
+      canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.85));
+      return blob || file;
+    } catch (_e) {
+      return file;
+    }
+  }
+
+  async function uploadImage(file) {
+    const blob = await resizeImage(file);
+    const random = Math.random().toString(36).slice(2, 10);
+    const path = `org/${state.session.user.id}/${Date.now()}-${random}.jpg`;
+    const { error } = await client.storage.from("event-images").upload(path, blob, {
+      contentType: "image/jpeg", upsert: false
+    });
+    if (error) throw error;
+    const { data } = client.storage.from("event-images").getPublicUrl(path);
+    if (!data?.publicUrl) throw new Error("no public url");
+    return data.publicUrl;
+  }
+
+  async function translate(text, targetCode) {
+    try {
+      const res = await fetch(SMART_ACTION_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${state.session?.access_token || SUPABASE_ANON_KEY}`
+        },
+        body: JSON.stringify({ text, targetLang: TRANSLATION_TARGET[targetCode] })
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      const out = String(data?.translated || "").trim();
+      return out || null;
+    } catch (_e) {
+      return null;
+    }
+  }
+
+  async function saveEdit(event) {
+    event.preventDefault();
+    const ev = state.editing;
+    if (!ev) return;
+    const button = event.submitter || $("editForm").querySelector("button[type=submit]");
+    const file = $("eImage").files?.[0] || null;
+    if (!file && !ev.image_url) { message(t("msg_need_image"), "error"); return; }
+    if (!ev.is_recurring && !$("eDate").value) { message(t("msg_need_date"), "error"); return; }
+    button.disabled = true;
+    message("");
+    try {
+      const patch = {
+        name: $("eName").value.trim(),
+        title_de: null, title_en: null, title_es: null, // sonst überdecken alte Übersetzungen den neuen Namen
+        event_time: $("eTime").value,
+        end_time: $("eEndTime").value || null,
+        location_name: $("eLocation").value.trim(),
+        address: textOrNull($("eAddress").value),
+        city: $("eCity").value.trim(),
+        genre: $("eGenre").value.trim(),
+        price_text: textOrNull($("ePrice").value)
+      };
+      if (!ev.is_recurring) patch.event_date = $("eDate").value;
+
+      const oldDescription = String(ev[`description_${state.lang}`] || ev.description || "").trim();
+      const newDescription = $("eDescription").value.trim();
+      if (newDescription !== oldDescription) {
+        patch.description = newDescription || null;
+        for (const code of ["es", "en", "de"]) {
+          patch[`description_${code}`] = code === state.lang ? (newDescription || null)
+            : (newDescription ? await translate(newDescription, code) : null);
+        }
+      }
+
+      if (file) {
+        message(t("msg_uploading"));
+        const url = await uploadImage(file);
+        const old = Array.isArray(ev.image_urls) ? ev.image_urls.filter((u) => typeof u === "string" && u !== url) : [];
+        patch.image_url = url;
+        patch.image_urls = [url, ...(ev.image_url && ev.image_url !== url ? [ev.image_url] : []), ...old].slice(0, 5);
+      }
+
+      const { error } = await client.from("events").update(patch).eq("id", ev.id);
+      if (error) throw error;
+
+      state.editing = null;
+      show("viewDashboard");
+      await renderEvents();
+      const now = state.events.find((x) => x.id === ev.id);
+      message(t(now?.status === "approved" ? "msg_saved_live" : "msg_saved_review"), "success");
+    } catch (error) {
+      console.error("Event speichern fehlgeschlagen:", error);
+      message(t("msg_error"), "error");
+    } finally {
+      button.disabled = false;
+    }
   }
 
   // ---------------------------------------------------------------- Login
@@ -489,6 +692,13 @@
     $("profileForm").addEventListener("submit", saveProfile);
     $("cancelProfile").addEventListener("click", () => { message(""); show("viewDashboard"); });
     $("editProfile").addEventListener("click", () => { message(""); openProfileForm(true); });
+    $("editForm").addEventListener("submit", saveEdit);
+    $("cancelEdit").addEventListener("click", () => { state.editing = null; message(""); show("viewDashboard"); });
+    $("eImage").addEventListener("change", () => {
+      const file = $("eImage").files?.[0];
+      const preview = $("eImagePreview");
+      if (file) { preview.src = URL.createObjectURL(file); preview.hidden = false; }
+    });
     const logout = async () => {
       await client.auth.signOut();
       state.session = null;

@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@600;700&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="./veranstalter.css?v=2026.11.13-b1">
+  <link rel="stylesheet" href="./veranstalter.css?v=2026.11.13-b3">
 </head>
 <body>
   <header class="org-header">
@@ -96,6 +96,55 @@
       </form>
     </section>
 
+    <!-- Event bearbeiten (B2) -->
+    <section id="viewEdit" class="org-card" hidden>
+      <h2 data-t="edit_title"></h2>
+      <p id="editRecurringNote" class="org-small" data-t="edit_recurring_note" hidden></p>
+      <form id="editForm" class="org-form">
+        <label for="eImage" data-t="e_image"></label>
+        <img id="eImagePreview" class="org-edit-image" alt="" hidden>
+        <input id="eImage" type="file" accept="image/jpeg,image/png,image/webp">
+        <p class="org-small" data-t="photo_tip"></p>
+
+        <label for="eName" data-t="e_name"></label>
+        <input id="eName" required maxlength="300">
+
+        <div id="eDateRow">
+          <label for="eDate" data-t="e_date"></label>
+          <input id="eDate" type="date">
+        </div>
+
+        <label for="eTime" data-t="e_time"></label>
+        <input id="eTime" type="time" required>
+
+        <label for="eEndTime" data-t="e_end_time"></label>
+        <input id="eEndTime" type="time">
+
+        <label for="eLocation" data-t="e_location"></label>
+        <input id="eLocation" required maxlength="200">
+
+        <label for="eAddress" data-t="e_address"></label>
+        <input id="eAddress" maxlength="300">
+
+        <label for="eCity" data-t="e_city"></label>
+        <input id="eCity" required maxlength="120">
+
+        <label for="eGenre" data-t="e_genre"></label>
+        <input id="eGenre" required maxlength="200">
+
+        <label for="ePrice" data-t="e_price"></label>
+        <input id="ePrice" maxlength="80">
+
+        <label for="eDescription" data-t="e_description"></label>
+        <textarea id="eDescription" rows="6" maxlength="8000"></textarea>
+
+        <div class="org-actions">
+          <button type="submit" class="org-button" data-t="save"></button>
+          <button type="button" class="org-link" id="cancelEdit" data-t="cancel"></button>
+        </div>
+      </form>
+    </section>
+
     <!-- Als Admin angemeldet -->
     <section id="viewAdmin" class="org-card" hidden>
       <h2 data-t="admin_title"></h2>
@@ -141,6 +190,6 @@
   </footer>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.js"></script>
-  <script src="./veranstalter.js?v=2026.11.13-b2"></script>
+  <script src="./veranstalter.js?v=2026.11.13-b3"></script>
 </body>
 </html>
