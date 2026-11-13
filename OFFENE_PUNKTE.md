@@ -117,6 +117,9 @@ Erst **Plan vorlegen**, dann umsetzen. Ergebnis eines Councils (4 Prüfer) vom 1
 
 ## 3. Übersetzung `smart-action` absichern
 
+**ERLEDIGT 13.11.2026 (Version 25, von Claude deployt und getestet):** Übersetzt jetzt mit Claude Sonnet 5.5 nach dem Leitfaden (`SOCIAL_POSTS_LEITFADEN.md`), OpenAI nur noch als Ausweich. Zugriff: angemeldet bis 8.000 Zeichen; ohne Login nur von gomarcha.com/Testumgebung aus und bis 4.000 Zeichen (fremde Herkunft → 403, getestet). Secret `ANTHROPIC_API_KEY` (Frank, mit Monatslimit). Bisheriger Text unten nur noch zur Historie.
+
+
 - Code liegt seit 12.11.2026 im Repo (`supabase/functions/smart-action/index.ts`, deployte Version 20, unverändert übernommen).
 - Ist **ohne Login aufrufbar** → Fremde könnten OpenAI-Kosten verursachen. Ein Monatsbudget bei OpenAI ist gesetzt (Frank, 10.11.2026).
 - Mit den Veranstalter-Konten: nur noch angemeldete Veranstalter/Admins, Längengrenze pro Text.
