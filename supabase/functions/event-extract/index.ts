@@ -5,15 +5,27 @@ import Anthropic from "npm:@anthropic-ai/sdk";
  * event-extract — KI-Schnelleintrag (13.11.2026)
  *
  * Liest einen Flyer (Bild) und/oder einen Text (z. B. Instagram-Post) und gibt die Event-Felder
- * als Vorschlag zurück. Schreibt NICHTS in die Datenbank – gespeichert wird erst im Admin nach Prüfung.
- * Nur für Admins (Supabase-Login mit app_metadata.role = 'admin').
- * Secrets: ANTHROPIC_API_KEY. Standard: SUPABASE_URL, SUPABASE_ANON_KEY.
+ * als Vorschlag zurück. Schreibt KEIN Event – gespeichert wird erst nach Prüfung durch den Menschen.
+ * Zugriff und Tageslimits (Tabelle ai_usage, SQL #26):
+ *   - Admin (app_metadata.role = 'admin'): unbegrenzt
+ *   - Veranstalter-Konto (Eintrag in organizers, nicht gesperrt): 20 pro Tag
+ *   - ohne Konto: nur von gomarcha.com / Testumgebung aus, 5 pro Tag pro Anschluss (IP nur als Hash), 100 pro Tag gesamt
+ * Secrets: ANTHROPIC_API_KEY. Standard: SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY.
  */
 
 const MODEL = "claude-sonnet-5-5";
 const TZ = "Europe/Madrid";
 const MAX_TEXT = 8000;
 const MAX_IMAGE_B64 = 7_000_000; // ~5 MB Bild
+const LIMIT_ORGANIZER = 20;
+const LIMIT_ANON_PER_IP = 5;
+const LIMIT_ANON_TOTAL = 100;
+const ALLOWED_ORIGINS = [
+  /^https:\/\/(www\.)?gomarcha\.com$/i,
+  /^https:\/\/[a-z0-9-]+\.gomarcha-test\.pages\.dev$/i,
+  /^https:\/\/gomarcha-test\.pages\.dev$/i,
+  /^http:\/\/localhost(:\d+)?$/i,
+];
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -24,7 +36,7 @@ function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
 }
 
-const S = (desc: string) => ({ type: ["string", "null"], description: desc });
+const S = (desc: string) => ({ type: "string", description: `${desc} (cadena vacía "" si no aparece)` });
 const SCHEMA = {
   type: "object",
   properties: {
@@ -34,6 +46,7 @@ const SCHEMA = {
     end_time: S("Hora de fin HH:MM; null si no aparece"),
     location_name: S("Nombre del local"),
     address: S("Dirección si aparece"),
+    postal_code: S("Código postal si aparece"),
     city: S("Localidad"),
     price_text: S("Precio tal cual, p. ej. '10 €'; null si gratis o no aparece"),
     is_free: { type: ["boolean", "null"], description: "true si dice gratis / entrada libre / free; null si no se sabe" },
@@ -47,7 +60,7 @@ const SCHEMA = {
     uncertain: { type: "array", items: { type: "string" }, description: "Campos dudosos o ilegibles (nombres de campo)" },
     notes: S("Observaciones breves para el administrador (p. ej. 'año no visible')"),
   },
-  required: ["name", "event_date", "event_time", "end_time", "location_name", "address", "city", "price_text", "is_free",
+  required: ["name", "event_date", "event_time", "end_time", "location_name", "address", "postal_code", "city", "price_text", "is_free",
     "genre", "artist_name", "is_weekly", "weekday", "description_es", "description_en", "description_de", "uncertain", "notes"],
   additionalProperties: false,
 };
@@ -62,7 +75,7 @@ function todayInfo(): { iso: string; weekday: string } {
 const SYSTEM = `Extraes los datos de un evento (música en directo, fiesta, tardeo…) en la Costa del Sol a partir de un cartel/flyer y/o un texto (p. ej. un post de Instagram) para la app Marcha.
 
 Reglas:
-- Usa SOLO lo que aparece en el cartel o en el texto. Si algo no aparece o no se lee bien, pon null y añade el campo a "uncertain". Nunca inventes horas, precios, artistas ni fechas.
+- Usa SOLO lo que aparece en el cartel o en el texto. Si algo no aparece o no se lee bien, deja el campo como cadena vacía "" (o null en is_free/weekday) y añade el campo a "uncertain". Nunca inventes horas, precios, artistas ni fechas.
 - Fechas: si falta el año, usa la próxima fecha futura a partir de hoy. Si el cartel dice solo un día de la semana ("este viernes"), calcula la próxima fecha con ese día. Comprueba que el día de la semana coincide con la fecha; si no coincide, prioriza la fecha escrita y anótalo en "notes".
 - Eventos semanales ("cada viernes", "todos los sábados"): is_weekly = true, weekday = día (0=domingo … 6=sábado) y event_date = la próxima edición.
 - Horas en formato 24 h (HH:MM). "9 pm" → "21:00".
@@ -71,15 +84,73 @@ Reglas:
 - Descripciones (es/en/de): 2–4 frases naturales, como una persona de la zona; solo hechos de la fuente; sin superlativos ni "no te lo pierdas"; en español "en directo" (nunca "en vivo"), en alemán con "du". Sin hashtags. Máx. 2 emojis.
 - Si hay varios eventos en el cartel, toma el principal y menciónalo en "notes".`;
 
-async function isAdmin(req: Request): Promise<boolean> {
+type Caller = { audience: "admin" | "organizer" | "anon"; subject: string };
+
+function serviceHeaders(): Record<string, string> {
+  const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+  return { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json" };
+}
+
+async function sha256(text: string): Promise<string> {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** Wer ruft auf? null = nicht erlaubt. */
+async function identify(req: Request): Promise<Caller | null> {
   const token = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
   const base = Deno.env.get("SUPABASE_URL") || "";
   const anon = Deno.env.get("SUPABASE_ANON_KEY") || "";
-  if (!token || token.split(".").length !== 3 || !base) return false;
-  const res = await fetch(`${base}/auth/v1/user`, { headers: { apikey: anon, Authorization: `Bearer ${token}` } });
-  if (!res.ok) return false;
-  const user = await res.json();
-  return user?.app_metadata?.role === "admin";
+  if (token && token.split(".").length === 3 && base) {
+    const res = await fetch(`${base}/auth/v1/user`, { headers: { apikey: anon, Authorization: `Bearer ${token}` } });
+    if (res.ok) {
+      const user = await res.json();
+      if (user?.app_metadata?.role === "admin") return { audience: "admin", subject: String(user.id) };
+      const org = await fetch(`${base}/rest/v1/organizers?id=eq.${encodeURIComponent(user.id)}&select=status`, { headers: serviceHeaders() });
+      const rows = org.ok ? await org.json() : [];
+      if (Array.isArray(rows) && rows[0] && rows[0].status !== "blocked") return { audience: "organizer", subject: String(user.id) };
+    }
+  }
+  const origin = req.headers.get("origin") || "";
+  if (!ALLOWED_ORIGINS.some((re) => re.test(origin))) return null;
+  const ip = (req.headers.get("x-forwarded-for") || "").split(",")[0].trim() || "unknown";
+  const salt = (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "").slice(-24);
+  return { audience: "anon", subject: `ip:${(await sha256(`${salt}:${ip}`)).slice(0, 32)}` };
+}
+
+async function countSince(filter: string): Promise<number> {
+  const base = Deno.env.get("SUPABASE_URL") || "";
+  const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+  const res = await fetch(`${base}/rest/v1/ai_usage?select=id&feature=eq.event-extract&ok=eq.true&created_at=gte.${encodeURIComponent(since)}&${filter}`, {
+    headers: { ...serviceHeaders(), Prefer: "count=exact", Range: "0-0" },
+  });
+  const range = res.headers.get("content-range") || "";
+  return Number(range.split("/")[1] || 0);
+}
+
+/** Liefert eine Fehlermeldung, wenn das Tageslimit erreicht ist. */
+async function overLimit(c: Caller): Promise<string | null> {
+  if (c.audience === "admin") return null;
+  if (c.audience === "organizer") {
+    return (await countSince(`subject=eq.${encodeURIComponent(c.subject)}`)) >= LIMIT_ORGANIZER
+      ? `Tageslimit erreicht (${LIMIT_ORGANIZER} pro Tag). Bitte morgen wieder oder Felder von Hand ausfüllen.` : null;
+  }
+  if ((await countSince(`subject=eq.${encodeURIComponent(c.subject)}`)) >= LIMIT_ANON_PER_IP) {
+    return `Tageslimit erreicht (${LIMIT_ANON_PER_IP} pro Tag). Mit einem kostenlosen Veranstalter-Konto geht mehr.`;
+  }
+  if ((await countSince("audience=eq.anon")) >= LIMIT_ANON_TOTAL) {
+    return "Die KI-Hilfe ist für heute ausgelastet. Bitte die Felder von Hand ausfüllen.";
+  }
+  return null;
+}
+
+async function recordUsage(c: Caller, ok: boolean): Promise<void> {
+  const base = Deno.env.get("SUPABASE_URL") || "";
+  await fetch(`${base}/rest/v1/ai_usage`, {
+    method: "POST",
+    headers: { ...serviceHeaders(), Prefer: "return=minimal" },
+    body: JSON.stringify({ feature: "event-extract", audience: c.audience, subject: c.subject, ok }),
+  }).catch(() => {});
 }
 
 function cleanTime(v: unknown): string | null {
@@ -92,7 +163,10 @@ function cleanTime(v: unknown): string | null {
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
-  if (!(await isAdmin(req))) return json({ error: "Nur für Admins" }, 403);
+  const caller = await identify(req);
+  if (!caller) return json({ error: "Nicht erlaubt" }, 403);
+  const limitMessage = await overLimit(caller);
+  if (limitMessage) return json({ error: limitMessage, limit: true }, 429);
   const apiKey = Deno.env.get("ANTHROPIC_API_KEY") || "";
   if (!apiKey) return json({ error: "ANTHROPIC_API_KEY fehlt" }, 500);
 
@@ -125,6 +199,7 @@ Deno.serve(async (req: Request) => {
     if (response.stop_reason === "refusal") return json({ error: "Die KI hat die Anfrage abgelehnt." }, 422);
     const raw = response.content.filter((b): b is Anthropic.TextBlock => b.type === "text").map((b) => b.text).join("");
     const data = JSON.parse(raw);
+    for (const [k, v] of Object.entries(data)) if (v === "") data[k] = null;
     // Plausibilität
     if (data.event_date && !/^\d{4}-\d{2}-\d{2}$/.test(data.event_date)) { data.event_date = null; data.uncertain = [...(data.uncertain || []), "event_date"]; }
     data.event_time = cleanTime(data.event_time);
@@ -136,10 +211,12 @@ Deno.serve(async (req: Request) => {
       data.notes = `${data.notes ? data.notes + " · " : ""}Wochentag passt nicht zum Datum – bitte prüfen.`;
       data.uncertain = [...(data.uncertain || []), "event_date", "weekday"];
     }
-    console.log(JSON.stringify({ fn: "event-extract", ok: true, image: Boolean(imageData), textChars: text.length, uncertain: data.uncertain }));
+    await recordUsage(caller, true);
+    console.log(JSON.stringify({ fn: "event-extract", ok: true, audience: caller.audience, image: Boolean(imageData), textChars: text.length, uncertain: data.uncertain }));
     return json({ ok: true, today: today.iso, event: data, model: MODEL });
   } catch (err) {
-    console.log(JSON.stringify({ fn: "event-extract", ok: false, error: err instanceof Error ? err.message : String(err) }));
-    return json({ error: "Auslesen fehlgeschlagen – bitte noch einmal versuchen." }, 502);
+    await recordUsage(caller, false);
+    console.log(JSON.stringify({ fn: "event-extract", ok: false, audience: caller.audience, error: err instanceof Error ? err.message : String(err) }));
+    return json({ error: "Auslesen fehlgeschlagen – bitte noch einmal versuchen.", detail: String(err instanceof Error ? err.message : err).slice(0, 300) }, 502);
   }
 });
