@@ -1,4 +1,4 @@
-const CACHE_VERSION = "marcha-beta-v19";
+const CACHE_VERSION = "marcha-beta-v21";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 
