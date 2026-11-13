@@ -6,6 +6,7 @@ import {
   logSocialImageResolution,
   resolveSocialPostImageReachable
 } from "./social-post-image-resolution.ts";
+import { writeCaption, type CaptionFacts, type Stage as AiStage } from "./caption-ai.ts";
 
 type SocialPlatform = "instagram" | "facebook";
 
@@ -53,6 +54,13 @@ type EventRow = {
   recurrence_end_date?: string | null;
   recurrence_weekday?: number | null;
   recurrence_day_of_month?: number | null;
+  title_es?: string | null;
+  artist_name?: string | null;
+  price_text?: string | null;
+  description?: string | null;
+  description_es?: string | null;
+  is_recurring?: boolean | null;
+  organizer_id?: string | null;
 };
 
 const CORS: Record<string, string> = {
@@ -1334,6 +1342,50 @@ function readCollectionEventIds(row: QueueRow): string[] {
   return ids.filter((id): id is string => typeof id === "string" && Boolean(id));
 }
 
+/** KI-Caption (Leitfaden SOCIAL_POSTS_LEITFADEN.md): Faktenpaket aus Event + Termin. */
+async function buildAiCaptionFacts(
+  supabase: SupabaseClient,
+  ev: EventRow,
+  eventStartMs: number,
+  timeZone: string,
+  stage: CaptionStage
+): Promise<CaptionFacts> {
+  const dateIso = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" })
+    .format(new Date(eventStartMs));
+  const price = String(ev.price_text ?? "");
+  const isFree = /^\s*(0([.,]0+)?\s*(eur|€|euros?)?|gratis|free|entrada libre|eintritt frei)\s*$/i.test(price);
+  let venueHandle: string | null = null;
+  if (ev.organizer_id) {
+    const { data } = await supabase.from("organizers").select("instagram").eq("id", ev.organizer_id).maybeSingle();
+    const h = String((data as { instagram?: string } | null)?.instagram || "").trim();
+    if (h) venueHandle = h.startsWith("@") ? h : `@${h}`;
+  }
+  const { data: prev } = await supabase
+    .from("social_queue")
+    .select("caption")
+    .eq("event_id", ev.id)
+    .like("caption_template_id", "ai:%")
+    .order("updated_at", { ascending: false })
+    .limit(6);
+  const stageMap: Record<CaptionStage, AiStage> = { week: "week", three_days: "three_days", one_day: "one_day", final_call: "today" };
+  return {
+    title: String(ev.title_es || ev.name || "").trim(),
+    venue: String(ev.location_name || "").trim(),
+    city: String(ev.city || "").trim(),
+    dateIso,
+    time: ev.event_time ? String(ev.event_time).slice(0, 5) : null,
+    isFree,
+    priceText: isFree ? null : (price.trim() || null),
+    genres: String(ev.genre || "").split(/[,/]/).map((g) => g.trim()).filter(Boolean),
+    artists: ev.artist_name ? [String(ev.artist_name).trim()] : [],
+    description: String(ev.description_es || ev.description || "").replace(/\*\*/g, "").trim().slice(0, 700),
+    isSeries: Boolean(ev.is_recurring) || ["weekly", "monthly"].includes(String(ev.recurrence_type || "").toLowerCase()),
+    stage: stageMap[stage],
+    venueHandle,
+    previousCaptions: ((prev ?? []) as { caption: string | null }[]).map((r) => String(r.caption || "")).filter(Boolean),
+  };
+}
+
 /** Prefer admin-edited caption from Marcha when present. */
 function buildCaptionForQueueRow(
   row: QueueRow,
@@ -1627,7 +1679,7 @@ Deno.serve(async (req) => {
     const { data: event, error: eErr } = await supabase
       .from("events")
       .select(
-        "id,name,city,location_name,event_date,event_time,genre,status,featured,image_url,image_urls,recurrence_type,recurrence_start_date,recurrence_end_date,recurrence_weekday,recurrence_day_of_month"
+        "id,name,city,location_name,event_date,event_time,genre,status,featured,image_url,image_urls,recurrence_type,recurrence_start_date,recurrence_end_date,recurrence_weekday,recurrence_day_of_month,title_es,artist_name,price_text,description,description_es,is_recurring,organizer_id"
       )
       .eq("id", claimed.event_id)
       .maybeSingle();
@@ -1979,11 +2031,31 @@ Deno.serve(async (req) => {
 
     const captionStage = captionStageForPost(eventStartMs, scheduleResult.effectiveMs, eventTimeZone);
     const captionTemplate = await pickCaptionTemplate(supabase, claimed.event_id, captionStage);
-    const captionBuilt = buildCaptionForQueueRow(claimed, ev, captionTemplate, {
-      eventStartMs,
-      postAtMs: scheduleResult.effectiveMs,
-      timeZone: eventTimeZone
-    });
+    // KI-Caption (Claude) – außer bei Sammel-Posts und von Hand bearbeiteten Captions („manual“).
+    let aiCaption: string | null = null;
+    let aiTemplateId = "";
+    const anthropicKey = Deno.env.get("ANTHROPIC_API_KEY") || "";
+    const manualCaption = String((claimed as { caption_template_id?: string | null }).caption_template_id || "") === "manual";
+    if (anthropicKey && !isCollectionPost && !manualCaption) {
+      try {
+        const facts = await buildAiCaptionFacts(supabase, ev, eventStartMs, eventTimeZone, captionStage);
+        const ai = await writeCaption(facts, anthropicKey);
+        if (ai.caption) {
+          aiCaption = ai.caption;
+          aiTemplateId = `ai:${ai.promptVersion}`;
+        }
+        slog("ai_caption", { queue_id: claimed.id, ok: Boolean(ai.caption), attempts: ai.attempts, problems: ai.problems, model: ai.model });
+      } catch (err) {
+        slog("ai_caption_error", { queue_id: claimed.id, error: err instanceof Error ? err.message : String(err) });
+      }
+    }
+    const captionBuilt = aiCaption
+      ? { caption: aiCaption, template_id: aiTemplateId, source: "ai" as const }
+      : buildCaptionForQueueRow(claimed, ev, captionTemplate, {
+          eventStartMs,
+          postAtMs: scheduleResult.effectiveMs,
+          timeZone: eventTimeZone
+        });
     const { caption, template_id } = captionBuilt;
 
     slog("post_prepare", {
