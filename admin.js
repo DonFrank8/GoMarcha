@@ -2,7 +2,7 @@ const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
 const ADMIN_REQUIRED_ROLE = "admin";
 const ADMIN_ALLOWED_EMAILS = [];
-const ADMIN_DASHBOARD_BUILD = "2026.11.13-schnelleintrag";
+const ADMIN_DASHBOARD_BUILD = "2026.11.15-social-v2";
 // Spalten der Tabelle events, die der Admin-Bereich direkt liest. Einreicher-Daten
 // (contact_email, submitted_by, verification_notes) kommen über die Admin-Funktion
 // marcha_admin_event_private (supabase-security-hardening-6.sql) dazu.
@@ -101,6 +101,7 @@ const SOCIAL_QUEUE_UPDATE_COLUMNS = new Set([
   "postiz_synced_at",
   "admin_confirmed_at",
   "last_error",
+  "caption_template_id",
   "updated_at"
 ]);
 
@@ -142,16 +143,21 @@ const GENRE_PRIORITY_DEFAULT = 6;
  * eventIndex: 0-based rank in genre-sorted event list (default 0)
  * minEvents:  minimum events required to emit this slot (default 1)
  */
+// Social-Media-Konzept v2 (SOCIAL_MEDIA_KONZEPT.md, 15.11.2026): Wochenformate statt Posts pro Termin.
+// Mo 13:30 „La semana en la Costa“ (Mo–Do) · Mi 20:30 Highlight (Do–So) · Do 13:30 „Planes de finde“ (Fr–So)
+// · Sa 12:00 Highlight 2 (Sa/So, nur wenn ein weiteres Event da ist). dayFilter = Liste von getDay()-Werten.
 const WEEKLY_SCHEDULE_PLAN = Object.freeze([
-  { id: "tue_collection", weekday: 2, hour: 14, minute: 0, type: "collection", scope: "week"    },
-  { id: "wed_single",     weekday: 3, hour: 14, minute: 0, type: "single",  dayFilter: 3        },
-  { id: "thu_single",     weekday: 4, hour: 14, minute: 0, type: "single",  dayFilter: 4        },
-  { id: "fri_collection", weekday: 5, hour: 11, minute: 0, type: "collection", scope: "weekend" },
-  { id: "fri_single",     weekday: 5, hour: 18, minute: 0, type: "single",  dayFilter: 5        },
-  { id: "sat_single_1",   weekday: 6, hour: 10, minute: 0, type: "single",  dayFilter: 6, eventIndex: 0              },
-  { id: "sat_single_2",   weekday: 6, hour: 15, minute: 0, type: "single",  dayFilter: 6, eventIndex: 1, minEvents: 2 },
-  { id: "sun_single",     weekday: 0, hour: 11, minute: 0, type: "single",  dayFilter: 0        },
+  { id: "mon_collection", weekday: 1, hour: 13, minute: 30, type: "collection", scope: "weekdays" },
+  { id: "wed_highlight",  weekday: 3, hour: 20, minute: 30, type: "single", dayFilter: [4, 5, 6, 0] },
+  { id: "thu_collection", weekday: 4, hour: 13, minute: 30, type: "collection", scope: "weekend" },
+  { id: "sat_highlight",  weekday: 6, hour: 12, minute: 0,  type: "single", dayFilter: [6, 0] },
 ]);
+
+/**
+ * Alte Post-Planer (Posts pro Termin: Sofort-„Última llamada“, Serien-Slots 3 Tage/Vortag/90 Min.).
+ * Seit Konzept v2 aus – es plant nur noch WEEKLY_SCHEDULE_PLAN. Auf true setzen = altes Verhalten zurück.
+ */
+const LEGACY_PER_EVENT_SOCIAL_SLOTS = false;
 
 const EVENT_ANALYTICS_TABLE = "event_analytics";
 
@@ -2490,6 +2496,7 @@ function slugHashtagToken(value) {
     .slice(0, 28);
 }
 
+/** Leitfaden v2: 3–5 Hashtags (#gomarcha + Ort + Stil + #CostaDelSol); Facebook nur 2. */
 function buildSocialHashtags(event, platform = "instagram") {
   const tags = [];
   const seen = new Set();
@@ -2500,25 +2507,19 @@ function buildSocialHashtags(event, platform = "instagram") {
     tags.push(`#${token}`);
   };
   const city = String(event?.city || "").trim();
-  const venue = String(event?.location_name || "").trim();
-  const genre = String(event?.genre || "").trim().split(/[,/|]/)[0];
+  const genre = String(event?.genre || "").trim().split(/[,/|]/)[0].toLowerCase();
+  push("gomarcha");
   if (city) push(city.replace(/\s+/g, ""));
+  if (String(platform).toLowerCase() === "facebook") return tags.slice(0, 2).join(" ");
   if (genre) push(genre);
-  if (venue) push(venue.split(/\s+/)[0]);
-  const vibes = {
-    instagram: ["LiveMusic", "NightOut"],
-    facebook: ["Events", "Local"],
-    tiktok: ["FYP", "Vibes"]
-  };
-  for (const v of vibes[String(platform).toLowerCase()] || vibes.instagram) push(v);
-  if (tags.length < 3) push("GoMarcha");
+  push("CostaDelSol");
   return tags.slice(0, 5).join(" ");
 }
 
 function sanitizeHumanCaptionText(text) {
   let out = String(text || "").trim();
   for (const re of SOCIAL_CAPTION_BANNED) out = out.replace(re, "").trim();
-  out = out.replace(/\s{2,}/g, " ").replace(/\n{3,}/g, "\n\n");
+  out = out.replace(/[ \t]{2,}/g, " ").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n");
   return out;
 }
 
@@ -2728,50 +2729,86 @@ function buildHumanSocialCaptionContext(event, eventStart, lang) {
     dateLine,
     timeLine,
     place,
+    price: String(event?.price_text || "").trim(),
     eventStart: eventStart instanceof Date && !Number.isNaN(eventStart.getTime()) ? eventStart : null
   };
 }
 
+const SOCIAL_ES_WEEKDAYS_SHORT = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
+const SOCIAL_ES_MONTHS_SHORT = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+const SOCIAL_EN_WEEKDAYS_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const SOCIAL_EN_MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** „vie 20 nov · 21:00“ (Leitfaden: klein, 24 h). */
+function formatSocialShortDateEs(date, withTime = true) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
+  const base = `${SOCIAL_ES_WEEKDAYS_SHORT[date.getDay()]} ${date.getDate()} ${SOCIAL_ES_MONTHS_SHORT[date.getMonth()]}`;
+  if (!withTime) return base;
+  return `${base} · ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+/** „Fri 20 Nov, 21:00“ für die EN-Zeile. */
+function formatSocialShortDateEn(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
+  const hh = String(date.getHours()).padStart(2, "0");
+  const mm = String(date.getMinutes()).padStart(2, "0");
+  return `${SOCIAL_EN_WEEKDAYS_SHORT[date.getDay()]} ${date.getDate()} ${SOCIAL_EN_MONTHS_SHORT[date.getMonth()]}, ${hh}:${mm}`;
+}
+
+/** Genre für spanische Texte: klein, „latin“ → „música latina“. */
+function socialGenreEs(genre) {
+  const g = String(genre || "").trim().toLowerCase();
+  if (!g) return "";
+  if (g === "latin" || g === "latina" || g === "latino") return "música latina";
+  if (g === "live music") return "música en directo";
+  return g;
+}
+
+function isSocialFreePrice(price) {
+  return /^\s*(0([.,]0+)?\s*(eur|€|euros?)?|gratis|free|entrada libre|eintritt frei)\s*$/i.test(String(price || ""));
+}
+
+/** Preiszeile nur, wenn ein Preis bekannt ist (nie „Entradas …“ raten). */
+function socialPriceLineEs(price) {
+  const p = String(price || "").trim();
+  if (!p) return "";
+  if (isSocialFreePrice(p)) return "🎟 Entrada libre";
+  return `🎟 Entrada: ${p.replace(/\s*EUR\b/i, " €")}`;
+}
+
 function buildSpanishCaptionByStage(ctx, stage, platformKey) {
   const stageKey = normalizeSocialPostStage(stage) || "early_reminder";
-  const { headline, place, genre, dateLine, timeLine, atmosphere, eventStart } = ctx;
-  const genreLive = genre ? `${genre} en vivo` : "música en vivo";
-  const cta =
-    platformKey === "facebook"
-      ? "Reserva e info en el enlace."
-      : "Entradas e info en el enlace de la bio.";
+  const { headline, artist, venue, city, genre, atmosphere, eventStart, price } = ctx;
+  const genreEs = socialGenreEs(genre);
+  const what = artist || headline || (genreEs ? `${genreEs} en directo` : "Música en directo");
+  const inCity = city ? ` en ${city}` : "";
 
-  let caption = "";
-
-  if (stageKey === "early_reminder") {
-    const lead = headline && genre ? `${headline} · ${genreLive}` : headline || genreLive;
-    const when = dateLine ? `${dateLine}` : "";
-    const where = place ? `Te esperamos en ${place}` : "";
-    const invite = atmosphere ? atmosphere : "Reserva tu sitio con antelación.";
-    caption = [lead, when, where, invite].filter(Boolean).join(". ").replace(/\.\./g, ".");
+  let hook;
+  if (stageKey === "last_call" || stageKey === "event_day") {
+    hook = `Hoy${inCity}: ${what}`;
   } else if (stageKey === "tomorrow") {
-    const when = timeLine || dateLine || "mañana";
-    caption = `${headline || genreLive}${place ? ` en ${place}` : ""} — mañana · ${when}.`;
-  } else if (stageKey === "last_call") {
-    const urgency = eventStart && adminSameCalendarDay(eventStart, new Date())
-      ? "Hoy"
-      : eventStart && adminIsTomorrow(eventStart)
-        ? "Mañana"
-        : dateLine || "Próximamente";
-    caption = `Última llamada: ${headline || genreLive}${place ? ` @ ${place}` : ""}. ${urgency}${timeLine ? ` · ${timeLine}` : ""}.`;
+    hook = `Mañana${inCity}: ${what}`;
   } else if (stageKey === "collection") {
-    // Caption is built externally by buildCollectionPostCaption; use a neutral placeholder.
-    caption = headline || genreLive;
-  } else if (stageKey === "event_day") {
-    caption = `Hoy: ${headline || genreLive}${place ? ` en ${place}` : ""}${genre ? ` · ${genreLive}` : ""}${timeLine ? ` · ${timeLine}` : ""}.`;
+    return what; // Sammel-Posts baut buildCollectionPostCaption
   } else {
-    const bits = [headline || genreLive, place ? `en ${place}` : "", dateLine || timeLine].filter(Boolean);
-    caption = bits.join(" · ");
+    hook = genreEs ? `${what} · ${genreEs} en directo${inCity}` : `${what}${inCity}`;
   }
 
-  if (!caption.includes(cta.split(" ")[0]) && (stageKey === "last_call" || stageKey === "event_day")) {
-    caption = `${caption} ${cta}`;
-  }
+  const info = [
+    venue || city ? `📍 ${[venue, city && venue && !venue.toLowerCase().includes(city.toLowerCase()) ? city : ""].filter(Boolean).join(" · ") || city}` : "",
+    eventStart ? `🗓 ${formatSocialShortDateEs(eventStart)}` : "",
+    socialPriceLineEs(price)
+  ].filter(Boolean);
+
+  const enBits = [
+    genre ? `Live ${String(genre).toLowerCase()}` : "Live music",
+    [venue, city].filter(Boolean).join(", "),
+    eventStart ? formatSocialShortDateEn(eventStart) : ""
+  ].filter(Boolean);
+  const enLine = `EN: ${enBits.join(" · ")}`;
+
+  const body = atmosphere ? `${hook}.\n${atmosphere}` : `${hook}.`;
+  const caption = [body, info.join("\n"), enLine].filter(Boolean).join("\n\n");
   return scrubGenericCaptionPhrases(caption, ctx.description);
 }
 
@@ -2861,13 +2898,13 @@ function generateHumanSocialCaptionBundle(event, platform, eventStartOrScheduled
     caption = buildStageCaptionText(ctx, "early_reminder", lang, platformKey);
   }
 
-  if (includeDate && ctx.dateLine && !caption.includes(ctx.dateLine)) {
+  if (includeDate && lang !== "es" && ctx.dateLine && !caption.includes(ctx.dateLine)) {
     if (platformKey === "facebook") caption = `${caption}\n${ctx.dateLine}`;
     else if (platformKey !== "tiktok" && postStage !== "last_call") caption = `${caption}\n${ctx.dateLine}`;
   }
 
-  if (platformKey === "instagram" && caption.length > 280) {
-    caption = `${caption.slice(0, 277).trim()}…`;
+  if (platformKey === "instagram" && caption.length > 1000) {
+    caption = `${caption.slice(0, 997).trim()}…`;
   }
   if (platformKey === "tiktok" && caption.length > 120) {
     caption = `${caption.slice(0, 117).trim()}…`;
@@ -2878,8 +2915,8 @@ function generateHumanSocialCaptionBundle(event, platform, eventStartOrScheduled
     options.cta_text ??
     (lang === "es"
       ? (platformKey === "facebook"
-          ? "Reserva e info en el enlace."
-          : "Entradas e info en el enlace de la bio.")
+          ? "Más planes en gomarcha.com"
+          : "Más planes en la app Marcha (link en bio)")
       : lang === "de"
         ? "Infos und Tickets im Link."
         : "Details and tickets in bio.");
@@ -3465,9 +3502,13 @@ function buildSocialQueueDraftSavePayload(form, row, validation, eventForImage) 
     candidates: imageResolution.candidates
   });
 
+  const newCaption = String(form.caption || "").trim();
+  // Von Hand geänderter Text → „manual“: Der Runner übernimmt ihn unverändert (keine KI-Neufassung).
+  const captionEdited = newCaption !== String(row?.caption || "").trim();
   const payload = pickSocialQueueUpdateRow({
     title: String(form.title || "").trim(),
-    caption: String(form.caption || "").trim(),
+    caption: newCaption,
+    ...(captionEdited ? { caption_template_id: "manual" } : {}),
     scheduled_at: validation.scheduled_at,
     platforms,
     platform: primaryPlatform,
@@ -4409,46 +4450,63 @@ function genreEmojiForEvent(ev) {
  * @param {number} isoWeek  ISO week number (used for hook rotation).
  */
 function buildCollectionPostCaption(events, scope, isoWeek, platform = "instagram") {
-  // ── Deterministic hook rotation ───────────────────────────────────────────
-  const HOOKS_WEEK = [
-    "🎶 ¿Aún no tienes planes para esta semana? Descubre los mejores eventos cerca de ti.",
-    "🔥 Los mejores eventos de la semana, reunidos en un solo lugar.",
-    "🎸 Esta semana viene cargada de música en vivo y buen ambiente. ¡No te lo pierdas!",
-    "🌞 ¿Sin planes para esta semana? Descubre los eventos que no te puedes perder.",
-  ];
-  const HOOKS_WEEKEND = [
-    "🔥 ¿Todavía sin plan para este finde? ¡Aquí tienes todo lo que necesitas!",
-    "🌴 ¿Todavía no sabes qué hacer este finde? ¡Echa un vistazo!",
-    "🍹 ¿Buscas algo para hacer este finde? Aquí tienes nuestras recomendaciones.",
-    "🎤 Música en vivo, fiestas y mucho más: descubre lo mejor de este finde.",
-  ];
-
+  // Konzept v2 / Texter Málaga: nüchtern, konkret, Datum/Ort vom Code, nichts erfinden.
   const isWeekend = scope === "weekend";
-  const hooks  = isWeekend ? HOOKS_WEEKEND : HOOKS_WEEK;
-  const week   = typeof isoWeek === "number" ? isoWeek : 0;
-  const hook   = hooks[week % hooks.length];
-  // Facebook: no URL (avoids OG-image override); Instagram: link-in-bio reference.
   const platformKey = String(platform || "instagram").toLowerCase();
-  const footerPrefix = platformKey === "facebook"
-    ? "📍 GoMarcha · Costa del Sol"
-    : "📍 Todos los eventos → enlace en la bio";
-  const footer = isWeekend
-    ? `${footerPrefix}\n#CostaDelSol #Marbella #finde #GoMarcha`
-    : `${footerPrefix}\n#CostaDelSol #Marbella #músicaenvivo #GoMarcha`;
+  const startOf = (ev) => {
+    const [y, m, d] = String(ev?.event_date || "").split("-").map(Number);
+    if (!y || !m || !d) return null;
+    return applyAdminEventWallTime(new Date(y, m - 1, d), ev);
+  };
+  const sorted = [...events]
+    .map((ev) => ({ ev, start: startOf(ev) }))
+    .filter((x) => x.start && !Number.isNaN(x.start.getTime()))
+    .sort((a, b) => a.start - b.start);
+  if (!sorted.length) return "";
 
-  // ── Event lines ───────────────────────────────────────────────────────────
-  const sorted = sortEventsByGenrePriority(events);
-  const lines = sorted.map((ev) => {
-    const name  = String(ev?.name || ev?.title || "").trim();
-    const city  = String(ev?.city || ev?.location_name || "").trim();
-    const day   = formatCollectionEventDate(ev?.event_date);
-    const time  = String(ev?.event_time || "").trim().slice(0, 5);
-    const meta  = [city, day, time].filter(Boolean).join(" ");
-    const emoji = genreEmojiForEvent(ev);
-    return `${emoji} ${name}${meta ? " – " + meta : ""}`;
+  const first = sorted[0].start;
+  const last = sorted[sorted.length - 1].start;
+  const sameMonth = first.getMonth() === last.getMonth();
+  const range = first.toDateString() === last.toDateString()
+    ? `${first.getDate()} ${SOCIAL_ES_MONTHS_SHORT[first.getMonth()]}`
+    : sameMonth
+      ? `${first.getDate()}–${last.getDate()} ${SOCIAL_ES_MONTHS_SHORT[last.getMonth()]}`
+      : `${first.getDate()} ${SOCIAL_ES_MONTHS_SHORT[first.getMonth()]} – ${last.getDate()} ${SOCIAL_ES_MONTHS_SHORT[last.getMonth()]}`;
+  const title = isWeekend ? `Planes de finde · ${range} 🎶` : `La semana en la Costa · ${range} 🎶`;
+
+  const cities = [...new Set(sorted.map((x) => String(x.ev.city || "").trim()).filter(Boolean))];
+  const cityText = cities.length <= 1 ? cities[0] || "la Costa"
+    : `${cities.slice(0, -1).join(", ")} y ${cities[cities.length - 1]}`;
+  const n = sorted.length;
+  const intro = isWeekend
+    ? `Del viernes al domingo, música en directo en ${cityText}. Desliza para ver los ${n} planes.`
+    : `Esta semana hay música en directo en ${cityText}. Aquí tienes ${n} planes.`;
+
+  const lines = sorted.map(({ ev, start }) => {
+    const who = String(ev.artist_name || ev.name || ev.title || "").trim();
+    const genre = socialGenreEs(ev.genre);
+    const venue = String(ev.location_name || "").trim();
+    const city = String(ev.city || "").trim();
+    const where = [venue, city && !venue.toLowerCase().includes(city.toLowerCase()) ? city : ""].filter(Boolean).join(", ");
+    return `${formatSocialShortDateEs(start)} — ${who}${genre ? ` (${genre})` : ""}${where ? ` · 📍 ${where}` : ""}`;
   });
 
-  return [hook, "", ...lines, "", footer].join("\n");
+  const genres = [...new Set(sorted.map((x) => String(x.ev.genre || "").trim().toLowerCase()).filter(Boolean))];
+  const genreText = genres.length ? genres.slice(0, 3).join(", ") : "live music";
+  const citiesEn = cities.length ? cities.join(", ") : "the Costa del Sol";
+
+  if (platformKey === "facebook") {
+    // Facebook: Briten lesen vor allem hier → voller englischer Absatz.
+    const en = isWeekend
+      ? `This weekend on the Costa del Sol: ${genreText} live in ${citiesEn}. ${n} plans from Friday to Sunday – details and map on gomarcha.com.`
+      : `This week on the Costa del Sol: ${genreText} live in ${citiesEn}. ${n} plans – details and map on gomarcha.com.`;
+    return [title, intro, lines.join("\n"), en, "Más planes / more plans: gomarcha.com"].join("\n\n");
+  }
+  const cta = isWeekend ? "¿Con quién vas? Etiquétalo 👇" : "Guárdalo para tener el plan a mano 📌";
+  const enLine = isWeekend
+    ? `EN: Live ${genreText} this weekend in ${citiesEn}.`
+    : `EN: Live ${genreText} this week in ${citiesEn}.`;
+  return [title, intro, lines.join("\n"), cta, enLine].join("\n\n");
 }
 
 /**
@@ -4496,27 +4554,31 @@ async function getLastCollectionImageFromQueue(client) {
   }
 }
 
-/** Build hashtag string (8–12 tags) for a collection post. */
-function buildCollectionPostHashtags(bestEvent, _allEvents) {
-  const genre    = String(bestEvent?.genre || bestEvent?.category || "").trim();
-  const city     = String(bestEvent?.city || "").trim();
-  const genreSlug = genre.toLowerCase().replace(/[^a-záéíóúüña-z0-9]/gi, "");
-  const citySlug  = city.toLowerCase().replace(/[^a-záéíóúüña-z0-9]/gi, "");
-  const tags = [
-    "#gomarcha",
-    "#músicaenvivo",
-    "#livemusic",
-    "#CostaDelSol",
-    "#Marbella",
-    "#Málaga",
-    genreSlug ? `#${genreSlug}` : "",
-    citySlug  ? `#${citySlug}`  : "",
-    "#finde",
-    "#planazo",
-    "#Andalucía",
-    "#España",
-  ].filter((t, i, a) => Boolean(t) && t.length > 1 && a.indexOf(t) === i);
-  return tags.slice(0, 12).join(" ");
+/** Hashtags für Sammel-Posts: #gomarcha + bis zu 2 Orte + häufigstes Genre + #CostaDelSol (max. 5). */
+function buildCollectionPostHashtags(bestEvent, allEvents) {
+  const list = Array.isArray(allEvents) && allEvents.length ? allEvents : [bestEvent];
+  const tags = [];
+  const seen = new Set();
+  const push = (raw) => {
+    const token = slugHashtagToken(raw);
+    if (!token || token.length < 3 || seen.has(token.toLowerCase())) return;
+    seen.add(token.toLowerCase());
+    tags.push(`#${token}`);
+  };
+  const count = (key) => {
+    const m = new Map();
+    for (const ev of list) {
+      const v = String(ev?.[key] || "").trim();
+      if (v) m.set(v, (m.get(v) || 0) + 1);
+    }
+    return [...m.entries()].sort((a, b) => b[1] - a[1]).map(([v]) => v);
+  };
+  push("gomarcha");
+  count("city").slice(0, 2).forEach((c) => push(c.replace(/\s+/g, "")));
+  const g = count("genre")[0];
+  if (g) push(g.toLowerCase());
+  push("CostaDelSol");
+  return tags.slice(0, 5).join(" ");
 }
 
 /**
@@ -4532,6 +4594,8 @@ function buildCollectionPostHashtags(bestEvent, _allEvents) {
 function buildWeeklyScheduleRows(weekEvents, monday, now, lastCollectionImageUrl, isoWeek) {
   if (!Array.isArray(weekEvents) || !weekEvents.length) return [];
   const rows = [];
+  const usedSingleEventIds = new Set();
+  const isHighlightCandidate = (ev) => ev?.featured === true || ev?.is_featured === true || ev?.promoted === true;
 
   for (const slotDef of WEEKLY_SCHEDULE_PLAN) {
     // Absolute datetime for this slot
@@ -4543,14 +4607,18 @@ function buildWeeklyScheduleRows(weekEvents, monday, now, lastCollectionImageUrl
 
     if (slotDef.type === "collection") {
       // ── Sammelpost ──────────────────────────────────────────────────────────
-      const eligible = slotDef.scope === "weekend"
-        ? weekEvents.filter((ev) => {
-            const d = ev?.event_date ? new Date(ev.event_date + "T00:00:00") : null;
-            if (!d || Number.isNaN(d.getTime())) return false;
-            return d.getDay() === 5 || d.getDay() === 6 || d.getDay() === 0; // Fri/Sat/Sun
-          })
-        : weekEvents; // scope "week" → all events this week
-      if (eligible.length < 3) continue; // Sammelpost requires ≥3 events
+      const scopeDays = slotDef.scope === "weekend"
+        ? [5, 6, 0]                          // Fri/Sat/Sun
+        : slotDef.scope === "weekdays"
+          ? [1, 2, 3, 4]                     // Mon–Thu
+          : null;                            // "week" → all events this week
+      const eligible = weekEvents.filter((ev) => {
+        const d = ev?.event_date ? new Date(ev.event_date + "T00:00:00") : null;
+        if (!d || Number.isNaN(d.getTime())) return false;
+        if (applyAdminEventWallTime(d, ev) <= slotDate) return false; // already started at post time
+        return scopeDays ? scopeDays.includes(d.getDay()) : true;
+      });
+      if (eligible.length < 2) continue; // Sammelpost requires ≥2 events (sonst kein leeres Format)
 
       const sorted    = sortEventsByGenrePriority(eligible);
       const bestEvent = sorted[0];
@@ -4565,8 +4633,8 @@ function buildWeeklyScheduleRows(weekEvents, monday, now, lastCollectionImageUrl
         postStage: "collection"
       });
       payload.title              = slotDef.scope === "weekend"
-        ? "¿Sin plan para este finde?"
-        : "Esta semana en la Costa del Sol";
+        ? "Planes de finde"
+        : "La semana en la Costa";
       payload.caption            = captionIg; // Instagram version (no URL, link-in-bio)
       payload.image_url          = image || payload.image_url;
       payload.resolved_image_url = image || payload.resolved_image_url;
@@ -4582,11 +4650,14 @@ function buildWeeklyScheduleRows(weekEvents, monday, now, lastCollectionImageUrl
 
     } else {
       // ── Einzelpost ──────────────────────────────────────────────────────────
+      const dayFilter = Array.isArray(slotDef.dayFilter) ? slotDef.dayFilter : [slotDef.dayFilter];
       let eligible = weekEvents.filter((ev) => {
         if (ev?._collection_only) return false;   // recurring events → collection posts only
+        if (usedSingleEventIds.has(String(ev?.id))) return false; // ein Event nur 1 Highlight pro Woche
         const d = ev?.event_date ? new Date(ev.event_date + "T00:00:00") : null;
         if (!d || Number.isNaN(d.getTime())) return false;
-        return d.getDay() === slotDef.dayFilter;
+        if (applyAdminEventWallTime(d, ev) <= slotDate) return false;
+        return dayFilter.includes(d.getDay());
       });
       eligible = sortEventsByGenrePriority(eligible);
 
@@ -4595,15 +4666,14 @@ function buildWeeklyScheduleRows(weekEvents, monday, now, lastCollectionImageUrl
       if (eligible.length < minEvents) continue;
       if (eventIndex >= eligible.length)  continue;
 
-      const ev         = eligible[eventIndex];
-      const eventStart = dateFromAdminEventWallTime(ev);
-      const stage      = slotStageFromTiming(
-        slotDate,
-        eventStart instanceof Date && !Number.isNaN(eventStart.getTime()) ? eventStart : slotDate
-      );
+      // Featured/promoted events zuerst (Highlight), sonst Genre-Reihenfolge.
+      eligible.sort((a, b) => Number(isHighlightCandidate(b)) - Number(isHighlightCandidate(a)));
+      const ev = eligible[eventIndex];
+      usedSingleEventIds.add(String(ev?.id));
 
+      // Highlight-Posts sind Vorankündigungen – nie „Última llamada“.
       const payload = buildSocialQueuePayload(ev, slotDate, DEFAULT_SOCIAL_QUEUE_PLATFORMS, {
-        postStage: stage
+        postStage: "early_reminder"
       });
       payload._slot_id = slotDef.id;
       rows.push(payload);
@@ -5150,6 +5220,25 @@ async function prepareRecurringOccurrencesWithinHorizon(
 async function runWeeklyRecurringSocialAutoPrep(options = {}) {
   const now = options.now instanceof Date ? options.now : new Date();
   const summary = createEmptyRecurringAutoPrepSummary();
+  if (!LEGACY_PER_EVENT_SOCIAL_SLOTS) {
+    // Konzept v2: statt Serien-Slots den Wochenplan für diese und nächste Woche ergänzen.
+    const monday = getWeekMondayDate(now);
+    const nextMonday = new Date(monday);
+    nextMonday.setDate(nextMonday.getDate() + 7);
+    const draftsInserted =
+      (await ensureWeeklyScheduleForWeek(monday)) + (await ensureWeeklyScheduleForWeek(nextMonday));
+    console.log("weekly social plan refresh", { draftsInserted });
+    return {
+      masters: 0,
+      occurrences: 0,
+      childrenCreated: 0,
+      draftsInserted,
+      skippedExisting: 0,
+      horizonDays: 14,
+      weeklyPlan: true,
+      summary
+    };
+  }
   const allEvents = state.allEvents || [];
   summary.checked = allEvents.length;
 
@@ -5236,6 +5325,41 @@ async function runWeeklyRecurringSocialAutoPrep(options = {}) {
   return { ...totals, summary };
 }
 
+/**
+ * Konzept v2: KI-Texte für offene Einzel-Entwürfe sofort erzeugen (Edge Function social-caption-ai,
+ * mode "queue"), damit im Admin genau der Text steht, der veröffentlicht wird. Läuft im Hintergrund;
+ * schlägt es fehl, bleibt der Vorlagentext stehen und der Runner versucht es bei der Übergabe erneut.
+ */
+async function requestAiCaptionsForOpenDrafts(queueIds = null) {
+  if (state.socialAiCaptionRunning) return 0;
+  state.socialAiCaptionRunning = true;
+  try {
+    const client = supabaseClient();
+    const { data: sessionData } = await client.auth.getSession();
+    const token = sessionData?.session?.access_token;
+    if (!token) return 0;
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/social-caption-ai`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, apikey: SUPABASE_ANON_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify(Array.isArray(queueIds) && queueIds.length ? { mode: "queue", queue_ids: queueIds } : { mode: "queue" })
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(json?.error || `HTTP ${res.status}`);
+    const ok = (json.results || []).filter((r) => r.ok).length;
+    if (ok > 0) {
+      await loadSocialQueueRows();
+      renderSocialQueuePanel();
+      setGlobalFeedback(`KI-Texte: ${ok} Entwurf/Entwürfe aktualisiert – bitte prüfen.`, "success");
+    }
+    return ok;
+  } catch (error) {
+    console.warn("social ai captions failed", error?.message || error);
+    return 0;
+  } finally {
+    state.socialAiCaptionRunning = false;
+  }
+}
+
 function scheduleRecurringSocialAutoPrep(options = {}) {
   if (!isSessionAdmin(state.adminSession) || state.recurringSocialAutoPrepRunning) return;
   const lastRun = Number(state.recurringSocialAutoPrepLastRunAt) || 0;
@@ -5249,12 +5373,15 @@ function scheduleRecurringSocialAutoPrep(options = {}) {
     try {
       const res = await runWeeklyRecurringSocialAutoPrep({ force: Boolean(options.force) });
       state.recurringSocialAutoPrepLastRunAt = Date.now();
+      if (res.weeklyPlan && res.draftsInserted > 0) void requestAiCaptionsForOpenDrafts();
       if (res.draftsInserted > 0 || res.childrenCreated > 0) {
         await loadSocialQueueRows();
         renderSocialQueuePanel();
         if (res.draftsInserted > 0) {
           setGlobalFeedback(
-            `Auto-Vorbereitung (${res.horizonDays} Tage): ${res.draftsInserted} neue Drafts für ${res.masters} Serie(n).`,
+            res.weeklyPlan
+              ? `Wochenplan: ${res.draftsInserted} neue Social-Drafts (diese und nächste Woche).`
+              : `Auto-Vorbereitung (${res.horizonDays} Tage): ${res.draftsInserted} neue Drafts für ${res.masters} Serie(n).`,
             "success"
           );
         }
@@ -7505,6 +7632,23 @@ async function loadSocialQueueRows() {
 }
 
 async function ensureSocialReviewQueueForEvent(event) {
+  if (!LEGACY_PER_EVENT_SOCIAL_SLOTS) {
+    // Konzept v2: keine Posts pro Termin. Das Event fließt in den Wochenplan seiner Woche ein
+    // (Serien: aktuelle und nächste Woche).
+    const isSeries = event?.is_recurring === true || String(event?.original_event_id || "").trim();
+    const eventDateStr = String(event?.event_date || "").trim();
+    const [ey, em, ed] = eventDateStr.split("-").map(Number);
+    const base = !isSeries && ey && em && ed ? new Date(ey, em - 1, ed) : new Date();
+    const monday = getWeekMondayDate(base);
+    let inserted = await ensureWeeklyScheduleForWeek(monday);
+    if (isSeries) {
+      const nextMonday = new Date(monday);
+      nextMonday.setDate(nextMonday.getDate() + 7);
+      inserted += await ensureWeeklyScheduleForWeek(nextMonday);
+    }
+    return inserted;
+  }
+
   // ── Short-notice last_call for one-time events with no existing queue rows ─────
   if (event?.is_recurring !== true && !String(event?.original_event_id || "").trim()) {
     const immediateLastCall = immediateLastCallDateForEvent(event);
@@ -7566,8 +7710,14 @@ async function ensureSocialReviewQueueForEvent(event) {
   if (!eventDateStr) return 0;
   const [ey, em, ed] = eventDateStr.split("-").map(Number);
   if (!ey || !em || !ed) return 0;
+  return ensureWeeklyScheduleForWeek(getWeekMondayDate(new Date(ey, em - 1, ed)));
+}
 
-  const monday = getWeekMondayDate(new Date(ey, em - 1, ed));
+/**
+ * Wochenplan (WEEKLY_SCHEDULE_PLAN) für die ISO-Woche ab `monday` anlegen.
+ * Legt nur fehlende Posts an: pro Zeitpunkt höchstens ein Post (egal welches Event).
+ */
+async function ensureWeeklyScheduleForWeek(monday) {
   const nextMonday = new Date(monday);
   nextMonday.setDate(nextMonday.getDate() + 7);
   const pad = (n) => String(n).padStart(2, "0");
@@ -7651,47 +7801,17 @@ async function ensureSocialReviewQueueForEvent(event) {
   const candidates = buildWeeklyScheduleRows(allWeekEvents, monday, now, lastCollectionImageUrl, isoWeek);
   if (!candidates.length) return 0;
 
-  // Fetch existing queue rows for dedup — never touch posted / sent_to_postiz
-  // Collection posts are deduped by scheduled_at time; single posts by event_id.
-  // Recurring events appear in collection posts only, so only one-time IDs are needed here.
-  const weekEventIds = weekEvents.map((ev) => ev.id).filter(Boolean);
-  let existing = [];
-  if (weekEventIds.length) {
-    const { data, error: existingError } = await client
-      .from("social_queue")
-      .select("event_id,scheduled_at,post_stage")
-      .in("event_id", weekEventIds);
-    if (existingError) throw new Error(existingError.message || "Social Queue konnte nicht geprüft werden.");
-    existing = data || [];
-  }
-
-  // Also fetch collection posts for this week by time range — catches cases where
-  // a recurring event was chosen as bestEvent and its ID is not in weekEventIds.
-  const { data: existingCols, error: colErr } = await client
+  // Dedupe: pro Zeitpunkt des Wochenplans höchstens EIN Post (egal welches Event, egal welcher
+  // Status) – so entstehen keine Doppel-Posts, auch wenn sich das gewählte Highlight ändert.
+  const { data: existingInWeek, error: existingError } = await client
     .from("social_queue")
-    .select("scheduled_at,post_stage")
-    .eq("post_stage", "collection")
-    .gte("scheduled_at", mondayStr + "T00:00:00.000Z")
-    .lt("scheduled_at", nextMondayStr + "T24:00:00.000Z");
-  if (colErr) throw new Error(colErr.message || "Collection Posts konnten nicht geprüft werden.");
+    .select("scheduled_at")
+    .gte("scheduled_at", monday.toISOString())
+    .lt("scheduled_at", nextMonday.toISOString());
+  if (existingError) throw new Error(existingError.message || "Social Queue konnte nicht geprüft werden.");
+  const existingTimes = new Set((existingInWeek || []).map((r) => new Date(r.scheduled_at).toISOString()));
 
-  // One collection post per timeslot (regardless of event_id);
-  // one single post per event_id + timeslot.
-  const existingCollectionTimes = new Set(
-    [...existing, ...(existingCols || [])]
-      .filter((r) => r.post_stage === "collection")
-      .map((r) => new Date(r.scheduled_at).toISOString())
-  );
-  const existingSingleKeys = new Set(
-    (existing || []).map((r) => `${r.event_id}::${new Date(r.scheduled_at).toISOString()}`)
-  );
-
-  const missing = candidates.filter((row) => {
-    if (row.post_stage === "collection") {
-      return !existingCollectionTimes.has(row.scheduled_at);
-    }
-    return !existingSingleKeys.has(`${row.event_id}::${row.scheduled_at}`);
-  });
+  const missing = candidates.filter((row) => !existingTimes.has(new Date(row.scheduled_at).toISOString()));
   if (!missing.length) return 0;
   return insertSocialQueueRows(missing);
 }
@@ -11051,7 +11171,10 @@ async function handleCardAction(clickEvent) {
           }
           const socialSuffix = socialCreated ? ` · ${socialCreated} Social-Drafts geplant` : "";
           setGlobalFeedback(`${adminStatusSuccessMessage(persistedStatus)}${socialSuffix}`, "success");
-          if (socialCreated) await loadSocialQueueRows();
+          if (socialCreated) {
+            await loadSocialQueueRows();
+            if (!LEGACY_PER_EVENT_SOCIAL_SLOTS) void requestAiCaptionsForOpenDrafts();
+          }
         }
         render();
       } catch (error) {
