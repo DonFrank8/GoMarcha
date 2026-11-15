@@ -5162,6 +5162,8 @@ function openRoute(event) {
     setStatus(t("navigation_unavailable"), "warning");
     return;
   }
+  // Weiterklick (North Star „Weiterklicks pro Woche“, SOCIAL_MEDIA_KONZEPT.md Abschnitt 8)
+  if (event?.id) trackEventAnalytics(event.id, "outbound_map");
 
   openExternalInNewTab(url);
 }
@@ -5754,41 +5756,39 @@ function readQueryParams() {
   };
 }
 
-async function trackLandingSource(sourceValue) {
-  const source = String(sourceValue || "").trim();
-  if (!source) return;
-  console.log("QR source detected:", source);
+/** Grobe Geräteklasse statt vollständigem User-Agent (Datenschutz, Rat Analytics 15.11.2026). */
+function analyticsDeviceClass() {
   try {
-    window.localStorage.setItem(SOURCE_STORAGE_KEY, source);
+    const ua = String(navigator.userAgent || "");
+    if (/iPad|Tablet/i.test(ua)) return "tablet";
+    return /Mobi|Android|iPhone/i.test(ua) ? "mobile" : "desktop";
   } catch (_error) {
-    // Ignore storage errors to keep app flow unaffected.
+    return "unknown";
   }
+}
 
+/**
+ * Herkunft aus ?source= (z. B. ig_post, fb_group, qr_<ort>) merken – nur für diese Sitzung
+ * (sessionStorage statt dauerhaft; LSSI Art. 22.2) – und einmal pro Sitzung als „landing“ zählen.
+ * Früher: Tabelle qr_tracking (gibt es nicht) → jetzt event_analytics.
+ */
+async function trackLandingSource(sourceValue) {
   try {
+    // Alte, dauerhaft gespeicherte Herkunft aus früheren Versionen entfernen.
+    window.localStorage.removeItem(SOURCE_STORAGE_KEY);
+  } catch (_error) {
+    // ignorieren
+  }
+  const source = String(sourceValue || "").trim().slice(0, 128);
+  if (!source) return;
+  try {
+    window.sessionStorage.setItem(SOURCE_STORAGE_KEY, source);
     if (window.sessionStorage.getItem(SOURCE_TRACKED_SESSION_STORAGE_KEY)) return;
     window.sessionStorage.setItem(SOURCE_TRACKED_SESSION_STORAGE_KEY, "1");
   } catch (_error) {
-    // If session storage is unavailable, continue without Supabase write.
     return;
   }
-
-  try {
-    const client = supabaseClient();
-    const { error } = await client.from("qr_tracking").insert({
-      source,
-      language: state.lang,
-      page_url: window.location.href,
-      user_agent: navigator.userAgent || "",
-      created_at: new Date().toISOString()
-    });
-    if (error) {
-      console.log("QR tracking failed", error.message || error);
-      return;
-    }
-    console.log("QR tracking saved");
-  } catch (error) {
-    console.log("QR tracking failed", error?.message || error);
-  }
+  trackEventAnalytics("_landing", "landing", { source });
 }
 
 function resolveAdminMode(queryValue) {
@@ -5836,7 +5836,7 @@ function readTrafficSourceForAnalytics() {
     /* ignore */
   }
   try {
-    const stored = String(window.localStorage?.getItem(SOURCE_STORAGE_KEY) || "").trim();
+    const stored = String(window.sessionStorage?.getItem(SOURCE_STORAGE_KEY) || "").trim();
     if (stored) return stored.slice(0, 128);
   } catch (_e) {
     /* ignore */
@@ -5861,7 +5861,7 @@ function sanitizeAnalyticsMetadata(meta) {
 /**
  * Fire-and-forget analytics row (anon + RLS). Never throws to callers; failures are console-only.
  * @param {string} eventId
- * @param {"event_view"|"share"} action
+ * @param {"event_view"|"share"|"landing"|"outbound_map"} action
  * @param {Record<string, unknown>} metadata
  */
 function trackEventAnalytics(eventId, action, metadata = {}) {
@@ -5871,7 +5871,7 @@ function trackEventAnalytics(eventId, action, metadata = {}) {
       if (!id || !SUPABASE_URL || !SUPABASE_URL.includes("supabase.co")) return;
       if (!SUPABASE_ANON_KEY) return;
       const act = String(action || "").trim();
-      if (act !== "event_view" && act !== "share") return;
+      if (!["event_view", "share", "landing", "outbound_map"].includes(act)) return;
       const meta = metadata && typeof metadata === "object" ? metadata : {};
       const shareChannelRaw = typeof meta.share_channel === "string" ? meta.share_channel.trim() : "";
       const share_channel = act === "share" && shareChannelRaw ? shareChannelRaw.slice(0, 64) : null;
@@ -5883,7 +5883,7 @@ function trackEventAnalytics(eventId, action, metadata = {}) {
         share_channel,
         source: source || null,
         page_url: String(window.location?.href || "").slice(0, 2048) || null,
-        user_agent: String(navigator.userAgent || "").slice(0, 1024) || null,
+        user_agent: analyticsDeviceClass(),
         metadata: { ...sanitizeAnalyticsMetadata(meta), lang: state.lang || "de" }
       };
       const client = supabaseClient();
