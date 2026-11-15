@@ -100,9 +100,13 @@ function isShareableEvent(event) {
   return status === "approved" || event?.published === true;
 }
 
-function buildEventAppUrl(eventId, siteUrl) {
+function buildEventAppUrl(eventId, siteUrl, requestUrl) {
   const url = new URL("/index.html", siteUrl);
   url.searchParams.set("event_id", eventId);
+  // Herkunft aus Social-Posts (?source=ig_post …) an die App weitergeben, sonst zählt die Messung nichts
+  // (SOCIAL_MEDIA_KONZEPT.md Abschnitt 8). Nur einfache Kennungen.
+  const source = String(requestUrl?.searchParams.get("source") || "").trim();
+  if (/^[A-Za-z0-9._-]{1,64}$/.test(source)) url.searchParams.set("source", source);
   return url.toString();
 }
 
@@ -302,7 +306,7 @@ export default {
     if (!eventId) return new Response("Missing event id", { status: 400 });
 
     const fallbackImageUrl = absoluteHttpsUrl(env.DEFAULT_OG_IMAGE_URL, siteUrl) || DEFAULT_OG_IMAGE_URL;
-    const appUrl = buildEventAppUrl(eventId, siteUrl);
+    const appUrl = buildEventAppUrl(eventId, siteUrl, requestUrl);
     const shareUrl = buildEventShareUrl(eventId, requestUrl, siteUrl);
 
     try {
