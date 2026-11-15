@@ -6,3 +6,9 @@ supabase/.temp/
 backups/
 .env.backup.local
 *.env.backup.local
+
+# Ruflo (MCP-Server) — lokale Laufzeitdaten, nie committen
+.swarm/
+.claude-flow/
+.hive-mind/
+.claude/settings.local.json
