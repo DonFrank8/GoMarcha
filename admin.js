@@ -101,6 +101,7 @@ const SOCIAL_QUEUE_UPDATE_COLUMNS = new Set([
   "postiz_synced_at",
   "admin_confirmed_at",
   "last_error",
+  "caption_template_id",
   "updated_at"
 ]);
 
@@ -3501,9 +3502,13 @@ function buildSocialQueueDraftSavePayload(form, row, validation, eventForImage) 
     candidates: imageResolution.candidates
   });
 
+  const newCaption = String(form.caption || "").trim();
+  // Von Hand geänderter Text → „manual“: Der Runner übernimmt ihn unverändert (keine KI-Neufassung).
+  const captionEdited = newCaption !== String(row?.caption || "").trim();
   const payload = pickSocialQueueUpdateRow({
     title: String(form.title || "").trim(),
-    caption: String(form.caption || "").trim(),
+    caption: newCaption,
+    ...(captionEdited ? { caption_template_id: "manual" } : {}),
     scheduled_at: validation.scheduled_at,
     platforms,
     platform: primaryPlatform,
@@ -5320,6 +5325,41 @@ async function runWeeklyRecurringSocialAutoPrep(options = {}) {
   return { ...totals, summary };
 }
 
+/**
+ * Konzept v2: KI-Texte für offene Einzel-Entwürfe sofort erzeugen (Edge Function social-caption-ai,
+ * mode "queue"), damit im Admin genau der Text steht, der veröffentlicht wird. Läuft im Hintergrund;
+ * schlägt es fehl, bleibt der Vorlagentext stehen und der Runner versucht es bei der Übergabe erneut.
+ */
+async function requestAiCaptionsForOpenDrafts(queueIds = null) {
+  if (state.socialAiCaptionRunning) return 0;
+  state.socialAiCaptionRunning = true;
+  try {
+    const client = supabaseClient();
+    const { data: sessionData } = await client.auth.getSession();
+    const token = sessionData?.session?.access_token;
+    if (!token) return 0;
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/social-caption-ai`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, apikey: SUPABASE_ANON_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify(Array.isArray(queueIds) && queueIds.length ? { mode: "queue", queue_ids: queueIds } : { mode: "queue" })
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(json?.error || `HTTP ${res.status}`);
+    const ok = (json.results || []).filter((r) => r.ok).length;
+    if (ok > 0) {
+      await loadSocialQueueRows();
+      renderSocialQueuePanel();
+      setGlobalFeedback(`KI-Texte: ${ok} Entwurf/Entwürfe aktualisiert – bitte prüfen.`, "success");
+    }
+    return ok;
+  } catch (error) {
+    console.warn("social ai captions failed", error?.message || error);
+    return 0;
+  } finally {
+    state.socialAiCaptionRunning = false;
+  }
+}
+
 function scheduleRecurringSocialAutoPrep(options = {}) {
   if (!isSessionAdmin(state.adminSession) || state.recurringSocialAutoPrepRunning) return;
   const lastRun = Number(state.recurringSocialAutoPrepLastRunAt) || 0;
@@ -5333,6 +5373,7 @@ function scheduleRecurringSocialAutoPrep(options = {}) {
     try {
       const res = await runWeeklyRecurringSocialAutoPrep({ force: Boolean(options.force) });
       state.recurringSocialAutoPrepLastRunAt = Date.now();
+      if (res.weeklyPlan && res.draftsInserted > 0) void requestAiCaptionsForOpenDrafts();
       if (res.draftsInserted > 0 || res.childrenCreated > 0) {
         await loadSocialQueueRows();
         renderSocialQueuePanel();
@@ -11130,7 +11171,10 @@ async function handleCardAction(clickEvent) {
           }
           const socialSuffix = socialCreated ? ` · ${socialCreated} Social-Drafts geplant` : "";
           setGlobalFeedback(`${adminStatusSuccessMessage(persistedStatus)}${socialSuffix}`, "success");
-          if (socialCreated) await loadSocialQueueRows();
+          if (socialCreated) {
+            await loadSocialQueueRows();
+            if (!LEGACY_PER_EVENT_SOCIAL_SLOTS) void requestAiCaptionsForOpenDrafts();
+          }
         }
         render();
       } catch (error) {

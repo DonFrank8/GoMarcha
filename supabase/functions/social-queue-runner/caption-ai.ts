@@ -11,7 +11,7 @@
 import Anthropic from "npm:@anthropic-ai/sdk";
 
 export const CAPTION_MODEL = "claude-sonnet-5-5";
-export const CAPTION_PROMPT_VERSION = "2026-11-13.2";
+export const CAPTION_PROMPT_VERSION = "2026-11-15.1";
 
 export type Stage = "week" | "three_days" | "one_day" | "today";
 
@@ -117,7 +117,7 @@ Escribe SOLO estas partes (el resto — fecha, hora, precio, lugar y menciones �
 - body: 1–2 frases (máx. 240 caracteres) sobre qué se encuentra la gente, usando SOLO los datos del paquete (géneros, artistas, descripción). Si la descripción menciona un detalle real (pista, puesta de sol, cócteles…), puedes usarlo.
 - cta: una frase corta que varíe: invitar a etiquetar a alguien, a guardarlo, o "Más planes en la app Marcha (link en bio)".
 - en_line: una línea en inglés británico, máx. 90 caracteres, solo hechos (estilo + cuándo de forma relativa + si es gratis). Sin hora ni precio en cifras.
-- hashtags: 4–7 etiquetas sin "#", relevantes: estilo (salsa, tardeo, afrohouse…), ciudad, costadelsol. No uses "directo" ni "musicaenvivo".
+- hashtags: 2–3 etiquetas sin "#", solo de estilo (salsa, tardeo, afrohouse…); la ciudad, gomarcha y costadelsol los añade el código. No uses "directo" ni "musicaenvivo".
 
 Reglas estrictas:
 - No inventes nada: ni artistas, ni precios, ni horas, ni bebidas, ni comida, ni clima, ni cuánta gente va.
@@ -210,11 +210,12 @@ export function assembleCaption(out: Out, f: CaptionFacts, withEnglish = true): 
     `🗓 ${spanishShortDate(f.dateIso)}${f.time ? ` · ${f.time}` : ""}${f.isFree ? " · 🎟 Entrada libre" : f.priceText ? ` · 🎟 Entrada: ${f.priceText}` : ""}`,
   ].join("\n");
   const tags = new Map<string, string>();
-  for (const raw of [...out.hashtags, f.city, "costadelsol", "gomarcha"]) {
+  // Konzept v2 (Rat 15.11.2026): höchstens 5 Hashtags – #gomarcha + Ort zuerst, dann Stil.
+  for (const raw of ["gomarcha", f.city, ...out.hashtags, "costadelsol"]) {
     const t = normalizeTag(raw);
     if (t && !/^(directo|musicaenvivo)$/i.test(t)) tags.set(t.toLowerCase(), t);
   }
-  const tagLine = [...tags.values()].slice(0, 8).map((t) => `#${t}`).join(" ");
+  const tagLine = [...tags.values()].slice(0, 5).map((t) => `#${t}`).join(" ");
   return [
     `${out.hook.trim()}\n${out.body.trim()}`,
     info,

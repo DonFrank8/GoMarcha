@@ -6,9 +6,14 @@ import { CaptionFacts, Stage, writeCaption, spanishShortDate } from "./caption-a
  *
  * mode "test": erzeugt für die nächsten N kommenden Termine je eine alte (Vorlage) und eine
  * neue (Claude) Caption zum Vergleich. Schreibt NICHTS in die Datenbank und nichts an Postiz.
+ * Zugriff nur mit Header x-marcha-social-secret (= MARCHA_SOCIAL_RUNNER_SECRET, liegt im Vault).
  *
- * Zugriff nur mit Header x-marcha-social-secret (= MARCHA_SOCIAL_RUNNER_SECRET, liegt im Vault;
- * Aufruf z. B. per pg_net aus der Datenbank).
+ * mode "queue" (Konzept v2, 15.11.2026): schreibt die KI-Caption direkt in offene Entwürfe der
+ * social_queue (nur Einzel-Posts, keine Sammel-Posts), damit Frank im Admin genau den Text sieht,
+ * der veröffentlicht wird. caption_template_id = "ai:<prompt-version>" → der Runner übernimmt ihn
+ * unverändert. Zugriff: angemeldeter Admin (app_metadata.role = 'admin') ODER Runner-Secret.
+ * Body: { mode: "queue", queue_ids?: string[] } – ohne queue_ids: offene Einzel-Entwürfe der
+ * nächsten 14 Tage ohne KI-Text (max. 10 pro Aufruf).
  * Secrets: ANTHROPIC_API_KEY, MARCHA_SOCIAL_RUNNER_SECRET. Standard: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.
  */
 
@@ -73,19 +78,140 @@ function oldCaption(ev: any, facts: CaptionFacts, idx: number): string {
   return `${tpl}\n\n${dateLine}\n\n#músicaenvivo #CostaDelSol #directo #${city || "Andalucía"} #gomarcha`;
 }
 
+const CORS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-marcha-social-secret",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+
+function jsonCors(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", ...CORS } });
+}
+
+/** true, wenn der Bearer-Token einem Admin gehört (Rechte nur über app_metadata, nie user_metadata). */
+async function isAdminRequest(req: Request, base: string): Promise<boolean> {
+  const token = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
+  const anon = Deno.env.get("SUPABASE_ANON_KEY") || "";
+  if (!token || token.split(".").length !== 3 || !base || !anon) return false;
+  const res = await fetch(`${base}/auth/v1/user`, { headers: { apikey: anon, Authorization: `Bearer ${token}` } });
+  if (!res.ok) return false;
+  const user = await res.json().catch(() => null);
+  return user?.app_metadata?.role === "admin";
+}
+
+/** Abstand Post → Termin in Tagen → Stufe der KI-Anweisung. */
+function stageForDays(days: number): Stage {
+  if (days <= 0) return "today";
+  if (days === 1) return "one_day";
+  if (days <= 4) return "three_days";
+  return "week";
+}
+
+function madridIso(d: Date): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+}
+
+// deno-lint-ignore no-explicit-any
+async function runQueueMode(body: any, apiKey: string, base: string, service: string): Promise<Response> {
+  const headers = { apikey: service, Authorization: `Bearer ${service}`, "Content-Type": "application/json" };
+  const cols = "id,event_id,scheduled_at,event_date,post_stage,status,caption_template_id,postiz_response";
+  const ids: string[] = Array.isArray(body?.queue_ids) ? body.queue_ids.map(String).filter((x: string) => /^[0-9a-f-]{36}$/i.test(x)) : [];
+  let url: string;
+  if (ids.length) {
+    url = `${base}/rest/v1/social_queue?select=${cols}&id=in.(${ids.slice(0, 10).join(",")})`;
+  } else {
+    const now = new Date();
+    const until = new Date(now.getTime() + 14 * 86400000);
+    url = `${base}/rest/v1/social_queue?select=${cols}&status=eq.pending&caption_template_id=is.null` +
+      `&scheduled_at=gte.${now.toISOString()}&scheduled_at=lt.${until.toISOString()}&order=scheduled_at.asc&limit=10`;
+  }
+  const qRes = await fetch(url, { headers });
+  if (!qRes.ok) return jsonCors({ error: `social_queue ${qRes.status}` }, 500);
+  // deno-lint-ignore no-explicit-any
+  const rows = ((await qRes.json()) as any[]).filter((r) =>
+    String(r.status || "") === "pending" && String(r.post_stage || "") !== "collection" &&
+    String(r.caption_template_id || "") !== "manual"
+  );
+
+  const evCols = "id,name,title_es,location_name,city,event_date,event_time,genre,artist_name,price_text,description,description_es,is_recurring,recurrence_type,organizers(instagram)";
+  const results = [];
+  for (const row of rows) {
+    try {
+      const evRes = await fetch(`${base}/rest/v1/events?select=${evCols}&id=eq.${encodeURIComponent(String(row.event_id))}`, { headers });
+      const ev = evRes.ok ? (await evRes.json())[0] : null;
+      if (!ev) { results.push({ queue_id: row.id, ok: false, problem: "event_not_found" }); continue; }
+      const dateIso = String(row.event_date || ev.event_date || "");
+      const postIso = madridIso(new Date(row.scheduled_at));
+      const days = Math.round((Date.parse(`${dateIso}T12:00:00Z`) - Date.parse(`${postIso}T12:00:00Z`)) / 86400000);
+      const prevRes = await fetch(
+        `${base}/rest/v1/social_queue?select=caption&event_id=eq.${encodeURIComponent(String(row.event_id))}&caption_template_id=like.ai:*&order=updated_at.desc&limit=6`,
+        { headers },
+      );
+      // deno-lint-ignore no-explicit-any
+      const prev = prevRes.ok ? ((await prevRes.json()) as any[]).map((r) => String(r.caption || "")).filter(Boolean) : [];
+      const handle = String(ev.organizers?.instagram || "").trim();
+      const facts: CaptionFacts = {
+        title: String(ev.title_es || ev.name || "").trim(),
+        venue: String(ev.location_name || "").trim(),
+        city: String(ev.city || "").trim(),
+        dateIso,
+        time: ev.event_time ? String(ev.event_time).slice(0, 5) : null,
+        isFree: isFreePrice(ev.price_text),
+        priceText: isFreePrice(ev.price_text) ? null : (ev.price_text ? String(ev.price_text) : null),
+        genres: String(ev.genre || "").split(/[,/]/).map((g: string) => g.trim()).filter(Boolean),
+        artists: ev.artist_name ? [String(ev.artist_name).trim()] : [],
+        description: cleanDescription(String(ev.description_es || ev.description || "")),
+        isSeries: Boolean(ev.is_recurring) || ["weekly", "monthly"].includes(String(ev.recurrence_type || "").toLowerCase()),
+        stage: stageForDays(days),
+        venueHandle: handle ? (handle.startsWith("@") ? handle : `@${handle}`) : null,
+        previousCaptions: prev,
+      };
+      const ai = await writeCaption(facts, apiKey);
+      if (!ai.caption) { results.push({ queue_id: row.id, ok: false, problems: ai.problems }); continue; }
+      // KI-Caption enthält Hashtags/CTA bereits → Admin-Extras leeren, sonst hängt der Runner sie doppelt an.
+      const pr = (row.postiz_response && typeof row.postiz_response === "object") ? row.postiz_response : {};
+      const adminExtras = { ...(pr._marcha_admin || {}), hashtags: "", cta_text: "" };
+      const upd = await fetch(`${base}/rest/v1/social_queue?id=eq.${row.id}&status=eq.pending`, {
+        method: "PATCH",
+        headers: { ...headers, Prefer: "return=minimal" },
+        body: JSON.stringify({
+          caption: ai.caption,
+          caption_template_id: `ai:${ai.promptVersion}`,
+          hashtags: null,
+          cta_text: null,
+          postiz_response: { ...pr, _marcha_admin: adminExtras, _marcha_ai: { model: ai.model, prompt_version: ai.promptVersion, stage: facts.stage } },
+          updated_at: new Date().toISOString(),
+        }),
+      });
+      results.push({ queue_id: row.id, ok: upd.ok, attempts: ai.attempts });
+    } catch (err) {
+      results.push({ queue_id: row.id, ok: false, problem: String((err as Error)?.message || err) });
+    }
+  }
+  console.log(JSON.stringify({ fn: "social-caption-ai", event: "queue_run", rows: rows.length, ok: results.filter((r) => r.ok).length }));
+  return jsonCors({ results });
+}
+
 Deno.serve(async (req: Request) => {
-  if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
-  const secret = Deno.env.get("MARCHA_SOCIAL_RUNNER_SECRET") || "";
-  if (!secret || (req.headers.get("x-marcha-social-secret") || "") !== secret) return json({ error: "Unauthorized" }, 401);
+  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
+  if (req.method !== "POST") return jsonCors({ error: "Method not allowed" }, 405);
   const apiKey = Deno.env.get("ANTHROPIC_API_KEY") || "";
   const base = Deno.env.get("SUPABASE_URL") || "";
   const service = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
-  if (!apiKey || !base || !service) return json({ error: "Missing configuration" }, 500);
+  if (!apiKey || !base || !service) return jsonCors({ error: "Missing configuration" }, 500);
 
+  const secret = Deno.env.get("MARCHA_SOCIAL_RUNNER_SECRET") || "";
+  const hasSecret = Boolean(secret) && (req.headers.get("x-marcha-social-secret") || "") === secret;
   const body = await req.json().catch(() => ({}));
   const mode = String(body?.mode || "test");
+
+  if (mode === "queue") {
+    if (!hasSecret && !(await isAdminRequest(req, base))) return jsonCors({ error: "Unauthorized" }, 401);
+    return runQueueMode(body, apiKey, base, service);
+  }
+  if (!hasSecret) return jsonCors({ error: "Unauthorized" }, 401);
   const count = Math.min(Math.max(Number(body?.count) || 10, 1), 12);
-  if (mode !== "test") return json({ error: "Only mode=test is available" }, 400);
+  if (mode !== "test") return jsonCors({ error: "Unknown mode" }, 400);
 
   const cols = "id,name,title_es,location_name,city,event_date,event_time,genre,artist_name,price_text,description,description_es,is_recurring,recurrence_type,recurrence_weekday,recurrence_day_of_month,organizers(instagram)";
   const res = await fetch(`${base}/rest/v1/events?select=${cols}&status=eq.approved&archived_at=is.null`, {

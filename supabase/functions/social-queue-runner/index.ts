@@ -2035,7 +2035,10 @@ Deno.serve(async (req) => {
     let aiCaption: string | null = null;
     let aiTemplateId = "";
     const anthropicKey = Deno.env.get("ANTHROPIC_API_KEY") || "";
-    const manualCaption = String((claimed as { caption_template_id?: string | null }).caption_template_id || "") === "manual";
+    // „manual“ = von Hand bearbeitet; „ai:…“ = KI-Text schon beim Anlegen erzeugt und im Admin geprüft
+    // (Konzept v2) → unverändert übernehmen, nicht neu schreiben.
+    const storedTemplateId = String((claimed as { caption_template_id?: string | null }).caption_template_id || "");
+    const manualCaption = storedTemplateId === "manual" || storedTemplateId.startsWith("ai:");
     if (anthropicKey && !isCollectionPost && !manualCaption) {
       try {
         const facts = await buildAiCaptionFacts(supabase, ev, eventStartMs, eventTimeZone, captionStage);
