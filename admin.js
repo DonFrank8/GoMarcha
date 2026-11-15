@@ -2495,6 +2495,7 @@ function slugHashtagToken(value) {
     .slice(0, 28);
 }
 
+/** Leitfaden v2: 3–5 Hashtags (#gomarcha + Ort + Stil + #CostaDelSol); Facebook nur 2. */
 function buildSocialHashtags(event, platform = "instagram") {
   const tags = [];
   const seen = new Set();
@@ -2505,25 +2506,19 @@ function buildSocialHashtags(event, platform = "instagram") {
     tags.push(`#${token}`);
   };
   const city = String(event?.city || "").trim();
-  const venue = String(event?.location_name || "").trim();
-  const genre = String(event?.genre || "").trim().split(/[,/|]/)[0];
+  const genre = String(event?.genre || "").trim().split(/[,/|]/)[0].toLowerCase();
+  push("gomarcha");
   if (city) push(city.replace(/\s+/g, ""));
+  if (String(platform).toLowerCase() === "facebook") return tags.slice(0, 2).join(" ");
   if (genre) push(genre);
-  if (venue) push(venue.split(/\s+/)[0]);
-  const vibes = {
-    instagram: ["LiveMusic", "NightOut"],
-    facebook: ["Events", "Local"],
-    tiktok: ["FYP", "Vibes"]
-  };
-  for (const v of vibes[String(platform).toLowerCase()] || vibes.instagram) push(v);
-  if (tags.length < 3) push("GoMarcha");
+  push("CostaDelSol");
   return tags.slice(0, 5).join(" ");
 }
 
 function sanitizeHumanCaptionText(text) {
   let out = String(text || "").trim();
   for (const re of SOCIAL_CAPTION_BANNED) out = out.replace(re, "").trim();
-  out = out.replace(/\s{2,}/g, " ").replace(/\n{3,}/g, "\n\n");
+  out = out.replace(/[ \t]{2,}/g, " ").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n");
   return out;
 }
 
@@ -2733,50 +2728,86 @@ function buildHumanSocialCaptionContext(event, eventStart, lang) {
     dateLine,
     timeLine,
     place,
+    price: String(event?.price_text || "").trim(),
     eventStart: eventStart instanceof Date && !Number.isNaN(eventStart.getTime()) ? eventStart : null
   };
 }
 
+const SOCIAL_ES_WEEKDAYS_SHORT = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
+const SOCIAL_ES_MONTHS_SHORT = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+const SOCIAL_EN_WEEKDAYS_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const SOCIAL_EN_MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** „vie 20 nov · 21:00“ (Leitfaden: klein, 24 h). */
+function formatSocialShortDateEs(date, withTime = true) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
+  const base = `${SOCIAL_ES_WEEKDAYS_SHORT[date.getDay()]} ${date.getDate()} ${SOCIAL_ES_MONTHS_SHORT[date.getMonth()]}`;
+  if (!withTime) return base;
+  return `${base} · ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+/** „Fri 20 Nov, 21:00“ für die EN-Zeile. */
+function formatSocialShortDateEn(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
+  const hh = String(date.getHours()).padStart(2, "0");
+  const mm = String(date.getMinutes()).padStart(2, "0");
+  return `${SOCIAL_EN_WEEKDAYS_SHORT[date.getDay()]} ${date.getDate()} ${SOCIAL_EN_MONTHS_SHORT[date.getMonth()]}, ${hh}:${mm}`;
+}
+
+/** Genre für spanische Texte: klein, „latin“ → „música latina“. */
+function socialGenreEs(genre) {
+  const g = String(genre || "").trim().toLowerCase();
+  if (!g) return "";
+  if (g === "latin" || g === "latina" || g === "latino") return "música latina";
+  if (g === "live music") return "música en directo";
+  return g;
+}
+
+function isSocialFreePrice(price) {
+  return /^\s*(0([.,]0+)?\s*(eur|€|euros?)?|gratis|free|entrada libre|eintritt frei)\s*$/i.test(String(price || ""));
+}
+
+/** Preiszeile nur, wenn ein Preis bekannt ist (nie „Entradas …“ raten). */
+function socialPriceLineEs(price) {
+  const p = String(price || "").trim();
+  if (!p) return "";
+  if (isSocialFreePrice(p)) return "🎟 Entrada libre";
+  return `🎟 Entrada: ${p.replace(/\s*EUR\b/i, " €")}`;
+}
+
 function buildSpanishCaptionByStage(ctx, stage, platformKey) {
   const stageKey = normalizeSocialPostStage(stage) || "early_reminder";
-  const { headline, place, genre, dateLine, timeLine, atmosphere, eventStart } = ctx;
-  const genreLive = genre ? `${genre} en vivo` : "música en vivo";
-  const cta =
-    platformKey === "facebook"
-      ? "Reserva e info en el enlace."
-      : "Entradas e info en el enlace de la bio.";
+  const { headline, artist, venue, city, genre, atmosphere, eventStart, price } = ctx;
+  const genreEs = socialGenreEs(genre);
+  const what = artist || headline || (genreEs ? `${genreEs} en directo` : "Música en directo");
+  const inCity = city ? ` en ${city}` : "";
 
-  let caption = "";
-
-  if (stageKey === "early_reminder") {
-    const lead = headline && genre ? `${headline} · ${genreLive}` : headline || genreLive;
-    const when = dateLine ? `${dateLine}` : "";
-    const where = place ? `Te esperamos en ${place}` : "";
-    const invite = atmosphere ? atmosphere : "Reserva tu sitio con antelación.";
-    caption = [lead, when, where, invite].filter(Boolean).join(". ").replace(/\.\./g, ".");
+  let hook;
+  if (stageKey === "last_call" || stageKey === "event_day") {
+    hook = `Hoy${inCity}: ${what}`;
   } else if (stageKey === "tomorrow") {
-    const when = timeLine || dateLine || "mañana";
-    caption = `${headline || genreLive}${place ? ` en ${place}` : ""} — mañana · ${when}.`;
-  } else if (stageKey === "last_call") {
-    const urgency = eventStart && adminSameCalendarDay(eventStart, new Date())
-      ? "Hoy"
-      : eventStart && adminIsTomorrow(eventStart)
-        ? "Mañana"
-        : dateLine || "Próximamente";
-    caption = `Última llamada: ${headline || genreLive}${place ? ` @ ${place}` : ""}. ${urgency}${timeLine ? ` · ${timeLine}` : ""}.`;
+    hook = `Mañana${inCity}: ${what}`;
   } else if (stageKey === "collection") {
-    // Caption is built externally by buildCollectionPostCaption; use a neutral placeholder.
-    caption = headline || genreLive;
-  } else if (stageKey === "event_day") {
-    caption = `Hoy: ${headline || genreLive}${place ? ` en ${place}` : ""}${genre ? ` · ${genreLive}` : ""}${timeLine ? ` · ${timeLine}` : ""}.`;
+    return what; // Sammel-Posts baut buildCollectionPostCaption
   } else {
-    const bits = [headline || genreLive, place ? `en ${place}` : "", dateLine || timeLine].filter(Boolean);
-    caption = bits.join(" · ");
+    hook = genreEs ? `${what} · ${genreEs} en directo${inCity}` : `${what}${inCity}`;
   }
 
-  if (!caption.includes(cta.split(" ")[0]) && (stageKey === "last_call" || stageKey === "event_day")) {
-    caption = `${caption} ${cta}`;
-  }
+  const info = [
+    venue || city ? `📍 ${[venue, city && venue && !venue.toLowerCase().includes(city.toLowerCase()) ? city : ""].filter(Boolean).join(" · ") || city}` : "",
+    eventStart ? `🗓 ${formatSocialShortDateEs(eventStart)}` : "",
+    socialPriceLineEs(price)
+  ].filter(Boolean);
+
+  const enBits = [
+    genre ? `Live ${String(genre).toLowerCase()}` : "Live music",
+    [venue, city].filter(Boolean).join(", "),
+    eventStart ? formatSocialShortDateEn(eventStart) : ""
+  ].filter(Boolean);
+  const enLine = `EN: ${enBits.join(" · ")}`;
+
+  const body = atmosphere ? `${hook}.\n${atmosphere}` : `${hook}.`;
+  const caption = [body, info.join("\n"), enLine].filter(Boolean).join("\n\n");
   return scrubGenericCaptionPhrases(caption, ctx.description);
 }
 
@@ -2866,13 +2897,13 @@ function generateHumanSocialCaptionBundle(event, platform, eventStartOrScheduled
     caption = buildStageCaptionText(ctx, "early_reminder", lang, platformKey);
   }
 
-  if (includeDate && ctx.dateLine && !caption.includes(ctx.dateLine)) {
+  if (includeDate && lang !== "es" && ctx.dateLine && !caption.includes(ctx.dateLine)) {
     if (platformKey === "facebook") caption = `${caption}\n${ctx.dateLine}`;
     else if (platformKey !== "tiktok" && postStage !== "last_call") caption = `${caption}\n${ctx.dateLine}`;
   }
 
-  if (platformKey === "instagram" && caption.length > 280) {
-    caption = `${caption.slice(0, 277).trim()}…`;
+  if (platformKey === "instagram" && caption.length > 1000) {
+    caption = `${caption.slice(0, 997).trim()}…`;
   }
   if (platformKey === "tiktok" && caption.length > 120) {
     caption = `${caption.slice(0, 117).trim()}…`;
@@ -2883,8 +2914,8 @@ function generateHumanSocialCaptionBundle(event, platform, eventStartOrScheduled
     options.cta_text ??
     (lang === "es"
       ? (platformKey === "facebook"
-          ? "Reserva e info en el enlace."
-          : "Entradas e info en el enlace de la bio.")
+          ? "Más planes en gomarcha.com"
+          : "Más planes en la app Marcha (link en bio)")
       : lang === "de"
         ? "Infos und Tickets im Link."
         : "Details and tickets in bio.");
@@ -4414,46 +4445,63 @@ function genreEmojiForEvent(ev) {
  * @param {number} isoWeek  ISO week number (used for hook rotation).
  */
 function buildCollectionPostCaption(events, scope, isoWeek, platform = "instagram") {
-  // ── Deterministic hook rotation ───────────────────────────────────────────
-  const HOOKS_WEEK = [
-    "🎶 ¿Aún no tienes planes para esta semana? Descubre los mejores eventos cerca de ti.",
-    "🔥 Los mejores eventos de la semana, reunidos en un solo lugar.",
-    "🎸 Esta semana viene cargada de música en vivo y buen ambiente. ¡No te lo pierdas!",
-    "🌞 ¿Sin planes para esta semana? Descubre los eventos que no te puedes perder.",
-  ];
-  const HOOKS_WEEKEND = [
-    "🔥 ¿Todavía sin plan para este finde? ¡Aquí tienes todo lo que necesitas!",
-    "🌴 ¿Todavía no sabes qué hacer este finde? ¡Echa un vistazo!",
-    "🍹 ¿Buscas algo para hacer este finde? Aquí tienes nuestras recomendaciones.",
-    "🎤 Música en vivo, fiestas y mucho más: descubre lo mejor de este finde.",
-  ];
-
+  // Konzept v2 / Texter Málaga: nüchtern, konkret, Datum/Ort vom Code, nichts erfinden.
   const isWeekend = scope === "weekend";
-  const hooks  = isWeekend ? HOOKS_WEEKEND : HOOKS_WEEK;
-  const week   = typeof isoWeek === "number" ? isoWeek : 0;
-  const hook   = hooks[week % hooks.length];
-  // Facebook: no URL (avoids OG-image override); Instagram: link-in-bio reference.
   const platformKey = String(platform || "instagram").toLowerCase();
-  const footerPrefix = platformKey === "facebook"
-    ? "📍 GoMarcha · Costa del Sol"
-    : "📍 Todos los eventos → enlace en la bio";
-  const footer = isWeekend
-    ? `${footerPrefix}\n#CostaDelSol #Marbella #finde #GoMarcha`
-    : `${footerPrefix}\n#CostaDelSol #Marbella #músicaenvivo #GoMarcha`;
+  const startOf = (ev) => {
+    const [y, m, d] = String(ev?.event_date || "").split("-").map(Number);
+    if (!y || !m || !d) return null;
+    return applyAdminEventWallTime(new Date(y, m - 1, d), ev);
+  };
+  const sorted = [...events]
+    .map((ev) => ({ ev, start: startOf(ev) }))
+    .filter((x) => x.start && !Number.isNaN(x.start.getTime()))
+    .sort((a, b) => a.start - b.start);
+  if (!sorted.length) return "";
 
-  // ── Event lines ───────────────────────────────────────────────────────────
-  const sorted = sortEventsByGenrePriority(events);
-  const lines = sorted.map((ev) => {
-    const name  = String(ev?.name || ev?.title || "").trim();
-    const city  = String(ev?.city || ev?.location_name || "").trim();
-    const day   = formatCollectionEventDate(ev?.event_date);
-    const time  = String(ev?.event_time || "").trim().slice(0, 5);
-    const meta  = [city, day, time].filter(Boolean).join(" ");
-    const emoji = genreEmojiForEvent(ev);
-    return `${emoji} ${name}${meta ? " – " + meta : ""}`;
+  const first = sorted[0].start;
+  const last = sorted[sorted.length - 1].start;
+  const sameMonth = first.getMonth() === last.getMonth();
+  const range = first.toDateString() === last.toDateString()
+    ? `${first.getDate()} ${SOCIAL_ES_MONTHS_SHORT[first.getMonth()]}`
+    : sameMonth
+      ? `${first.getDate()}–${last.getDate()} ${SOCIAL_ES_MONTHS_SHORT[last.getMonth()]}`
+      : `${first.getDate()} ${SOCIAL_ES_MONTHS_SHORT[first.getMonth()]} – ${last.getDate()} ${SOCIAL_ES_MONTHS_SHORT[last.getMonth()]}`;
+  const title = isWeekend ? `Planes de finde · ${range} 🎶` : `La semana en la Costa · ${range} 🎶`;
+
+  const cities = [...new Set(sorted.map((x) => String(x.ev.city || "").trim()).filter(Boolean))];
+  const cityText = cities.length <= 1 ? cities[0] || "la Costa"
+    : `${cities.slice(0, -1).join(", ")} y ${cities[cities.length - 1]}`;
+  const n = sorted.length;
+  const intro = isWeekend
+    ? `Del viernes al domingo, música en directo en ${cityText}. Desliza para ver los ${n} planes.`
+    : `Esta semana hay música en directo en ${cityText}. Aquí tienes ${n} planes.`;
+
+  const lines = sorted.map(({ ev, start }) => {
+    const who = String(ev.artist_name || ev.name || ev.title || "").trim();
+    const genre = socialGenreEs(ev.genre);
+    const venue = String(ev.location_name || "").trim();
+    const city = String(ev.city || "").trim();
+    const where = [venue, city && !venue.toLowerCase().includes(city.toLowerCase()) ? city : ""].filter(Boolean).join(", ");
+    return `${formatSocialShortDateEs(start)} — ${who}${genre ? ` (${genre})` : ""}${where ? ` · 📍 ${where}` : ""}`;
   });
 
-  return [hook, "", ...lines, "", footer].join("\n");
+  const genres = [...new Set(sorted.map((x) => String(x.ev.genre || "").trim().toLowerCase()).filter(Boolean))];
+  const genreText = genres.length ? genres.slice(0, 3).join(", ") : "live music";
+  const citiesEn = cities.length ? cities.join(", ") : "the Costa del Sol";
+
+  if (platformKey === "facebook") {
+    // Facebook: Briten lesen vor allem hier → voller englischer Absatz.
+    const en = isWeekend
+      ? `This weekend on the Costa del Sol: ${genreText} live in ${citiesEn}. ${n} plans from Friday to Sunday – details and map on gomarcha.com.`
+      : `This week on the Costa del Sol: ${genreText} live in ${citiesEn}. ${n} plans – details and map on gomarcha.com.`;
+    return [title, intro, lines.join("\n"), en, "Más planes / more plans: gomarcha.com"].join("\n\n");
+  }
+  const cta = isWeekend ? "¿Con quién vas? Etiquétalo 👇" : "Guárdalo para tener el plan a mano 📌";
+  const enLine = isWeekend
+    ? `EN: Live ${genreText} this weekend in ${citiesEn}.`
+    : `EN: Live ${genreText} this week in ${citiesEn}.`;
+  return [title, intro, lines.join("\n"), cta, enLine].join("\n\n");
 }
 
 /**
@@ -4501,27 +4549,31 @@ async function getLastCollectionImageFromQueue(client) {
   }
 }
 
-/** Build hashtag string (8–12 tags) for a collection post. */
-function buildCollectionPostHashtags(bestEvent, _allEvents) {
-  const genre    = String(bestEvent?.genre || bestEvent?.category || "").trim();
-  const city     = String(bestEvent?.city || "").trim();
-  const genreSlug = genre.toLowerCase().replace(/[^a-záéíóúüña-z0-9]/gi, "");
-  const citySlug  = city.toLowerCase().replace(/[^a-záéíóúüña-z0-9]/gi, "");
-  const tags = [
-    "#gomarcha",
-    "#músicaenvivo",
-    "#livemusic",
-    "#CostaDelSol",
-    "#Marbella",
-    "#Málaga",
-    genreSlug ? `#${genreSlug}` : "",
-    citySlug  ? `#${citySlug}`  : "",
-    "#finde",
-    "#planazo",
-    "#Andalucía",
-    "#España",
-  ].filter((t, i, a) => Boolean(t) && t.length > 1 && a.indexOf(t) === i);
-  return tags.slice(0, 12).join(" ");
+/** Hashtags für Sammel-Posts: #gomarcha + bis zu 2 Orte + häufigstes Genre + #CostaDelSol (max. 5). */
+function buildCollectionPostHashtags(bestEvent, allEvents) {
+  const list = Array.isArray(allEvents) && allEvents.length ? allEvents : [bestEvent];
+  const tags = [];
+  const seen = new Set();
+  const push = (raw) => {
+    const token = slugHashtagToken(raw);
+    if (!token || token.length < 3 || seen.has(token.toLowerCase())) return;
+    seen.add(token.toLowerCase());
+    tags.push(`#${token}`);
+  };
+  const count = (key) => {
+    const m = new Map();
+    for (const ev of list) {
+      const v = String(ev?.[key] || "").trim();
+      if (v) m.set(v, (m.get(v) || 0) + 1);
+    }
+    return [...m.entries()].sort((a, b) => b[1] - a[1]).map(([v]) => v);
+  };
+  push("gomarcha");
+  count("city").slice(0, 2).forEach((c) => push(c.replace(/\s+/g, "")));
+  const g = count("genre")[0];
+  if (g) push(g.toLowerCase());
+  push("CostaDelSol");
+  return tags.slice(0, 5).join(" ");
 }
 
 /**
@@ -4576,8 +4628,8 @@ function buildWeeklyScheduleRows(weekEvents, monday, now, lastCollectionImageUrl
         postStage: "collection"
       });
       payload.title              = slotDef.scope === "weekend"
-        ? "¿Sin plan para este finde?"
-        : "Esta semana en la Costa del Sol";
+        ? "Planes de finde"
+        : "La semana en la Costa";
       payload.caption            = captionIg; // Instagram version (no URL, link-in-bio)
       payload.image_url          = image || payload.image_url;
       payload.resolved_image_url = image || payload.resolved_image_url;
