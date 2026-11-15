@@ -1,7 +1,20 @@
 # Offene Punkte — Marcha
 
-Merkliste für die nächsten Sessions. Stand: 13.11.2026.
+Merkliste für die nächsten Sessions. Stand: 15.11.2026.
 Erledigtes hier streichen bzw. nach „Erledigt“ verschieben.
+
+## Social-Media-Konzept v2 (15.11.2026) – Etappe 1 LIVE
+
+**Ausführlich:** `SOCIAL_MEDIA_KONZEPT.md` (Rat aus 5 Prüfern, Beschlüsse Abschnitt 11).
+
+**Live seit 15.11.2026 (Freigabe Frank):** ein Wochenplaner (Mo 13:30 „La semana en la Costa“, Mi 20:30 Highlight, Do 13:30 „Planes de finde“, Sa 12:00 Highlight 2) statt Posts pro Termin; neue Vorlagentexte (Infoblock, kein „Entradas“ ohne Preis, 3–5 Hashtags, EN-Zeile/-Absatz); KI-Text schon im Entwurf (`social-caption-ai` mode „queue“, Runner übernimmt `ai:`/`manual`); Klickmessung (`?source=` nur pro Sitzung, `landing`/`outbound_map` in `event_analytics`, Migration #28 ausgeführt); Worker gibt `source` weiter (von Frank deployt, geprüft). 16 alte Serien-Entwürfe gelöscht.
+
+**Offen:**
+- **Frank:** Admin → Social öffnen, die neuen Entwürfe Mi 18.11./Do 19.11. prüfen, Screenshot an Claude (KI-Text im Entwurf ist noch ungetestet).
+- **Frank:** Cloudflare Web Analytics einschalten · Instagram-Profil (Bio-Link `?source=ig_bio`, 3 angeheftete Posts) · Blindtest (1 Person aus Málaga + 1 Brite) · 3–4 Facebook-Ortsgruppen auswählen.
+- **Claude, nächste Session:** Admin „Social → Diese Woche“ mit Not-Aus; Karten-Vorlage 4:5; danach SEO-Etappe (Event-Seiten ohne Weiterleitung, Sitemap, Search Console).
+- 4-Wochen-Test „Planes de finde“ (Klicks pro Post, teilen Bars?) → erst dann Bildgenerator/Stories/Automatik (Stufe 2).
+- `CLAUDE.md` ist veraltet (sagt „Captions ohne KI“) – bei Gelegenheit korrigieren.
 
 ## KI-Automatik (neues Großprojekt, Council 13.11.2026)
 
