@@ -142,16 +142,21 @@ const GENRE_PRIORITY_DEFAULT = 6;
  * eventIndex: 0-based rank in genre-sorted event list (default 0)
  * minEvents:  minimum events required to emit this slot (default 1)
  */
+// Social-Media-Konzept v2 (SOCIAL_MEDIA_KONZEPT.md, 15.11.2026): Wochenformate statt Posts pro Termin.
+// Mo 13:30 „La semana en la Costa“ (Mo–Do) · Mi 20:30 Highlight (Do–So) · Do 13:30 „Planes de finde“ (Fr–So)
+// · Sa 12:00 Highlight 2 (Sa/So, nur wenn ein weiteres Event da ist). dayFilter = Liste von getDay()-Werten.
 const WEEKLY_SCHEDULE_PLAN = Object.freeze([
-  { id: "tue_collection", weekday: 2, hour: 14, minute: 0, type: "collection", scope: "week"    },
-  { id: "wed_single",     weekday: 3, hour: 14, minute: 0, type: "single",  dayFilter: 3        },
-  { id: "thu_single",     weekday: 4, hour: 14, minute: 0, type: "single",  dayFilter: 4        },
-  { id: "fri_collection", weekday: 5, hour: 11, minute: 0, type: "collection", scope: "weekend" },
-  { id: "fri_single",     weekday: 5, hour: 18, minute: 0, type: "single",  dayFilter: 5        },
-  { id: "sat_single_1",   weekday: 6, hour: 10, minute: 0, type: "single",  dayFilter: 6, eventIndex: 0              },
-  { id: "sat_single_2",   weekday: 6, hour: 15, minute: 0, type: "single",  dayFilter: 6, eventIndex: 1, minEvents: 2 },
-  { id: "sun_single",     weekday: 0, hour: 11, minute: 0, type: "single",  dayFilter: 0        },
+  { id: "mon_collection", weekday: 1, hour: 13, minute: 30, type: "collection", scope: "weekdays" },
+  { id: "wed_highlight",  weekday: 3, hour: 20, minute: 30, type: "single", dayFilter: [4, 5, 6, 0] },
+  { id: "thu_collection", weekday: 4, hour: 13, minute: 30, type: "collection", scope: "weekend" },
+  { id: "sat_highlight",  weekday: 6, hour: 12, minute: 0,  type: "single", dayFilter: [6, 0] },
 ]);
+
+/**
+ * Alte Post-Planer (Posts pro Termin: Sofort-„Última llamada“, Serien-Slots 3 Tage/Vortag/90 Min.).
+ * Seit Konzept v2 aus – es plant nur noch WEEKLY_SCHEDULE_PLAN. Auf true setzen = altes Verhalten zurück.
+ */
+const LEGACY_PER_EVENT_SOCIAL_SLOTS = false;
 
 const EVENT_ANALYTICS_TABLE = "event_analytics";
 
@@ -4532,6 +4537,8 @@ function buildCollectionPostHashtags(bestEvent, _allEvents) {
 function buildWeeklyScheduleRows(weekEvents, monday, now, lastCollectionImageUrl, isoWeek) {
   if (!Array.isArray(weekEvents) || !weekEvents.length) return [];
   const rows = [];
+  const usedSingleEventIds = new Set();
+  const isHighlightCandidate = (ev) => ev?.featured === true || ev?.is_featured === true || ev?.promoted === true;
 
   for (const slotDef of WEEKLY_SCHEDULE_PLAN) {
     // Absolute datetime for this slot
@@ -4543,14 +4550,18 @@ function buildWeeklyScheduleRows(weekEvents, monday, now, lastCollectionImageUrl
 
     if (slotDef.type === "collection") {
       // ── Sammelpost ──────────────────────────────────────────────────────────
-      const eligible = slotDef.scope === "weekend"
-        ? weekEvents.filter((ev) => {
-            const d = ev?.event_date ? new Date(ev.event_date + "T00:00:00") : null;
-            if (!d || Number.isNaN(d.getTime())) return false;
-            return d.getDay() === 5 || d.getDay() === 6 || d.getDay() === 0; // Fri/Sat/Sun
-          })
-        : weekEvents; // scope "week" → all events this week
-      if (eligible.length < 3) continue; // Sammelpost requires ≥3 events
+      const scopeDays = slotDef.scope === "weekend"
+        ? [5, 6, 0]                          // Fri/Sat/Sun
+        : slotDef.scope === "weekdays"
+          ? [1, 2, 3, 4]                     // Mon–Thu
+          : null;                            // "week" → all events this week
+      const eligible = weekEvents.filter((ev) => {
+        const d = ev?.event_date ? new Date(ev.event_date + "T00:00:00") : null;
+        if (!d || Number.isNaN(d.getTime())) return false;
+        if (applyAdminEventWallTime(d, ev) <= slotDate) return false; // already started at post time
+        return scopeDays ? scopeDays.includes(d.getDay()) : true;
+      });
+      if (eligible.length < 2) continue; // Sammelpost requires ≥2 events (sonst kein leeres Format)
 
       const sorted    = sortEventsByGenrePriority(eligible);
       const bestEvent = sorted[0];
@@ -4582,11 +4593,14 @@ function buildWeeklyScheduleRows(weekEvents, monday, now, lastCollectionImageUrl
 
     } else {
       // ── Einzelpost ──────────────────────────────────────────────────────────
+      const dayFilter = Array.isArray(slotDef.dayFilter) ? slotDef.dayFilter : [slotDef.dayFilter];
       let eligible = weekEvents.filter((ev) => {
         if (ev?._collection_only) return false;   // recurring events → collection posts only
+        if (usedSingleEventIds.has(String(ev?.id))) return false; // ein Event nur 1 Highlight pro Woche
         const d = ev?.event_date ? new Date(ev.event_date + "T00:00:00") : null;
         if (!d || Number.isNaN(d.getTime())) return false;
-        return d.getDay() === slotDef.dayFilter;
+        if (applyAdminEventWallTime(d, ev) <= slotDate) return false;
+        return dayFilter.includes(d.getDay());
       });
       eligible = sortEventsByGenrePriority(eligible);
 
@@ -4595,15 +4609,14 @@ function buildWeeklyScheduleRows(weekEvents, monday, now, lastCollectionImageUrl
       if (eligible.length < minEvents) continue;
       if (eventIndex >= eligible.length)  continue;
 
-      const ev         = eligible[eventIndex];
-      const eventStart = dateFromAdminEventWallTime(ev);
-      const stage      = slotStageFromTiming(
-        slotDate,
-        eventStart instanceof Date && !Number.isNaN(eventStart.getTime()) ? eventStart : slotDate
-      );
+      // Featured/promoted events zuerst (Highlight), sonst Genre-Reihenfolge.
+      eligible.sort((a, b) => Number(isHighlightCandidate(b)) - Number(isHighlightCandidate(a)));
+      const ev = eligible[eventIndex];
+      usedSingleEventIds.add(String(ev?.id));
 
+      // Highlight-Posts sind Vorankündigungen – nie „Última llamada“.
       const payload = buildSocialQueuePayload(ev, slotDate, DEFAULT_SOCIAL_QUEUE_PLATFORMS, {
-        postStage: stage
+        postStage: "early_reminder"
       });
       payload._slot_id = slotDef.id;
       rows.push(payload);
@@ -5150,6 +5163,25 @@ async function prepareRecurringOccurrencesWithinHorizon(
 async function runWeeklyRecurringSocialAutoPrep(options = {}) {
   const now = options.now instanceof Date ? options.now : new Date();
   const summary = createEmptyRecurringAutoPrepSummary();
+  if (!LEGACY_PER_EVENT_SOCIAL_SLOTS) {
+    // Konzept v2: statt Serien-Slots den Wochenplan für diese und nächste Woche ergänzen.
+    const monday = getWeekMondayDate(now);
+    const nextMonday = new Date(monday);
+    nextMonday.setDate(nextMonday.getDate() + 7);
+    const draftsInserted =
+      (await ensureWeeklyScheduleForWeek(monday)) + (await ensureWeeklyScheduleForWeek(nextMonday));
+    console.log("weekly social plan refresh", { draftsInserted });
+    return {
+      masters: 0,
+      occurrences: 0,
+      childrenCreated: 0,
+      draftsInserted,
+      skippedExisting: 0,
+      horizonDays: 14,
+      weeklyPlan: true,
+      summary
+    };
+  }
   const allEvents = state.allEvents || [];
   summary.checked = allEvents.length;
 
@@ -5254,7 +5286,9 @@ function scheduleRecurringSocialAutoPrep(options = {}) {
         renderSocialQueuePanel();
         if (res.draftsInserted > 0) {
           setGlobalFeedback(
-            `Auto-Vorbereitung (${res.horizonDays} Tage): ${res.draftsInserted} neue Drafts für ${res.masters} Serie(n).`,
+            res.weeklyPlan
+              ? `Wochenplan: ${res.draftsInserted} neue Social-Drafts (diese und nächste Woche).`
+              : `Auto-Vorbereitung (${res.horizonDays} Tage): ${res.draftsInserted} neue Drafts für ${res.masters} Serie(n).`,
             "success"
           );
         }
@@ -7505,6 +7539,23 @@ async function loadSocialQueueRows() {
 }
 
 async function ensureSocialReviewQueueForEvent(event) {
+  if (!LEGACY_PER_EVENT_SOCIAL_SLOTS) {
+    // Konzept v2: keine Posts pro Termin. Das Event fließt in den Wochenplan seiner Woche ein
+    // (Serien: aktuelle und nächste Woche).
+    const isSeries = event?.is_recurring === true || String(event?.original_event_id || "").trim();
+    const eventDateStr = String(event?.event_date || "").trim();
+    const [ey, em, ed] = eventDateStr.split("-").map(Number);
+    const base = !isSeries && ey && em && ed ? new Date(ey, em - 1, ed) : new Date();
+    const monday = getWeekMondayDate(base);
+    let inserted = await ensureWeeklyScheduleForWeek(monday);
+    if (isSeries) {
+      const nextMonday = new Date(monday);
+      nextMonday.setDate(nextMonday.getDate() + 7);
+      inserted += await ensureWeeklyScheduleForWeek(nextMonday);
+    }
+    return inserted;
+  }
+
   // ── Short-notice last_call for one-time events with no existing queue rows ─────
   if (event?.is_recurring !== true && !String(event?.original_event_id || "").trim()) {
     const immediateLastCall = immediateLastCallDateForEvent(event);
@@ -7566,8 +7617,14 @@ async function ensureSocialReviewQueueForEvent(event) {
   if (!eventDateStr) return 0;
   const [ey, em, ed] = eventDateStr.split("-").map(Number);
   if (!ey || !em || !ed) return 0;
+  return ensureWeeklyScheduleForWeek(getWeekMondayDate(new Date(ey, em - 1, ed)));
+}
 
-  const monday = getWeekMondayDate(new Date(ey, em - 1, ed));
+/**
+ * Wochenplan (WEEKLY_SCHEDULE_PLAN) für die ISO-Woche ab `monday` anlegen.
+ * Legt nur fehlende Posts an: pro Zeitpunkt höchstens ein Post (egal welches Event).
+ */
+async function ensureWeeklyScheduleForWeek(monday) {
   const nextMonday = new Date(monday);
   nextMonday.setDate(nextMonday.getDate() + 7);
   const pad = (n) => String(n).padStart(2, "0");
@@ -7651,47 +7708,17 @@ async function ensureSocialReviewQueueForEvent(event) {
   const candidates = buildWeeklyScheduleRows(allWeekEvents, monday, now, lastCollectionImageUrl, isoWeek);
   if (!candidates.length) return 0;
 
-  // Fetch existing queue rows for dedup — never touch posted / sent_to_postiz
-  // Collection posts are deduped by scheduled_at time; single posts by event_id.
-  // Recurring events appear in collection posts only, so only one-time IDs are needed here.
-  const weekEventIds = weekEvents.map((ev) => ev.id).filter(Boolean);
-  let existing = [];
-  if (weekEventIds.length) {
-    const { data, error: existingError } = await client
-      .from("social_queue")
-      .select("event_id,scheduled_at,post_stage")
-      .in("event_id", weekEventIds);
-    if (existingError) throw new Error(existingError.message || "Social Queue konnte nicht geprüft werden.");
-    existing = data || [];
-  }
-
-  // Also fetch collection posts for this week by time range — catches cases where
-  // a recurring event was chosen as bestEvent and its ID is not in weekEventIds.
-  const { data: existingCols, error: colErr } = await client
+  // Dedupe: pro Zeitpunkt des Wochenplans höchstens EIN Post (egal welches Event, egal welcher
+  // Status) – so entstehen keine Doppel-Posts, auch wenn sich das gewählte Highlight ändert.
+  const { data: existingInWeek, error: existingError } = await client
     .from("social_queue")
-    .select("scheduled_at,post_stage")
-    .eq("post_stage", "collection")
-    .gte("scheduled_at", mondayStr + "T00:00:00.000Z")
-    .lt("scheduled_at", nextMondayStr + "T24:00:00.000Z");
-  if (colErr) throw new Error(colErr.message || "Collection Posts konnten nicht geprüft werden.");
+    .select("scheduled_at")
+    .gte("scheduled_at", monday.toISOString())
+    .lt("scheduled_at", nextMonday.toISOString());
+  if (existingError) throw new Error(existingError.message || "Social Queue konnte nicht geprüft werden.");
+  const existingTimes = new Set((existingInWeek || []).map((r) => new Date(r.scheduled_at).toISOString()));
 
-  // One collection post per timeslot (regardless of event_id);
-  // one single post per event_id + timeslot.
-  const existingCollectionTimes = new Set(
-    [...existing, ...(existingCols || [])]
-      .filter((r) => r.post_stage === "collection")
-      .map((r) => new Date(r.scheduled_at).toISOString())
-  );
-  const existingSingleKeys = new Set(
-    (existing || []).map((r) => `${r.event_id}::${new Date(r.scheduled_at).toISOString()}`)
-  );
-
-  const missing = candidates.filter((row) => {
-    if (row.post_stage === "collection") {
-      return !existingCollectionTimes.has(row.scheduled_at);
-    }
-    return !existingSingleKeys.has(`${row.event_id}::${row.scheduled_at}`);
-  });
+  const missing = candidates.filter((row) => !existingTimes.has(new Date(row.scheduled_at).toISOString()));
   if (!missing.length) return 0;
   return insertSocialQueueRows(missing);
 }
