@@ -2,7 +2,7 @@ const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
 const ADMIN_REQUIRED_ROLE = "admin";
 const ADMIN_ALLOWED_EMAILS = [];
-const ADMIN_DASHBOARD_BUILD = "2026.11.13-schnelleintrag";
+const ADMIN_DASHBOARD_BUILD = "2026.11.15-social-v2";
 // Spalten der Tabelle events, die der Admin-Bereich direkt liest. Einreicher-Daten
 // (contact_email, submitted_by, verification_notes) kommen über die Admin-Funktion
 // marcha_admin_event_private (supabase-security-hardening-6.sql) dazu.
