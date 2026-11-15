@@ -6758,7 +6758,8 @@ function parsePublicListingTimeParts(rawTime) {
 
 /**
  * Latest instant the event is still shown on the public map/list.
- * — end_time if parseable, else event_time, else end of local calendar day.
+ * — end_time if parseable (end before/at start = next day, e.g. 22:00–03:00),
+ *   else "open end": visible until end of the event day (0:00).
  */
 function publicListingEndMs(event, referenceDate = null) {
   const dateRaw = String(event?.event_date || event?.occurrence_date || "").trim();
@@ -6769,13 +6770,13 @@ function publicListingEndMs(event, referenceDate = null) {
   const startWall = parsePublicListingTimeParts(event?.event_time);
   const d = new Date(day);
   if (endWall) {
+    const endMinutes = endWall.hour * 60 + endWall.minute;
+    const startMinutes = startWall ? startWall.hour * 60 + startWall.minute : -1;
+    if (endMinutes <= startMinutes) d.setDate(d.getDate() + 1);
     d.setHours(endWall.hour, endWall.minute, 59, 999);
     return d.getTime();
   }
-  if (startWall) {
-    d.setHours(startWall.hour, startWall.minute, 59, 999);
-    return d.getTime();
-  }
+  // Open End (kein Ende angegeben): sichtbar bis 0:00 Uhr am Ende des Eventtags.
   d.setHours(23, 59, 59, 999);
   return d.getTime();
 }
