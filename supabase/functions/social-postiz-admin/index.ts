@@ -18,6 +18,11 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
  *       Lädt ein Bild (https, z. B. Canva-Export oder Event-Foto) zu Postiz hoch und legt einen
  *       Instagram-STORY-Entwurf (post_type "story", type "draft") zum Zeitpunkt date an.
  *       Geht erst nach Freigabe in Postiz raus. Für „Hoy en la Costa“.
+ *   { action: "story_queue", image_url, date, event_id?, title?, index?, canva_url? }
+ *       Legt eine Story als ENTWURF in social_queue an (post_stage "story", slot_key "<Tag>:story:<index>").
+ *       Das Bild (z. B. Canva-Export) wird dauerhaft in Storage event-images/stories/ gespeichert.
+ *       Frank gibt die Story im Admin frei; danach plant der Versender sie in Postiz ein.
+ *       Gibt es für den Platz schon einen offenen Entwurf, wird er ersetzt (neues Bild).
  *   { action: "delete_post", post_id }
  *       Löscht einen einzelnen Postiz-Post ohne Eintrag in social_queue (z. B. einen Story-Entwurf).
  *   { action: "list", from, to }
@@ -74,7 +79,7 @@ Deno.serve(async (req: Request) => {
   const body: any = await req.json().catch(() => ({}));
   const action = String(body?.action || "");
   const queueId = String(body?.queue_id || "");
-  if (!["withdraw", "refresh", "list", "story_draft", "delete_post"].includes(action)) return json({ error: "Unknown action" }, 400);
+  if (!["withdraw", "refresh", "list", "story_draft", "delete_post", "story_queue"].includes(action)) return json({ error: "Unknown action" }, 400);
   if (action === "story_draft") {
     const imageUrl = String(body?.image_url || "");
     const date = new Date(String(body?.date || ""));
@@ -115,6 +120,69 @@ Deno.serve(async (req: Request) => {
     const created = await res.json().catch(() => null);
     slog("story_draft", { ok: res.ok, status: res.status, date: date.toISOString(), created });
     return json({ ok: res.ok, status: res.status, created, media_path: media.path }, res.ok ? 200 : 502);
+  }
+  if (action === "story_queue") {
+    const imageUrl = String(body?.image_url || "");
+    const date = new Date(String(body?.date || ""));
+    if (!/^https:\/\//i.test(imageUrl)) return json({ error: "image_url (https) fehlt" }, 400);
+    if (Number.isNaN(date.getTime()) || date.getTime() < Date.now()) return json({ error: "date fehlt oder liegt in der Vergangenheit" }, 400);
+    const index = Math.min(Math.max(Number(body?.index) || 1, 1), 5);
+    const eventIdRaw = String(body?.event_id ?? "").trim();
+    const eventId = /^\d+$/.test(eventIdRaw) ? Number(eventIdRaw) : null;
+    const ymd = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Madrid", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
+    const slotKey = `${ymd}:story:${index}`;
+    const sh = { apikey: service, Authorization: `Bearer ${service}` };
+    // 1) Bild laden und dauerhaft speichern
+    const img = await fetch(imageUrl);
+    if (!img.ok) return json({ error: `Bild nicht ladbar (${img.status})` }, 400);
+    const type = (img.headers.get("content-type") || "image/jpeg").split(";")[0];
+    if (!/^image\/(jpeg|png|webp)$/.test(type)) return json({ error: `Bildformat ${type} nicht unterstützt` }, 400);
+    const ext = type === "image/png" ? "png" : type === "image/webp" ? "webp" : "jpg";
+    const path = `stories/${ymd}-${index}-${crypto.randomUUID().slice(0, 8)}.${ext}`;
+    const up = await fetch(`${base}/storage/v1/object/event-images/${path}`, {
+      method: "POST",
+      headers: { ...sh, "Content-Type": type, "x-upsert": "true" },
+      body: await img.arrayBuffer(),
+    });
+    if (!up.ok) return json({ error: `Speichern fehlgeschlagen (${up.status})`, body: (await up.text()).slice(0, 200) }, 502);
+    const publicUrl = `${base}/storage/v1/object/public/event-images/${path}`;
+    // 2) Eintrag anlegen oder offenen Entwurf ersetzen
+    const rest2 = (p: string, init: RequestInit = {}) =>
+      fetch(`${base}/rest/v1/${p}`, { ...init, headers: { ...sh, "Content-Type": "application/json", ...(init.headers || {}) } });
+    const exRes = await rest2(`social_queue?select=id,status,admin_confirmed_at&slot_key=eq.${encodeURIComponent(slotKey)}&status=neq.skipped`);
+    const existing = exRes.ok ? (await exRes.json())?.[0] : null;
+    const fields = {
+      event_id: eventId,
+      platform: "instagram",
+      platforms: ["instagram"],
+      scheduled_at: date.toISOString(),
+      slot_key: slotKey,
+      title: String(body?.title || (eventId ? "Story" : "Story Marcha")).slice(0, 200),
+      caption: "",
+      image_url: publicUrl,
+      resolved_image_url: publicUrl,
+      post_stage: "story",
+      occurrence_date: ymd,
+      event_date: ymd,
+      postiz_response: { _marcha_story: { canva_url: String(body?.canva_url || "") || null, source_image: imageUrl.split("?")[0] } },
+      updated_at: new Date().toISOString(),
+    };
+    if (existing) {
+      if (!["pending", "draft"].includes(String(existing.status)) || existing.admin_confirmed_at) {
+        return json({ error: "Für diesen Platz ist schon eine freigegebene Story vorhanden – erst im Admin zurückziehen.", queue_id: existing.id }, 409);
+      }
+      const res = await rest2(`social_queue?id=eq.${existing.id}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify(fields) });
+      slog("story_queue", { action: "replace", queue_id: existing.id, slot_key: slotKey, ok: res.ok });
+      return json({ ok: res.ok, action: "replaced", queue_id: existing.id, slot_key: slotKey, image_url: publicUrl }, res.ok ? 200 : 502);
+    }
+    const res = await rest2("social_queue", {
+      method: "POST",
+      headers: { Prefer: "return=representation" },
+      body: JSON.stringify({ ...fields, status: "pending", retry_count: 0 }),
+    });
+    const created = res.ok ? (await res.json())?.[0] : null;
+    slog("story_queue", { action: "insert", queue_id: created?.id, slot_key: slotKey, ok: res.ok });
+    return json({ ok: res.ok, action: "created", queue_id: created?.id ?? null, slot_key: slotKey, image_url: publicUrl, detail: res.ok ? undefined : (await res.text()).slice(0, 200) }, res.ok ? 200 : 502);
   }
   if (action === "delete_post") {
     const postId = String(body?.post_id || "").trim();
