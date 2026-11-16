@@ -14,6 +14,10 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
  *       Versender („pending“ → neuer Postiz-Entwurf beim nächsten Runner-Lauf).
  *       Nur für Einträge mit slot_key (Wochenplan).
  *
+ *   { action: "story_draft", image_url, date, caption? }
+ *       Lädt ein Bild (https, z. B. Canva-Export oder Event-Foto) zu Postiz hoch und legt einen
+ *       Instagram-STORY-Entwurf (post_type "story", type "draft") zum Zeitpunkt date an.
+ *       Geht erst nach Freigabe in Postiz raus. Für „Hoy en la Costa“.
  *   { action: "list", from, to }
  *       Nur lesen: Postiz-Posts im Zeitraum (ISO-Daten) mit ID, Datum, Status, Netzwerk und Textanfang.
  *
@@ -68,7 +72,48 @@ Deno.serve(async (req: Request) => {
   const body: any = await req.json().catch(() => ({}));
   const action = String(body?.action || "");
   const queueId = String(body?.queue_id || "");
-  if (!["withdraw", "refresh", "list"].includes(action)) return json({ error: "Unknown action" }, 400);
+  if (!["withdraw", "refresh", "list", "story_draft"].includes(action)) return json({ error: "Unknown action" }, 400);
+  if (action === "story_draft") {
+    const imageUrl = String(body?.image_url || "");
+    const date = new Date(String(body?.date || ""));
+    const igId = Deno.env.get("POSTIZ_INSTAGRAM_INTEGRATION_ID") || "";
+    if (!/^https:\/\//i.test(imageUrl)) return json({ error: "image_url (https) fehlt" }, 400);
+    if (Number.isNaN(date.getTime()) || date.getTime() < Date.now()) return json({ error: "date fehlt oder liegt in der Vergangenheit" }, 400);
+    if (!igId) return json({ error: "POSTIZ_INSTAGRAM_INTEGRATION_ID fehlt" }, 500);
+    // 1) Bild laden und zu Postiz hochladen
+    const img = await fetch(imageUrl);
+    if (!img.ok) return json({ error: `Bild nicht ladbar (${img.status})` }, 400);
+    const type = (img.headers.get("content-type") || "image/jpeg").split(";")[0];
+    if (!/^image\/(jpeg|png|webp)$/.test(type)) return json({ error: `Bildformat ${type} nicht unterstützt` }, 400);
+    const ext = type === "image/png" ? "png" : type === "image/webp" ? "webp" : "jpg";
+    const form = new FormData();
+    form.append("file", new Blob([await img.arrayBuffer()], { type }), `story-${Date.now()}.${ext}`);
+    const up = await fetch(`${postizBase}/upload`, { method: "POST", headers: { Authorization: postizKey }, body: form });
+    // deno-lint-ignore no-explicit-any
+    const media: any = await up.json().catch(() => null);
+    if (!up.ok || !media?.id || !media?.path) return json({ error: `Upload fehlgeschlagen (${up.status})`, body: media }, 502);
+    // 2) Story-Entwurf anlegen
+    const payload = {
+      type: "draft",
+      date: date.toISOString(),
+      shortLink: false,
+      tags: [{ value: "", label: "" }],
+      posts: [{
+        group: crypto.randomUUID(),
+        integration: { id: igId },
+        value: [{ content: String(body?.caption || ""), image: [{ id: media.id, path: media.path }] }],
+        settings: { __type: "instagram", post_type: "story", is_trial_reel: false, collaborators: [] },
+      }],
+    };
+    const res = await fetch(`${postizBase}/posts`, {
+      method: "POST",
+      headers: { Authorization: postizKey, "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const created = await res.json().catch(() => null);
+    slog("story_draft", { ok: res.ok, status: res.status, date: date.toISOString(), created });
+    return json({ ok: res.ok, status: res.status, created, media_path: media.path }, res.ok ? 200 : 502);
+  }
   if (action === "list") {
     const from = new Date(String(body?.from || "")), to = new Date(String(body?.to || ""));
     if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return json({ error: "from/to fehlen" }, 400);
