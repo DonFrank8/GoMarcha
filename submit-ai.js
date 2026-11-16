@@ -25,7 +25,7 @@
       done: "Fertig! Bitte alle Felder kurz prüfen – gelb markierte sind unsicher. Der Flyer ist als Hauptbild eingesetzt.",
       need: "Bitte einen Flyer auswählen oder Text einfügen.",
       error: "Das hat leider nicht geklappt. Bitte die Felder von Hand ausfüllen.",
-      limit: "Das Tageslimit der KI-Hilfe ist erreicht. Bitte morgen wieder versuchen oder die Felder von Hand ausfüllen.",
+      limit: "Das Tageslimit der KI-Hilfe ist erreicht (5 pro Tag). Mit einem kostenlosen Veranstalter-Konto geht mehr – oder die Felder von Hand ausfüllen.",
       heic: "Dieses Bildformat kann der Browser nicht lesen – bitte einen Screenshot oder ein JPG nehmen.",
       hint: "Die KI macht nur einen Vorschlag. Du prüfst alles, bevor du absendest."
     },
@@ -38,7 +38,7 @@
       done: "Done! Please check every field – the ones in yellow are uncertain. The flyer has been added as the main image.",
       need: "Please choose a flyer or paste some text.",
       error: "Sorry, that didn't work. Please fill in the fields by hand.",
-      limit: "The AI helper's daily limit has been reached. Please try again tomorrow or fill in the fields by hand.",
+      limit: "The AI helper's daily limit has been reached (5 per day). A free organizer account gives you more – or fill in the fields by hand.",
       heic: "Your browser can't read this image format – please use a screenshot or a JPG.",
       hint: "The AI only makes a suggestion. You check everything before sending."
     },
@@ -51,7 +51,7 @@
       done: "¡Listo! Revisa todos los campos: los marcados en amarillo son dudosos. El cartel se ha añadido como imagen principal.",
       need: "Elige un cartel o pega un texto.",
       error: "No ha funcionado. Rellena los campos a mano, por favor.",
-      limit: "Se ha alcanzado el límite diario de la IA. Inténtalo mañana o rellena los campos a mano.",
+      limit: "Se ha alcanzado el límite diario de la IA (5 al día). Con una cuenta gratuita de organizador tienes más, o rellena los campos a mano.",
       heic: "Tu navegador no puede leer este formato de imagen: usa una captura de pantalla o un JPG.",
       hint: "La IA solo hace una propuesta. Tú lo revisas todo antes de enviar."
     }
