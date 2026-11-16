@@ -63,5 +63,10 @@ const thu2 = p.slots.find((s) => s.slot_id === "thu_collection")!;
 r = reconcile(p.slots, p.slotTimes, [{ id: "q2", slot_key: null, status: "sent_to_postiz", event_id: "b", collection_event_ids: ["s"], scheduled_at: thu2.scheduled_at }], p.occurrences);
 eq("Serie über Master-ID abgedeckt", r.uncovered.map((o) => o.ref), []);
 
+// 10) Event mit eigenem älteren Post (last_call, außerhalb des Plans) gilt als abgedeckt
+const late2 = planWeek([ev("z", "2026-11-29", { event_time: "20:00" })], "2026-11-23", { tz: TZ, nowMs: satNoon });
+r = reconcile(late2.slots, late2.slotTimes, [{ id: "lc", slot_key: null, status: "sent_to_postiz", post_stage: "last_call", event_id: "z", scheduled_at: "2026-11-29T13:00:00Z" }], late2.occurrences);
+eq("eigener Einzel-Post zählt als abgedeckt", r.uncovered.length, 0);
+
 console.log(`\n${failed ? `${failed} FEHLER` : "Alle Tests ok"}`);
 if (failed) process.exit(1);
