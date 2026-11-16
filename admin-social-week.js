@@ -151,7 +151,7 @@
     if (s === "pending" || s === "draft") return { text: "⏳ wartet auf deine Freigabe", cls: "wait", canApprove: true, canEdit: true };
     if (s === "ready_for_postiz" || s === "processing") return { text: "🚀 freigegeben – wird eingeplant", cls: "ok" };
     if (s === "sent_to_postiz" && mode === "schedule") return { text: "✅ freigegeben – in Postiz eingeplant", cls: "ok" };
-    if (s === "sent_to_postiz") return { text: "📝 Entwurf in Postiz – dort freigeben (alter Weg)", cls: "wait" };
+    if (s === "sent_to_postiz") return { text: "📝 noch Entwurf in Postiz – hier freigeben", cls: "wait", canApprove: Boolean(row.slot_key) && !String(row.slot_key).includes(":story") };
     if (s === "posted") return { text: "✔️ veröffentlicht", cls: "ok" };
     if (s === "failed") return { text: `⚠️ Fehler: ${String(row.last_error || "").slice(0, 80)}`, cls: "err", canApprove: Boolean(row.admin_confirmed_at) };
     return { text: s, cls: "" };
@@ -233,7 +233,10 @@
       }
       target.append(el("p", { class: "card__intro", text: "Nur Story / Website (in keinem Feed-Post):" }));
       const ul = el("ul");
-      list.forEach((o) => ul.append(el("li", { text: `${o.date}${o.time ? ` ${o.time}` : ""} – ${o.name}` })));
+      list.forEach((o) => {
+        const d = new Intl.DateTimeFormat("de-DE", { timeZone: "UTC", weekday: "short", day: "numeric", month: "short" }).format(new Date(`${o.date}T12:00:00Z`));
+        ul.append(el("li", { text: `${d}${o.time ? `, ${o.time}` : ""} – ${o.name}` }));
+      });
       target.append(ul);
     } catch (err) {
       target.textContent = "";
@@ -318,6 +321,10 @@
   async function approve(row) {
     const label = slotKind(row) === "story" ? "Story" : "Post";
     if (!window.confirm(`${label} für ${dayLabel(row.scheduled_at)}, ${timeLabel(row.scheduled_at)} freigeben?\nEr wird dann in Postiz fest eingeplant und erscheint automatisch.`)) return "";
+    if (row.status === "sent_to_postiz") {
+      // Alter Weg: Postiz-Entwurf löschen, Eintrag mit aktuellen Events neu berechnen, dann fest einplanen.
+      await callFn("social-postiz-admin", { action: "refresh", queue_id: row.id });
+    }
     const { error } = await getClient()
       .from("social_queue")
       .update({ status: "ready_for_postiz", admin_confirmed_at: new Date().toISOString(), last_error: null })
