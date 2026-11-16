@@ -28,6 +28,8 @@
       limit_org: "Das Tageslimit der KI-Hilfe ist erreicht (20 pro Tag). Bitte morgen wieder versuchen oder die Felder von Hand ausfüllen.",
       limit: "Das Tageslimit der KI-Hilfe ist erreicht (5 pro Tag). Mit einem kostenlosen Veranstalter-Konto geht mehr – oder die Felder von Hand ausfüllen.",
       heic: "Dieses Bildformat kann der Browser nicht lesen – bitte einen Screenshot oder ein JPG nehmen.",
+      org: "Du bist Veranstalter? Erstelle dein kostenloses Konto: Du veröffentlichst schneller und bearbeitest deine Events selbst.",
+      org_link: "Konto erstellen →",
       hint: "Die KI macht nur einen Vorschlag. Du prüfst alles, bevor du absendest."
     },
     en: {
@@ -42,6 +44,8 @@
       limit_org: "The AI helper's daily limit has been reached (20 per day). Please try again tomorrow or fill in the fields by hand.",
       limit: "The AI helper's daily limit has been reached (5 per day). A free organizer account gives you more – or fill in the fields by hand.",
       heic: "Your browser can't read this image format – please use a screenshot or a JPG.",
+      org: "Are you an organizer? Create your free account: publish faster and edit your own events.",
+      org_link: "Create account →",
       hint: "The AI only makes a suggestion. You check everything before sending."
     },
     es: {
@@ -56,6 +60,8 @@
       limit_org: "Se ha alcanzado el límite diario de la IA (20 al día). Inténtalo mañana o rellena los campos a mano.",
       limit: "Se ha alcanzado el límite diario de la IA (5 al día). Con una cuenta gratuita de organizador tienes más, o rellena los campos a mano.",
       heic: "Tu navegador no puede leer este formato de imagen: usa una captura de pantalla o un JPG.",
+      org: "¿Eres organizador? Crea tu cuenta gratis: publicas más rápido y editas tus eventos.",
+      org_link: "Crear cuenta →",
       hint: "La IA solo hace una propuesta. Tú lo revisas todo antes de enviar."
     }
   };
@@ -80,6 +86,8 @@
       .submit-ai__hint { margin: 0; font-size: .85rem; opacity: .8; }
       .submit-ai textarea { width: 100%; box-sizing: border-box; min-height: 60px; font: inherit; font-size: 16px; border-radius: 10px; padding: 8px; }
       .submit-ai__status { margin: 0; font-size: .92rem; }
+      .submit-ai__org { margin: 0 0 10px; font-size: .92rem; }
+      .submit-ai__org a { font-weight: 700; white-space: nowrap; }
       .submit-ai__status.is-error { color: #ff8a8a; }
       .submit-ai-unsure input, .submit-ai-unsure select, .submit-ai-unsure textarea { outline: 2px solid #ffc857 !important; }
     `;
@@ -194,7 +202,17 @@
       <p id="submitAiStatus" class="submit-ai__status" role="status" aria-live="polite" hidden></p>
       <p class="submit-ai__hint" data-ai-t="hint"></p>`;
     form.prepend(box);
-    const translate = () => box.querySelectorAll("[data-ai-t]").forEach((n) => { n.textContent = t(n.getAttribute("data-ai-t")); });
+    // Hinweis auf Veranstalter-Konto – nur für Besucher ohne Anmeldung
+    accessToken().then((token) => {
+      if (token || document.getElementById("submitAiOrg")) return;
+      const org = document.createElement("p");
+      org.className = "submit-ai__org";
+      org.id = "submitAiOrg";
+      org.innerHTML = `<span data-ai-t="org"></span> <a href="./veranstalter.html" data-ai-t="org_link"></a>`;
+      box.before(org);
+      org.querySelectorAll("[data-ai-t]").forEach((n) => { n.textContent = t(n.getAttribute("data-ai-t")); });
+    });
+    const translate = () => form.querySelectorAll("[data-ai-t]").forEach((n) => { n.textContent = t(n.getAttribute("data-ai-t")); });
     translate();
     document.addEventListener("click", (e) => { if (e.target.closest("[data-lang-switch]")) setTimeout(translate, 50); });
 
