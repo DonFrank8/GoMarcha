@@ -11,3 +11,6 @@ verify_jwt = false
 
 [functions.smart-action]
 verify_jwt = false
+
+[functions.social-week-planner]
+verify_jwt = false

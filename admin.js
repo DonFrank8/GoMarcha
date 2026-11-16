@@ -2,7 +2,7 @@ const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
 const ADMIN_REQUIRED_ROLE = "admin";
 const ADMIN_ALLOWED_EMAILS = [];
-const ADMIN_DASHBOARD_BUILD = "2026.11.15-social-v2";
+const ADMIN_DASHBOARD_BUILD = "2026.11.16-social-badge";
 // Spalten der Tabelle events, die der Admin-Bereich direkt liest. Einreicher-Daten
 // (contact_email, submitted_by, verification_notes) kommen über die Admin-Funktion
 // marcha_admin_event_private (supabase-security-hardening-6.sql) dazu.
@@ -5528,6 +5528,24 @@ async function adminSyncPastEventArchiveState(events = state.allEvents) {
   console.log("RECURRING ARCHIVE CHECK", summary);
 }
 
+/** true, wenn das Event als Mitglied in einem (nicht übersprungenen) Sammelpost der Social Queue steht. */
+function isEventInSocialCollection(eventId) {
+  const id = String(eventId || "");
+  if (!id) return false;
+  for (const rows of state.socialQueueByEvent.values()) {
+    for (const row of rows || []) {
+      if (String(row?.status || "").toLowerCase() === "skipped") continue;
+      let meta = row?.postiz_response;
+      if (typeof meta === "string") {
+        try { meta = JSON.parse(meta); } catch (_e) { meta = null; }
+      }
+      const ids = Array.isArray(meta?._marcha_collection_event_ids) ? meta._marcha_collection_event_ids : [];
+      if (ids.some((x) => String(x || "").split("::")[0] === id)) return true;
+    }
+  }
+  return false;
+}
+
 function buildEventValidationBadges(event) {
   const badges = [];
   const hasCoords = hasValidMarkerCoordinates(event);
@@ -5548,7 +5566,11 @@ function buildEventValidationBadges(event) {
   if (isEventPast(event) && !isAdminDefectiveEvent(event)) push("error", "❌ Archiviert / Vergangen");
   if (shortNotice.urgent) push("warning", "⚠️ Eilmeldung");
   else if (shortNotice.active) push("warning", "⚠️ Kurzfristig");
-  if (event.status === "approved" && socialSummary.total === 0) push("warning", "⚠️ Social Drafts fehlen");
+  // Konzept v2: Ein Event ist abgedeckt, wenn es einen eigenen Post hat ODER in einem Sammelpost steckt.
+  // Nicht abgedeckt ist kein Fehler (Website/Story), daher nur ein neutraler Hinweis ohne Warnfarbe.
+  if (event.status === "approved" && socialSummary.total === 0 && !isEventInSocialCollection(event.id)) {
+    push("info", "Nicht im Wochenplan");
+  }
 
   const hasError = badges.some((b) => b.tone === "error");
   const hasWarn = badges.some((b) => b.tone === "warning");
