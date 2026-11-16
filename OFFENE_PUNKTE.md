@@ -1,7 +1,13 @@
 # Offene Punkte — Marcha
 
-Merkliste für die nächsten Sessions. Stand: 15.11.2026.
+Merkliste für die nächsten Sessions. Stand: 16.11.2026.
 Erledigtes hier streichen bzw. nach „Erledigt“ verschieben.
+
+## KI-Hilfe im Formular „Event hinzufügen“ (16.11.2026) – LIVE
+
+Limit-Meldung kommt jetzt in der Sprache der Seite (vorher immer deutscher Server-Text). Ohne Anmeldung zeigt das Formular oben den Hinweis „¿Eres organizador? Crea tu cuenta gratis …“ mit Link auf `veranstalter.html`. Live über PR #142 (Freigabe Frank).
+Hinweis: Veranstalter-Konten (Etappen A, B, B2, C) sind seit 13.11.2026 live – Anmeldung über `veranstalter.html` bzw. Footer-Link „Para organizadores“.
+- **Frank:** im privaten Fenster prüfen (Hinweis sichtbar, Link öffnet die Veranstalter-Seite).
 
 ## Social-Media-Konzept v2 (15.11.2026) – Etappe 1 LIVE
 
