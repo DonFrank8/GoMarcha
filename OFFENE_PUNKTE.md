@@ -9,6 +9,8 @@ Rat (4 Prüfer) + Freigabe Frank: Jedes Event erscheint auf der Website + im Sam
 - ERLEDIGT: SQL #29 ausgeführt (slot_key, collection_event_ids, social_planner_settings: dry_run=an, require_approval=an). Edge Function `social-week-planner` v2 deployt, Testlauf ok. Admin-Badge „Nicht im Wochenplan“ live (PR #143).
 - Gefunden: alter Browser-Planer hat für Do 19.11. einen ZWEITEN, falschen „Planes de finde“ (Events 27.–29.11.) an Postiz gegeben (queue 8ffc1076…) → **Frank: in Postiz löschen.** Diese Woche fehlt „Chilled Live Music“ (Sa 21.11.) im Do-Post → nur Story/Website.
 - ERLEDIGT 16.11.: Testmodus aus, pg_cron stündlich, Browser-Planer im Admin abgeschaltet (ruft nur noch den Server an, Build `2026.11.16-server-planner`).
+- ERLEDIGT 16.11.: Edge Function `social-postiz-admin` (list / withdraw / refresh) deployt. Falscher Doppelpost war in Postiz schon gelöscht (DB-Eintrag 8ffc… → skipped). Do-19.11.-Sammelpost erneuert: jetzt 6 Events inkl. Chilled Live Music + Magasax, neuer Postiz-Entwurf wartet auf Freigabe.
+- Auffällig in Postiz: Mi 18.11. zwei Feed-Posts (14:00 Joolz „última llamada“ + 20:30 Highlight) → Regel „max. 1 Feed-Post/Tag“ verletzt; alte last_call-Einzelposts bis 18.12. prüfen.
 - Nächste Schritte: (2) Versender: nur freigegebene Posts an Postiz, Prüfung vor Versand; (3) Admin „Social → Diese Woche“ mit Not-Aus; (4) Story „Hoy en la Costa“ als Entwurf (prüfen, ob Postiz Stories per Schnittstelle kann); (5) Veranstalter-Hinweis + Teil-Paket.
 - Auffällig: viele alte „last_call“-Einzelposts (bis 18.12.) liegen schon bei Postiz – mit Konzept v2 prüfen (max. 1 Feed-Post/Tag).
 

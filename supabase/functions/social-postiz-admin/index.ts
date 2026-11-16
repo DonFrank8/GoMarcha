@@ -14,6 +14,9 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
  *       Versender („pending“ → neuer Postiz-Entwurf beim nächsten Runner-Lauf).
  *       Nur für Einträge mit slot_key (Wochenplan).
  *
+ *   { action: "list", from, to }
+ *       Nur lesen: Postiz-Posts im Zeitraum (ISO-Daten) mit ID, Datum, Status, Netzwerk und Textanfang.
+ *
  * Bereits veröffentlichte Posts (status „posted“) werden nie angefasst.
  * Zugriff: Header x-marcha-social-secret (= MARCHA_SOCIAL_RUNNER_SECRET) oder Admin (app_metadata.role).
  * Secrets: POSTIZ_API_KEY, optional POSTIZ_API_BASE. Standard: SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY.
@@ -65,7 +68,23 @@ Deno.serve(async (req: Request) => {
   const body: any = await req.json().catch(() => ({}));
   const action = String(body?.action || "");
   const queueId = String(body?.queue_id || "");
-  if (!["withdraw", "refresh"].includes(action)) return json({ error: "Unknown action" }, 400);
+  if (!["withdraw", "refresh", "list"].includes(action)) return json({ error: "Unknown action" }, 400);
+  if (action === "list") {
+    const from = new Date(String(body?.from || "")), to = new Date(String(body?.to || ""));
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return json({ error: "from/to fehlen" }, 400);
+    const res = await fetch(
+      `${postizBase}/posts?startDate=${encodeURIComponent(from.toISOString())}&endDate=${encodeURIComponent(to.toISOString())}`,
+      { headers: { Authorization: postizKey } },
+    );
+    // deno-lint-ignore no-explicit-any
+    const data: any = await res.json().catch(() => null);
+    // deno-lint-ignore no-explicit-any
+    const posts = (Array.isArray(data?.posts) ? data.posts : []).map((p: any) => ({
+      id: p?.id, group: p?.group ?? null, publishDate: p?.publishDate, state: p?.state, status: p?.status ?? null,
+      provider: p?.integration?.providerIdentifier, content: String(p?.content || "").replace(/<[^>]+>/g, " ").slice(0, 90),
+    }));
+    return json({ ok: res.ok, status: res.status, count: posts.length, posts });
+  }
   if (!/^[0-9a-f-]{36}$/i.test(queueId)) return json({ error: "queue_id fehlt" }, 400);
 
   const headers = { apikey: service, Authorization: `Bearer ${service}`, "Content-Type": "application/json" };
