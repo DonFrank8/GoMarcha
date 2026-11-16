@@ -18,6 +18,8 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
  *       Lädt ein Bild (https, z. B. Canva-Export oder Event-Foto) zu Postiz hoch und legt einen
  *       Instagram-STORY-Entwurf (post_type "story", type "draft") zum Zeitpunkt date an.
  *       Geht erst nach Freigabe in Postiz raus. Für „Hoy en la Costa“.
+ *   { action: "delete_post", post_id }
+ *       Löscht einen einzelnen Postiz-Post ohne Eintrag in social_queue (z. B. einen Story-Entwurf).
  *   { action: "list", from, to }
  *       Nur lesen: Postiz-Posts im Zeitraum (ISO-Daten) mit ID, Datum, Status, Netzwerk und Textanfang.
  *
@@ -72,7 +74,7 @@ Deno.serve(async (req: Request) => {
   const body: any = await req.json().catch(() => ({}));
   const action = String(body?.action || "");
   const queueId = String(body?.queue_id || "");
-  if (!["withdraw", "refresh", "list", "story_draft"].includes(action)) return json({ error: "Unknown action" }, 400);
+  if (!["withdraw", "refresh", "list", "story_draft", "delete_post"].includes(action)) return json({ error: "Unknown action" }, 400);
   if (action === "story_draft") {
     const imageUrl = String(body?.image_url || "");
     const date = new Date(String(body?.date || ""));
@@ -113,6 +115,14 @@ Deno.serve(async (req: Request) => {
     const created = await res.json().catch(() => null);
     slog("story_draft", { ok: res.ok, status: res.status, date: date.toISOString(), created });
     return json({ ok: res.ok, status: res.status, created, media_path: media.path }, res.ok ? 200 : 502);
+  }
+  if (action === "delete_post") {
+    const postId = String(body?.post_id || "").trim();
+    if (!/^[a-z0-9]{10,40}$/i.test(postId)) return json({ error: "post_id fehlt" }, 400);
+    const res = await fetch(`${postizBase}/posts/${encodeURIComponent(postId)}`, { method: "DELETE", headers: { Authorization: postizKey } });
+    const text = (await res.text().catch(() => "")).slice(0, 200);
+    slog("postiz_delete_post", { post_id: postId, status: res.status });
+    return json({ ok: res.ok, status: res.status, body: text }, res.ok ? 200 : 502);
   }
   if (action === "list") {
     const from = new Date(String(body?.from || "")), to = new Date(String(body?.to || ""));
