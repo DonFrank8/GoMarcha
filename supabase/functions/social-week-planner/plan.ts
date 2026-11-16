@@ -353,12 +353,17 @@ export interface PlanOptions {
 }
 
 /** Plant eine Woche. Gibt nur Plätze zurück, für die es Events gibt und die noch in der Zukunft liegen. */
-export function planWeek(events: Ev[], monday: string, opts: PlanOptions): { slots: SlotPlan[]; occurrences: Occ[] } {
+export function planWeek(
+  events: Ev[],
+  monday: string,
+  opts: PlanOptions,
+): { slots: SlotPlan[]; occurrences: Occ[]; slotTimes: Record<string, string> } {
   const occs = occurrencesForWeek(events, monday, opts.nowMs, opts.tz);
   const week = isoWeekKey(monday);
   const weekNo = Number(week.slice(-2));
   const slots: SlotPlan[] = [];
   const usedHighlights = new Set<string>();
+  const slotTimes: Record<string, string> = {};
 
   for (const def of WEEKLY_SLOTS) {
     const slotYmd = addDays(monday, def.weekday - 1);
@@ -367,6 +372,7 @@ export function planWeek(events: Ev[], monday: string, opts: PlanOptions): { slo
     const inScope = occs.filter((o) => def.days.includes(weekdayOf(o.ymd)) && o.startMs > slotMs);
     const slot_key = `${week}:${def.id}`;
     const scheduled_at = new Date(slotMs).toISOString();
+    slotTimes[slot_key] = scheduled_at;
 
     if (def.type === "collection") {
       if (!inScope.length) continue;
@@ -398,5 +404,5 @@ export function planWeek(events: Ev[], monday: string, opts: PlanOptions): { slo
       });
     }
   }
-  return { slots, occurrences: occs };
+  return { slots, occurrences: occs, slotTimes };
 }
