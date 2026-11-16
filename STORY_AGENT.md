@@ -7,6 +7,8 @@ Ziel: die Tages-Story als **Entwurf** in Postiz anlegen. **Nie selbst veröffent
 
 - **Nur echte Fotos** (Entscheidung Frank 16.11.2026): 1. Event-Foto aus Marcha, 2. Franks Fotos im Canva-Ordner
   „Marcha Story-Fotos“ (Folder-ID `FAHbGct6aLs`), 3. echtes Canva-Stockfoto. **Nie KI-generierte Bilder**, keine Illustrationen.
+- **Schwaches Event-Foto** (Flyer mit viel Text, Logo, kleiner als ca. 800 px, unscharf – z. B. an Canva-`smart_tags`/Maßen nach dem Upload erkennbar) → stattdessen ein Foto aus dem Ordner nehmen. Name, Uhrzeit und Ort stehen ohnehin als Text auf der Story.
+- **Foto-Vorrat im Ordner `FAHbGct6aLs`:** Franks eigene Fotos haben Vorrang vor den Stockfotos (Namen beginnen mit „Stock (Pexels)“, 16 Stück seit 16.11.2026, Pexels-Lizenz: frei nutzbar, ohne Namensnennung). Passend zum Genre wählen (Saxofon/Jazz/Blues → Saxofon-Fotos; Salsa/Latin → Tanz-Fotos; Akustik/Pop/Rock → Bar-/Gitarren-Fotos; ohne Event → Strand/Sonnenuntergang). Nicht dasselbe Foto an zwei Tagen hintereinander.
 - Fakten (Datum, Uhrzeit, Ort, Name, Preis) nur aus der Datenbank. Nichts erfinden.
 - Spanien-Spanisch, „en directo“ (nie „en vivo“), max. 1 „!“.
 - Keine Code-Änderungen, keine Commits, nichts in der Datenbank ändern außer über `social-postiz-admin`.
