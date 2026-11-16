@@ -13,6 +13,8 @@ Rat (4 Prüfer) + Freigabe Frank: Jedes Event erscheint auf der Website + im Sam
 - Auffällig in Postiz: Mi 18.11. zwei Feed-Posts (14:00 Joolz „última llamada“ + 20:30 Highlight) → Regel „max. 1 Feed-Post/Tag“ verletzt; alte last_call-Einzelposts bis 18.12. prüfen.
 - ERLEDIGT 16.11.: 6 alte last_call-Einzelposts (20.11.–18.12.) aus Postiz zurückgezogen (Freigabe Frank); Mi 18.11. bleibt (Frank hat 14:00 + 20:30 freigegeben).
 - Story-Test 16.11.: Canva-Story „Hoy en la Costa“ Mi 18.11. (Joolz, Design DAHbGc8C3yI) per `social-postiz-admin` action `story_draft` als Instagram-Story-ENTWURF für 18.11. 12:00 an Postiz (postId cmwjiqobk…). **Frank: in Postiz prüfen, ob es als Story erscheint, dann freigeben.** Ablauf künftig: täglich kurz mit Claude die Story bauen (Canva → story_draft → Frank gibt frei).
+  - 16.11.: erste Canva-Story (KI-Bild) passte nicht → aus Postiz gelöscht (action `delete_post`). Entscheidung Frank: **nur echte Fotos** (Event-Foto → Franks Fotos → Canva-Stockfoto), keine KI-Bilder; ohne Event eine Story über Marcha. Canva-Ordner „Marcha Story-Fotos“ (FAHbGct6aLs) für Franks Fotos angelegt. Kein Canva-Brand-Kit vorhanden.
+  - Kalender: täglich 9:15 „Tages-Story mit Claude bauen + freigeben“.
 - Nächste Schritte: (2) Versender: nur freigegebene Posts an Postiz, Prüfung vor Versand; (3) Admin „Social → Diese Woche“ mit Not-Aus; (4) Story „Hoy en la Costa“ als Entwurf (prüfen, ob Postiz Stories per Schnittstelle kann); (5) Veranstalter-Hinweis + Teil-Paket.
 - Auffällig: viele alte „last_call“-Einzelposts (bis 18.12.) liegen schon bei Postiz – mit Konzept v2 prüfen (max. 1 Feed-Post/Tag).
 
