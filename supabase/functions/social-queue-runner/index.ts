@@ -2178,7 +2178,9 @@ Deno.serve(async (req) => {
     // „manual“ = von Hand bearbeitet; „ai:…“ = KI-Text schon beim Anlegen erzeugt und im Admin geprüft
     // (Konzept v2) → unverändert übernehmen, nicht neu schreiben.
     const storedTemplateId = String((claimed as { caption_template_id?: string | null }).caption_template_id || "");
-    const manualCaption = storedTemplateId === "manual" || storedTemplateId.startsWith("ai:");
+    // Im Admin freigegeben (require_approval): genau den gesehenen Text verwenden, nie neu schreiben.
+    const manualCaption = storedTemplateId === "manual" || storedTemplateId.startsWith("ai:") ||
+      (requireApproval && Boolean(claimed.admin_confirmed_at));
     if (anthropicKey && !isCollectionPost && !manualCaption) {
       try {
         const facts = await buildAiCaptionFacts(supabase, ev, eventStartMs, eventTimeZone, captionStage);
