@@ -1,7 +1,7 @@
 # Story-Agent – tägliche Instagram-Story (seit 16.11.2026)
 
 Läuft täglich um 8:13 Uhr (Europe/Madrid) als geplante Aufgabe in der Claude-Sitzung, die Canva und Supabase verbunden hat.
-Ziel: die Tages-Story als **Entwurf** in Postiz anlegen. **Nie selbst veröffentlichen** – Frank gibt in Postiz frei.
+Ziel: die Tages-Story als **Entwurf im Admin** anlegen (Social → „Diese Woche“). **Nie selbst veröffentlichen** – Frank gibt im Admin frei; erst dann plant der Versender sie in Postiz ein (seit 16.11.2026, vorher direkt in Postiz).
 
 ## Feste Regeln
 
@@ -30,8 +30,8 @@ Ziel: die Tages-Story als **Entwurf** in Postiz anlegen. **Nie selbst veröffent
    ) order by event_time;
    ```
    `recurrence_weekday`: 0 = Sonntag … 6 = Samstag. Höchstens 3 Events (bevorzugt mit Bild, sonst nach Uhrzeit).
-3. **Doppelte vermeiden:** `social-postiz-admin` mit `{"action":"list","from":"<Zieltag>T00:00:00Z","to":"<Zieltag>T23:59:59Z"}`.
-   Instagram-Einträge zwischen 12:00 und 12:15 Madrider Zeit mit leerem Text = Stories → schon vorhanden: nichts anlegen, Frank informieren.
+3. **Doppelte vermeiden:** `select id, slot_key, status from public.social_queue where slot_key like '<Zieltag>:story%' and status <> 'skipped';`
+   Gibt es schon eine Story für den Tag: nichts anlegen, Frank informieren (offene Entwürfe ersetzt man nur auf Franks Wunsch – dann gleiche `index`-Nummer verwenden).
 4. **Story bauen** (Canva `create-design`, Format „Instagram Story“, je Event eine Story):
    - Bild: `event.image_url` per `upload-asset-from-url` nach Canva, mit `move-item-to-folder` in `FAHbGct6aLs`; ohne Bild Foto aus `FAHbGct6aLs` oder echtes Stockfoto.
    - `references` = [Asset-ID], Brief (Platzhalter ersetzen):
@@ -42,17 +42,18 @@ Ziel: die Tages-Story als **Entwurf** in Postiz anlegen. **Nie selbst veröffent
      Fr/Sa/So „¿Tocas en directo o tienes un bar? Sube tu evento gratis en gomarcha.com“.
    - Auf das Design warten (`get-create-design-async-job`, `polling_policy` beachten).
 5. **Export:** `export-design` als jpg (quality 90).
-6. **An Postiz** (Story-Entwurf, 12:00 Madrid, weitere 12:05/12:10; UTC = Winter −1 h, Sommer −2 h):
+6. **In den Admin** (Story-Entwurf in `social_queue`, 12:00 Madrid, weitere 12:05/12:10 mit `index` 1/2/3; UTC = Winter −1 h, Sommer −2 h):
    ```sql
    select net.http_post(
      url := 'https://dwyhpirtbjfmohcnhdak.supabase.co/functions/v1/social-postiz-admin',
      headers := jsonb_build_object('Content-Type','application/json','x-marcha-social-secret',
        (select decrypted_secret from vault.decrypted_secrets where name = 'marcha_social_runner_secret')),
-     body := jsonb_build_object('action','story_draft','date','<ISO-UTC>','image_url','<Canva-Export-URL>'),
+     body := jsonb_build_object('action','story_queue','date','<ISO-UTC>','image_url','<Canva-Export-URL>',
+       'index',<1|2|3>,'event_id',<Event-ID oder null>,'title','Story: <Name oder Thema>','canva_url','<Canva-Link>'),
      timeout_milliseconds := 60000) as request_id;
    ```
-   ~10 s warten, dann `select status_code, content::text from net._http_response where id = <request_id>;` – Erfolg: `"ok": true` + `postId`.
-7. **Nachricht an Frank** (Push, kurz, Deutsch): „Story für <Tag> liegt in Postiz (12:00) – bitte prüfen und freigeben.“ + je Story Event/Thema und Canva-Link. Bei Problemen: was fehlt, was zu tun ist.
+   ~10 s warten, dann `select status_code, content::text from net._http_response where id = <request_id>;` – Erfolg: `"ok": true` + `queue_id` (Bild liegt dann dauerhaft in Storage `event-images/stories/`).
+7. **Nachricht an Frank** (Push, kurz, Deutsch): „Story für <Tag> liegt im Admin (Social → Diese Woche, 12:00) – bitte prüfen und freigeben.“ + je Story Event/Thema und Canva-Link. Bei Problemen: was fehlt, was zu tun ist.
 
 ## Hinweise
 
