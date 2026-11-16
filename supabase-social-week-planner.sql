@@ -30,7 +30,7 @@ comment on column public.social_queue.collection_event_ids is
 comment on column public.social_queue.occurrence_date is
   'Termin des Hauptevents (bei Serien das Datum des Einzeltermins).';
 
--- 2) post_stage: Sammelposts erlauben ('collection') ------------------------
+-- 2) post_stage: bisherige Werte (live geprüft 16.11.2026) + 'story' ------------
 --    NOT VALID: bestehende Zeilen werden nicht geprüft, nur neue/geänderte.
 do $$
 begin
@@ -39,7 +39,7 @@ begin
     add constraint social_queue_post_stage_check
     check (
       post_stage is null
-      or post_stage in ('early_reminder', 'tomorrow', 'last_call', 'collection', 'story')
+      or post_stage in ('early_reminder', 'tomorrow', 'last_call', 'event_day', 'collection', 'story')
     ) not valid;
 end $$;
 
