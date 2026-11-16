@@ -303,7 +303,7 @@ export function singleCaption(o: Occ): string {
 }
 
 function slugTag(v: unknown): string {
-  return String(v || "").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-zA-Z0-9]/g, "").slice(0, 28);
+  return String(v || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9]/g, "").slice(0, 28);
 }
 
 /** 3–5 Hashtags: #gomarcha + bis zu 2 Orte + häufigstes Genre + #CostaDelSol. */
