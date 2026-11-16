@@ -303,7 +303,7 @@ export function singleCaption(o: Occ): string {
 }
 
 function slugTag(v: unknown): string {
-  return String(v || "").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-zA-Z0-9]/g, "").slice(0, 28);
+  return String(v || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9]/g, "").slice(0, 28);
 }
 
 /** 3–5 Hashtags: #gomarcha + bis zu 2 Orte + häufigstes Genre + #CostaDelSol. */
@@ -327,7 +327,7 @@ export function hashtagsFor(occs: Occ[]): string {
   push("gomarcha");
   count("city").slice(0, 2).forEach((c) => push(c));
   const g = count("genre")[0];
-  if (g) push(g.toLowerCase());
+  if (g) push(g.split(/[,/&+]| y | and /i)[0].trim().toLowerCase()); // nur das erste Genre
   push("CostaDelSol");
   return tags.slice(0, 5).join(" ");
 }
@@ -377,7 +377,8 @@ export function planWeek(
     if (def.type === "collection") {
       if (!inScope.length) continue;
       const ordered = sortForSlot(inScope);
-      const main = ordered.find((o) => o.hasImage) || ordered[0];
+      // Hauptevent lieber ein Einzel-Event mit Bild (der Versender prüft den Beginn am Hauptevent)
+      const main = ordered.find((o) => o.hasImage && !o.recurring) || ordered.find((o) => o.hasImage) || ordered[0];
       const members = inScope.filter((o) => o !== main);
       const scope = def.id === "thu_collection" ? "weekend" : "weekdays";
       slots.push({

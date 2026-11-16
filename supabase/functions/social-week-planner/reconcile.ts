@@ -114,8 +114,12 @@ export function reconcile(
     effective.push({ plan });
   }
 
+  // Auch Einträge außerhalb des Wochenplans zählen (z. B. ältere Einzel-Posts eines Events).
+  const slotRowIds = new Set([...bySlot.values()].map((r) => r.id));
+  const otherRows = live.filter((r) => !slotRowIds.has(r.id) && !Object.values(slotTimes).some((iso) => Date.parse(iso) === Date.parse(r.scheduled_at)));
   const uncovered = occs.filter((o) =>
-    !effective.some((e) => (e.plan ? planCovers(e.plan, o) : e.row ? rowCovers(e.row, o) : false))
+    !effective.some((e) => (e.plan ? planCovers(e.plan, o) : e.row ? rowCovers(e.row, o) : false)) &&
+    !otherRows.some((r) => rowCovers(r, o))
   );
   return { actions, uncovered };
 }

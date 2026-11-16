@@ -2,7 +2,7 @@ const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
 const ADMIN_REQUIRED_ROLE = "admin";
 const ADMIN_ALLOWED_EMAILS = [];
-const ADMIN_DASHBOARD_BUILD = "2026.11.16-social-badge";
+const ADMIN_DASHBOARD_BUILD = "2026.11.16-server-planner";
 // Spalten der Tabelle events, die der Admin-Bereich direkt liest. Einreicher-Daten
 // (contact_email, submitted_by, verification_notes) kommen über die Admin-Funktion
 // marcha_admin_event_private (supabase-security-hardening-6.sql) dazu.
@@ -7739,7 +7739,43 @@ async function ensureSocialReviewQueueForEvent(event) {
  * Wochenplan (WEEKLY_SCHEDULE_PLAN) für die ISO-Woche ab `monday` anlegen.
  * Legt nur fehlende Posts an: pro Zeitpunkt höchstens ein Post (egal welches Event).
  */
+/**
+ * Seit 16.11.2026 plant der Server (Edge Function social-week-planner, stündlich per pg_cron).
+ * Der Admin stößt ihn nach Freigaben nur an. true = alter Browser-Planer (Notfall, nicht empfohlen).
+ */
+const LEGACY_BROWSER_WEEK_PLANNER = false;
+let serverWeekPlannerPromise = null;
+
+/** Server-Wochenplaner anstoßen (beide Wochen auf einmal; parallele Aufrufe werden zusammengelegt). */
+function runServerWeekPlanner() {
+  if (serverWeekPlannerPromise) return serverWeekPlannerPromise;
+  serverWeekPlannerPromise = (async () => {
+    try {
+      const { data: sessionData } = await supabaseClient().auth.getSession();
+      const token = sessionData?.session?.access_token;
+      if (!token) return 0;
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/social-week-planner`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, apikey: SUPABASE_ANON_KEY, "Content-Type": "application/json" },
+        body: "{}"
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || `HTTP ${res.status}`);
+      const written = (json.written || []).filter((w) => w.ok && (w.action === "insert" || w.action === "update")).length;
+      console.log("server week planner", { dry_run: json.dry_run, written, story_only: (json.story_only || []).length });
+      return written;
+    } catch (error) {
+      console.warn("server week planner failed", error?.message || error);
+      return 0;
+    } finally {
+      setTimeout(() => { serverWeekPlannerPromise = null; }, 5000);
+    }
+  })();
+  return serverWeekPlannerPromise;
+}
+
 async function ensureWeeklyScheduleForWeek(monday) {
+  if (!LEGACY_BROWSER_WEEK_PLANNER) return runServerWeekPlanner();
   const nextMonday = new Date(monday);
   nextMonday.setDate(nextMonday.getDate() + 7);
   const pad = (n) => String(n).padStart(2, "0");

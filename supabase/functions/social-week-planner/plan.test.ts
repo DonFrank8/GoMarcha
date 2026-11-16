@@ -56,5 +56,10 @@ eq("Vergangene Plätze fallen weg", late.slots.map((s) => s.slot_id), ["sat_high
 // Begonnene Termine fallen weg
 eq("Begonnene Termine raus", occurrencesForWeek(events, "2026-11-23", wallToUtcMs("2026-11-27", "21:30", TZ), TZ).map((o) => o.ref), ["d::2026-11-27", "b", "f"]);
 
+const multi = planWeek([{ id: "m", name: "M", genre: "pop, rock, latin hits", event_date: "2026-11-28", event_time: "20:00", city: "Fuengirola", image_url: img, status: "approved" }], "2026-11-23", { tz: TZ, nowMs: now });
+eq("Hashtag nur erstes Genre", multi.slots[0].hashtags, "#gomarcha #Fuengirola #pop #CostaDelSol");
+const mixed = planWeek([{ ...events[3] }, { id: "x", name: "X", genre: "dj", event_date: "2026-11-27", event_time: "22:00", image_url: img, status: "approved" }], "2026-11-23", { tz: TZ, nowMs: now });
+eq("Sammelpost-Hauptevent lieber kein Serientermin", mixed.slots.find((s) => s.slot_id === "thu_collection")!.main.id, "x");
+
 console.log(`\n${failed ? `${failed} FEHLER` : "Alle Tests ok"}`);
 if (failed) process.exit(1);
