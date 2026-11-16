@@ -773,6 +773,7 @@ async function hasQueueConflict(
     .select("id,status,platform,platforms")
     .eq("event_id", eventId)
     .neq("id", excludeQueueId)
+    .or("post_stage.is.null,post_stage.neq.story")
     .gte("scheduled_at", start)
     .lte("scheduled_at", end)
     .in("status", ["posted", "processing"]);
@@ -1280,6 +1281,93 @@ function extractPostIdsFromCreateResponse(body: unknown): string[] {
 
 const CLAIMABLE_STATUSES = ["pending", "failed", "ready_for_postiz"] as const;
 
+/**
+ * Story (post_stage "story", 16.11.2026): Bild als Instagram-Story an Postiz.
+ * Freigegeben im Admin (require_approval) → fest eingeplant („schedule“), sonst Entwurf.
+ * Kein Text, kein KI-Text. Event (falls vorhanden) muss noch freigegeben sein.
+ */
+async function processStoryRow(
+  supabase: SupabaseClient,
+  row: QueueRow,
+  cfg: { postizBase: string; postizKey: string; igIntegrationId: string; requireApproval: boolean }
+): Promise<Record<string, unknown>> {
+  const now = () => new Date().toISOString();
+  const fail = async (reason: string, retry = true) => {
+    await supabase
+      .from("social_queue")
+      .update({
+        status: retry ? "failed" : "skipped",
+        last_error: reason.slice(0, 400),
+        retry_count: retry ? (row.retry_count || 0) + 1 : row.retry_count,
+        updated_at: now()
+      })
+      .eq("id", row.id);
+    slog("story_failed", { queue_id: row.id, reason, retry });
+    return { queue_id: row.id, ok: false, story: true, reason };
+  };
+  if (!cfg.igIntegrationId) return fail("story:missing_instagram_integration");
+  const scheduledMs = Date.parse(row.scheduled_at);
+  if (!Number.isFinite(scheduledMs) || scheduledMs <= Date.now() + 60_000) return fail("story:time_passed", false);
+  if (row.event_id) {
+    const { data: ev } = await supabase.from("events").select("id,status").eq("id", row.event_id).maybeSingle();
+    if (!ev || String(ev.status || "").toLowerCase() !== "approved") return fail("story:event_not_approved", false);
+  }
+  const source = String(row.image_url || row.resolved_image_url || "").trim();
+  if (!/^https:\/\//i.test(source)) return fail("story:image_missing", false);
+  const upload = await ensurePostizHostedMedia({ apiBase: cfg.postizBase, apiKey: cfg.postizKey, queueId: row.id, sourceUrl: source });
+  if (!upload.ok) return fail(`story:upload:${upload.error}`);
+  const postType: PostizRootType = cfg.requireApproval && row.admin_confirmed_at ? "schedule" : "draft";
+  const payload = {
+    type: postType,
+    date: toUtcPostizDateIso(row.scheduled_at),
+    shortLink: false,
+    tags: postizTagsPayload(),
+    posts: [
+      {
+        group: crypto.randomUUID(),
+        integration: { id: cfg.igIntegrationId },
+        value: [{ content: "", image: [upload.media] }],
+        settings: { __type: "instagram", post_type: "story", is_trial_reel: false, collaborators: [] }
+      }
+    ]
+  };
+  const res = await fetch(`${cfg.postizBase.replace(/\/$/, "")}/posts`, {
+    method: "POST",
+    headers: { Authorization: cfg.postizKey, "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  let parsed: unknown = null;
+  try {
+    parsed = await res.json();
+  } catch {
+    parsed = null;
+  }
+  const ids = extractPostIdsFromCreateResponse(parsed);
+  if (!res.ok || !ids.length) return fail(`story:postiz_${res.status}`);
+  const prev = row.postiz_response && typeof row.postiz_response === "object" ? row.postiz_response : {};
+  await supabase
+    .from("social_queue")
+    .update({
+      status: "sent_to_postiz",
+      resolved_image_url: upload.media.path,
+      postiz_post_id: ids[0],
+      postiz_synced_at: now(),
+      postiz_response: {
+        ...prev,
+        _marcha_postiz_post_ids: ids,
+        _marcha_platforms: ["instagram"],
+        _marcha_postiz_mode: postType,
+        _marcha_handoff_message: postType === "schedule" ? "Story im Admin freigegeben – in Postiz fest eingeplant." : "Story als Entwurf an Postiz."
+      },
+      last_error: null,
+      posted_at: now(),
+      updated_at: now()
+    })
+    .eq("id", row.id);
+  slog("story_ok", { queue_id: row.id, postiz_post_ids: ids, post_type: postType });
+  return { queue_id: row.id, ok: true, story: true, postiz_post_ids: ids, post_type: postType };
+}
+
 async function claimRow(supabase: SupabaseClient, rowId: string): Promise<QueueRow | null> {
   const now = new Date().toISOString();
   const { data, error } = await supabase
@@ -1573,6 +1661,36 @@ Deno.serve(async (req) => {
   }
 
   const supabase = createClient(supabaseUrl, serviceKey);
+
+  // Social-Planer-Einstellungen (SQL #29, 16.11.2026): Not-Aus + Freigabe nur im Admin.
+  let requireApproval = false;
+  {
+    const { data: ps, error: psErr } = await supabase
+      .from("social_planner_settings")
+      .select("paused,require_approval")
+      .eq("id", 1)
+      .maybeSingle();
+    if (!psErr && ps) {
+      if (ps.paused === true) {
+        slog("paused_by_admin");
+        return new Response(JSON.stringify({ paused: true, message: "Not-Aus ist an – nichts verschickt." }), {
+          status: 200,
+          headers: { ...CORS, "Content-Type": "application/json" }
+        });
+      }
+      requireApproval = ps.require_approval !== false;
+    }
+  }
+  if (requireApproval && !body.queue_id) {
+    // Nicht freigegebene Entwürfe, deren Zeitpunkt vorbei ist, verfallen (gehen nie raus).
+    const { error: expireErr } = await supabase
+      .from("social_queue")
+      .update({ status: "skipped", last_error: "not_approved", updated_at: new Date().toISOString() })
+      .in("status", ["pending", "draft"])
+      .is("admin_confirmed_at", null)
+      .lt("scheduled_at", new Date().toISOString());
+    if (expireErr) slog("expire_unapproved_error", { message: expireErr.message });
+  }
   const minReviewHoursEffective = Number.isFinite(postizMinReviewHours) ? postizMinReviewHours : 72;
   const backoffMs = 15 * 60 * 1000;
   const retryBefore = new Date(Date.now() - backoffMs).toISOString();
@@ -1616,7 +1734,20 @@ Deno.serve(async (req) => {
     const ready = (readyRows ?? []) as QueueRow[];
     const remaining = Math.max(0, limit - ready.length);
     let windowed: QueueRow[] = [];
-    if (remaining > 0) {
+    if (remaining > 0 && requireApproval) {
+      // Nur freigegebene Einträge erneut versuchen (fehlgeschlagen, mit Freigabe).
+      const { data: retryRows, error: retryErr } = await supabase
+        .from("social_queue")
+        .select("*")
+        .eq("status", "failed")
+        .not("admin_confirmed_at", "is", null)
+        .lt("retry_count", 5)
+        .or(`last_attempt_at.is.null,last_attempt_at.lt.${retryBefore}`)
+        .order("scheduled_at", { ascending: true })
+        .limit(remaining);
+      if (retryErr) qErr = retryErr;
+      windowed = (retryRows ?? []) as QueueRow[];
+    } else if (remaining > 0) {
       const { data: windowRows, error: windowErr } = await supabase
         .from("social_queue")
         .select("*")
@@ -1650,9 +1781,17 @@ Deno.serve(async (req) => {
 
   for (const raw of rows ?? []) {
     const row = raw as QueueRow;
+    if (requireApproval && !row.admin_confirmed_at && row.status !== "ready_for_postiz") {
+      results.push({ queue_id: row.id, skipped: true, reason: "not_approved_in_admin" });
+      continue;
+    }
     const claimed = await claimRow(supabase, row.id);
     if (!claimed) {
       results.push({ queue_id: row.id, skipped: true, reason: "claim_failed_or_race" });
+      continue;
+    }
+    if (String(claimed.post_stage || "").trim() === "story") {
+      results.push(await processStoryRow(supabase, claimed, { postizBase, postizKey, igIntegrationId: intIg, requireApproval }));
       continue;
     }
     // Collection-post detection — used for logging and image fallback warning below.
@@ -1813,7 +1952,8 @@ Deno.serve(async (req) => {
     const isAdminConfirmed = Boolean(claimed.admin_confirmed_at) || claimed.status === "ready_for_postiz" || adminHandoff;
     const postizPlan = adminHandoff || isAdminConfirmed
       ? {
-          postType: "draft" as PostizRootType,
+          // Freigabe im Admin (require_approval): fest einplanen – kein zweiter Klick in Postiz.
+          postType: (requireApproval ? "schedule" : "draft") as PostizRootType,
           publishMs: scheduleResult.effectiveMs,
           usedScheduleFallbackToDraft: false,
           scheduleFallbackReason: null
@@ -2038,7 +2178,9 @@ Deno.serve(async (req) => {
     // „manual“ = von Hand bearbeitet; „ai:…“ = KI-Text schon beim Anlegen erzeugt und im Admin geprüft
     // (Konzept v2) → unverändert übernehmen, nicht neu schreiben.
     const storedTemplateId = String((claimed as { caption_template_id?: string | null }).caption_template_id || "");
-    const manualCaption = storedTemplateId === "manual" || storedTemplateId.startsWith("ai:");
+    // Im Admin freigegeben (require_approval): genau den gesehenen Text verwenden, nie neu schreiben.
+    const manualCaption = storedTemplateId === "manual" || storedTemplateId.startsWith("ai:") ||
+      (requireApproval && Boolean(claimed.admin_confirmed_at));
     if (anthropicKey && !isCollectionPost && !manualCaption) {
       try {
         const facts = await buildAiCaptionFacts(supabase, ev, eventStartMs, eventTimeZone, captionStage);
@@ -2183,7 +2325,9 @@ Deno.serve(async (req) => {
       continue;
     }
 
-    const handoffMessage = "An Postiz übergeben – wartet auf Freigabe.";
+    const handoffMessage = postizPlan.postType === "schedule"
+      ? "Im Admin freigegeben – in Postiz fest eingeplant."
+      : "An Postiz übergeben – wartet auf Freigabe.";
     const mergedSuccessResponse =
       typeof postizRes.body === "object" && postizRes.body !== null
         ? {
@@ -2193,7 +2337,7 @@ Deno.serve(async (req) => {
             _marcha_source_image_url: finalImage,
             postiz_media_id: publishMedia.id,
             _marcha_handoff_message: handoffMessage,
-            _marcha_postiz_mode: "draft"
+            _marcha_postiz_mode: postizPlan.postType
           }
         : {
             raw: postizRes.body,
@@ -2202,7 +2346,7 @@ Deno.serve(async (req) => {
             _marcha_source_image_url: finalImage,
             postiz_media_id: publishMedia.id,
             _marcha_handoff_message: handoffMessage,
-            _marcha_postiz_mode: "draft"
+            _marcha_postiz_mode: postizPlan.postType
           };
 
     if (captionBuilt.source === "template") {
