@@ -1,7 +1,16 @@
 # Offene Punkte — Marcha
 
-Merkliste für die nächsten Sessions. Stand: 16.11.2026.
+Merkliste für die nächsten Sessions. Stand: 17.11.2026.
 Erledigtes hier streichen bzw. nach „Erledigt“ verschieben.
+
+## SEO-Etappe (17.11.2026) – gebaut, Live-Gang offen
+
+Freigabe Frank 17.11.: echte Event-Seiten statt Weiterleitung, Sitemaps, Search Console. Details: `ROADMAP_KI_AUTOMATIK.md` S1–S7.
+- Gebaut (Branch `claude/upbeat-noether-1a10lk`): Worker `workers/event-share/worker.js` – `/e/<id>` zeigt jetzt eine echte Event-Seite (Bild, Titel, Datum/Serie + nächster Termin, Lokal/Adresse, Preis, Beschreibung, Knöpfe „Ver en Marcha“ + „Cómo llegar“), keine automatische Weiterleitung mehr, JSON-LD `Event` (ohne Flyer-Bild), canonical ohne `?v`/`?source`; vergangene/archivierte Events → 410 + noindex; nicht gefunden → 404-Seite; `/e/sitemap.xml` mit allen kommenden Events. OG-Vorschau für WhatsApp/Facebook bleibt.
+- Dazu: `sitemap.xml` (feste Seiten), beide Sitemaps in `robots.txt`, canonical von legal/privacy/data-deletion auf www.
+- Getestet lokal mit echten Daten (Handy + Computer) und 26 Einzelprüfungen (Serien, Zeitzone, Preis, 410, Schutz vor Schadcode).
+- **Reihenfolge Live-Gang:** 1. Frank spielt den Worker im Cloudflare-Dashboard ein → 2. Claude prüft live (Googlebot + Facebook-Vorschau mit `?v=`) → 3. Branch auf `main` (robots.txt/sitemap.xml) → 4. Frank: Google Search Console (S7).
+- Offen: S6 (Edge Function `event-share` noindex). Hinweis: Beschreibung von Event 120 enthält KI-Text „en el cartel aparecen hamburguesas…“ → im Admin glätten.
 
 ## Social-Wochenplaner auf dem Server (16.11.2026) – LIVE (stündlich, SQL #30)
 
@@ -23,7 +32,7 @@ Rat (4 Prüfer) + Freigabe Frank: Jedes Event erscheint auf der Website + im Sam
 
 Limit-Meldung kommt jetzt in der Sprache der Seite (vorher immer deutscher Server-Text). Ohne Anmeldung zeigt das Formular oben den Hinweis „¿Eres organizador? Crea tu cuenta gratis …“ mit Link auf `veranstalter.html`. Live über PR #142 (Freigabe Frank).
 Hinweis: Veranstalter-Konten (Etappen A, B, B2, C) sind seit 13.11.2026 live – Anmeldung über `veranstalter.html` bzw. Footer-Link „Para organizadores“.
-- **Frank:** im privaten Fenster prüfen (Hinweis sichtbar, Link öffnet die Veranstalter-Seite).
+- ERLEDIGT 17.11.: Frank hat geprüft – Hinweis war da, aber schlecht sichtbar. Neu (Webdesigner-Vorschlag, live 17.11., Freigabe Frank): ruhiger grauer Kasten, Frage fett, orangefarbener Link, ganzer Kasten antippbar. Text spricht direkt an: „¿Tienes un bar o local? ¿Eres músico o DJ?“ (DE/EN entsprechend; „músico“ statt „banda“, damit auch Solokünstler gemeint sind).
 
 ## Social-Media-Konzept v2 (15.11.2026) – Etappe 1 LIVE
 

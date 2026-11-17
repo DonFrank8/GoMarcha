@@ -144,11 +144,11 @@ Befund (im Code geprüft, Council-Zusatzrunde): Event-Seiten sind heute für Goo
 
 | ID | Aufgabe | Status | Hinweis |
 |---|---|---|---|
-| S1 | `index.html` Zeile 20: canonical `https://gomarcha.com/` → `https://www.gomarcha.com/` (Domain läuft auf www) | 🆕 | Cache-Version beachten |
-| S2 | `robots.txt` anlegen (mit Verweis auf Sitemap) | 🆕 | statisch, GitHub Pages |
-| S3 | Worker `/e/<id>`: echte Event-Seite **ohne automatische Weiterleitung** (Text, Datum, Ort, Beschreibung, Knopf „In der App öffnen“), canonical auf sich selbst, JSON-LD `Event` (bei Serien nächster Termin, Veranstalter als `organizer`, keine fremden Flyer) | 🟡 Worker vorhanden | Deploy ohne Cloudflare-Token per Dashboard; Vorschau in WhatsApp/Facebook danach prüfen |
-| S4 | `sitemap.xml` über Worker-Route, nur kommende, freigegebene Events | 🆕 | Scout-Events erst nach Zustimmung |
-| S5 | Vergangene/archivierte Events: 410 oder `noindex` (`isShareableEvent` prüft heute nur `status`) | 🆕 | — |
+| S1 | `index.html` Zeile 20: canonical `https://gomarcha.com/` → `https://www.gomarcha.com/` (Domain läuft auf www) | ✅ 13.11. | Cache-Version beachten |
+| S2 | `robots.txt` anlegen (mit Verweis auf Sitemap) | ✅ 13.11. | statisch, GitHub Pages |
+| S3 | Worker `/e/<id>`: echte Event-Seite **ohne automatische Weiterleitung** (Text, Datum, Ort, Beschreibung, Knopf „In der App öffnen“), canonical auf sich selbst, JSON-LD `Event` (bei Serien nächster Termin, Veranstalter als `organizer`, keine fremden Flyer) | 🟡 17.11. gebaut (Branch), Frank spielt Worker ein | Deploy ohne Cloudflare-Token per Dashboard; Vorschau in WhatsApp/Facebook danach prüfen |
+| S4 | `sitemap.xml` über Worker-Route, nur kommende, freigegebene Events | 🟡 17.11. gebaut: `/e/sitemap.xml` (Worker) + `sitemap.xml` (feste Seiten), beide in robots.txt | Scout-Events erst nach Zustimmung |
+| S5 | Vergangene/archivierte Events: 410 oder `noindex` (`isShareableEvent` prüft heute nur `status`) | 🟡 17.11. gebaut: 410 + noindex | — |
 | S6 | Edge Function `event-share`: `noindex`, damit keine Dubletten auf supabase.co entstehen | 🆕 | doppelte Share-Vorschau |
 | S7 | Google Search Console verifizieren (DNS-Eintrag bei Cloudflare), Sitemap einreichen | 🆕 👤 | — |
 | S8 | Später: Sprachversionen DE/EN/ES mit hreflang | 🆕 | nach S3 |
