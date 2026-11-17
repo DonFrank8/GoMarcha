@@ -28,7 +28,7 @@
       limit_org: "Das Tageslimit der KI-Hilfe ist erreicht (20 pro Tag). Bitte morgen wieder versuchen oder die Felder von Hand ausfüllen.",
       limit: "Das Tageslimit der KI-Hilfe ist erreicht (5 pro Tag). Mit einem kostenlosen Veranstalter-Konto geht mehr – oder die Felder von Hand ausfüllen.",
       heic: "Dieses Bildformat kann der Browser nicht lesen – bitte einen Screenshot oder ein JPG nehmen.",
-      org_q: "Du hast eine Bar, Location, Band oder legst als DJ auf?",
+      org_q: "Du hast eine Bar oder Location? Du machst Musik oder legst auf?",
       org: "Mit einem kostenlosen Konto veröffentlichst du schneller und bearbeitest deine Events selbst.",
       org_link: "Konto erstellen →",
       hint: "Die KI macht nur einen Vorschlag. Du prüfst alles, bevor du absendest."
@@ -45,7 +45,7 @@
       limit_org: "The AI helper's daily limit has been reached (20 per day). Please try again tomorrow or fill in the fields by hand.",
       limit: "The AI helper's daily limit has been reached (5 per day). A free organizer account gives you more – or fill in the fields by hand.",
       heic: "Your browser can't read this image format – please use a screenshot or a JPG.",
-      org_q: "Own a bar or venue, play in a band or DJ?",
+      org_q: "Run a bar or venue? Musician or DJ?",
       org: "With a free account you publish faster and edit your own events.",
       org_link: "Create account →",
       hint: "The AI only makes a suggestion. You check everything before sending."
@@ -62,7 +62,7 @@
       limit_org: "Se ha alcanzado el límite diario de la IA (20 al día). Inténtalo mañana o rellena los campos a mano.",
       limit: "Se ha alcanzado el límite diario de la IA (5 al día). Con una cuenta gratuita de organizador tienes más, o rellena los campos a mano.",
       heic: "Tu navegador no puede leer este formato de imagen: usa una captura de pantalla o un JPG.",
-      org_q: "¿Tienes un bar, local, banda o eres DJ?",
+      org_q: "¿Tienes un bar o local? ¿Eres músico o DJ?",
       org: "Con una cuenta gratis publicas más rápido y editas tus eventos tú mismo.",
       org_link: "Crear cuenta →",
       hint: "La IA solo hace una propuesta. Tú lo revisas todo antes de enviar."
