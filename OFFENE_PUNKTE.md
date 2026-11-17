@@ -3,12 +3,14 @@
 Merkliste für die nächsten Sessions. Stand: 17.11.2026.
 Erledigtes hier streichen bzw. nach „Erledigt“ verschieben.
 
-## SEO-Etappe (17.11.2026) – gebaut, Live-Gang offen
+## SEO-Etappe (17.11.2026) – LIVE (nur Search Console offen)
 
 Freigabe Frank 17.11.: echte Event-Seiten statt Weiterleitung, Sitemaps, Search Console. Details: `ROADMAP_KI_AUTOMATIK.md` S1–S7.
 - Gebaut (Branch `claude/upbeat-noether-1a10lk`): Worker `workers/event-share/worker.js` – `/e/<id>` zeigt jetzt eine echte Event-Seite (Bild, Titel, Datum/Serie + nächster Termin, Lokal/Adresse, Preis, Beschreibung, Knöpfe „Ver en Marcha“ + „Cómo llegar“), keine automatische Weiterleitung mehr, JSON-LD `Event` (ohne Flyer-Bild), canonical ohne `?v`/`?source`; vergangene/archivierte Events → 410 + noindex; nicht gefunden → 404-Seite; `/e/sitemap.xml` mit allen kommenden Events. OG-Vorschau für WhatsApp/Facebook bleibt.
 - Dazu: `sitemap.xml` (feste Seiten), beide Sitemaps in `robots.txt`, canonical von legal/privacy/data-deletion auf www.
 - Getestet lokal mit echten Daten (Handy + Computer) und 26 Einzelprüfungen (Serien, Zeitzone, Preis, 410, Schutz vor Schadcode).
+- ERLEDIGT 17.11.: Frank hat den Worker im Cloudflare-Dashboard eingespielt; Claude live geprüft (Googlebot/Facebook/WhatsApp 200 mit Titel+Bild, `/e/sitemap.xml` 18 Events, 404-Seite). Dabei gefunden + behoben: „Ver en Marcha“ öffnete nur die Liste (App-Fehler, schon vorher vorhanden) → `app.js` öffnet jetzt die Detailansicht, bei Serien den nächsten Termin (Cache v24). Mit robots.txt/sitemap.xml/canonical live auf `main` (Freigabe Frank), live getestet.
+- **Nächster Schritt: Frank + Claude – Google Search Console (S7).** Danach: Cloudflare-API-Token einrichten, damit Claude Worker selbst einspielen kann (Vorlage „Edit Cloudflare Workers“, Formular `request_credential` für api.cloudflare.com).
 - **Reihenfolge Live-Gang:** 1. Frank spielt den Worker im Cloudflare-Dashboard ein → 2. Claude prüft live (Googlebot + Facebook-Vorschau mit `?v=`) → 3. Branch auf `main` (robots.txt/sitemap.xml) → 4. Frank: Google Search Console (S7).
 - Offen: S6 (Edge Function `event-share` noindex). Hinweis: Beschreibung von Event 120 enthält KI-Text „en el cartel aparecen hamburguesas…“ → im Admin glätten.
 
