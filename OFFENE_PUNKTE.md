@@ -1,6 +1,6 @@
 # Offene Punkte — Marcha
 
-Merkliste für die nächsten Sessions. Stand: 16.11.2026.
+Merkliste für die nächsten Sessions. Stand: 17.11.2026.
 Erledigtes hier streichen bzw. nach „Erledigt“ verschieben.
 
 ## Social-Wochenplaner auf dem Server (16.11.2026) – LIVE (stündlich, SQL #30)
@@ -23,7 +23,7 @@ Rat (4 Prüfer) + Freigabe Frank: Jedes Event erscheint auf der Website + im Sam
 
 Limit-Meldung kommt jetzt in der Sprache der Seite (vorher immer deutscher Server-Text). Ohne Anmeldung zeigt das Formular oben den Hinweis „¿Eres organizador? Crea tu cuenta gratis …“ mit Link auf `veranstalter.html`. Live über PR #142 (Freigabe Frank).
 Hinweis: Veranstalter-Konten (Etappen A, B, B2, C) sind seit 13.11.2026 live – Anmeldung über `veranstalter.html` bzw. Footer-Link „Para organizadores“.
-- **Frank:** im privaten Fenster prüfen (Hinweis sichtbar, Link öffnet die Veranstalter-Seite).
+- ERLEDIGT 17.11.: Frank hat geprüft – Hinweis war da, aber schlecht sichtbar. Neu (Webdesigner-Vorschlag, live 17.11., Freigabe Frank): ruhiger grauer Kasten, Frage fett, orangefarbener Link, ganzer Kasten antippbar. Text spricht direkt an: „¿Tienes un bar o local? ¿Eres músico o DJ?“ (DE/EN entsprechend; „músico“ statt „banda“, damit auch Solokünstler gemeint sind).
 
 ## Social-Media-Konzept v2 (15.11.2026) – Etappe 1 LIVE
 
