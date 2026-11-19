@@ -1,9 +1,19 @@
 # Offene Punkte — Marcha
 
-Merkliste für die nächsten Sessions. Stand: 17.11.2026.
+Merkliste für die nächsten Sessions. Stand: 19.11.2026.
 Erledigtes hier streichen bzw. nach „Erledigt“ verschieben.
 
-## SEO-Etappe (17.11.2026) – gebaut, Live-Gang offen
+## Erledigt am 19.11.2026 (Frank mit Claude)
+
+- Google Search Console: Domain `gomarcha.com` bestätigt (über Cloudflare), beide Sitemaps eingereicht → „Erfolgreich“ (22 Event-Seiten + 4 feste Seiten).
+- Cloudflare: Besucherzahlen unter gomarcha.com → Analytics → Visitors (serverseitig, zählt auch Bots; USA-Anteil = v. a. Crawler). Separates „Web Analytics“ (JS-Snippet) nicht nötig.
+- Instagram: Bio-Link `https://www.gomarcha.com/?source=ig_bio` („Todos los eventos“). Alten Link „gomarcha“ entfernen (Frank). Angeheftete Posts: später, Claude baut passende Beiträge.
+- Event 120 (Chilled Live Music): KI-Satz „hamburguesas“ ist in allen Sprachen weg.
+- Postiz Do 19.11.: erledigt.
+- **App-Icon Google Play: zurückgestellt** – Frank will das Logo/Icon erst nochmal überarbeiten.
+- Gefunden: Cloudflare zeigt ~100 Serverfehler (5xx) pro Tag. Ursache: Share-Worker liefert 500 bei IDs, die keine Zahl sind (z. B. `/e/abc`, vermutlich auch Serientermine `/e/120::2026-11-21`). Korrektur geplant (Worker).
+
+## SEO-Etappe (17.11.2026) – LIVE, Search Console erledigt 19.11.
 
 Freigabe Frank 17.11.: echte Event-Seiten statt Weiterleitung, Sitemaps, Search Console. Details: `ROADMAP_KI_AUTOMATIK.md` S1–S7.
 - Gebaut (Branch `claude/upbeat-noether-1a10lk`): Worker `workers/event-share/worker.js` – `/e/<id>` zeigt jetzt eine echte Event-Seite (Bild, Titel, Datum/Serie + nächster Termin, Lokal/Adresse, Preis, Beschreibung, Knöpfe „Ver en Marcha“ + „Cómo llegar“), keine automatische Weiterleitung mehr, JSON-LD `Event` (ohne Flyer-Bild), canonical ohne `?v`/`?source`; vergangene/archivierte Events → 410 + noindex; nicht gefunden → 404-Seite; `/e/sitemap.xml` mit allen kommenden Events. OG-Vorschau für WhatsApp/Facebook bleibt.
