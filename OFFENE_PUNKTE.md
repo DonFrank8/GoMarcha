@@ -3,6 +3,21 @@
 Merkliste für die nächsten Sessions. Stand: 19.11.2026.
 Erledigtes hier streichen bzw. nach „Erledigt“ verschieben.
 
+## ▶ Nächste Sitzung (Frank, 19.11.2026) – in dieser Reihenfolge
+
+0. **NEU, Vorrang in den nächsten Tagen: Veranstalter-Ansprache (Strategie + Material)** – Ziel: Tempo, die ersten Veranstalter tragen selbst Events ein und teilen sie.
+   - Ablauf erarbeiten: Frank spricht Veranstalter persönlich an → zeigt Marcha kurz am Handy (Demo, 1–2 Min.) → schickt danach per WhatsApp eine kurze Erklärung und/oder kleine Präsentation (Spanisch, ggf. EN/DE) → Nachfassen.
+   - Material bauen: Gesprächsleitfaden (Kernsätze, Einwände), WhatsApp-Nachricht (kurz) + Link auf `veranstalter.html`, Mini-Präsentation (wenige Folien/PDF, am Handy lesbar), ggf. E-Mail-Variante.
+   - Test: WhatsApp vs. E-Mail vergleichen (wer meldet sich an, wer trägt ein Event ein, wer teilt). Kleine Liste führen; Messung über `?source=` (z. B. `wa_pitch`, `mail_pitch`).
+   - Was Veranstalter davon haben klar machen: kostenlos, eigene Events selbst eintragen, Event-Seite mit Vorschau zum Teilen, Posts bei Marcha auf Instagram/Facebook.
+   - Rahmen: Frank schickt alles selbst und persönlich (kein automatischer Versand).
+1. **Übersetzung `smart-action` absichern** (bisher ohne Login aufrufbar → fremde OpenAI-Kosten). Nur angemeldete Veranstalter/Admins + Längengrenze. Erst Plan vorlegen, dann bauen.
+2. **Edge Function `event-share` für Google sperren** (noindex, S6) – doppelte Vorschau neben dem Worker; schließt die SEO-Etappe technisch ab.
+3. **3 Instagram-Beiträge zum Anheften** bauen (Canva): Was ist Marcha · aktueller Wochenpost · schönes Event-Foto.
+4. **Logo + App-Icon überarbeiten** – Frank gefällt das jetzige nicht. Zuerst fragen, was genau stört. Danach erst App-Icon in Google Play.
+
+Hinweis: KI-Schnelleintrag (`admin-quick-entry.js`, 13.11.) und Social → „Diese Woche“ mit Not-Aus (`admin-social-week.js`, 16.11.) sind **schon gebaut und live** – ältere Einträge unten, die sie noch als offen nennen, sind überholt.
+
 ## Erledigt am 19.11.2026 (Frank mit Claude)
 
 - Google Search Console: Domain `gomarcha.com` bestätigt (über Cloudflare), beide Sitemaps eingereicht → „Erfolgreich“ (22 Event-Seiten + 4 feste Seiten).
