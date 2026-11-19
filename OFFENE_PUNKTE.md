@@ -11,7 +11,7 @@ Erledigtes hier streichen bzw. nach „Erledigt“ verschieben.
 - Event 120 (Chilled Live Music): KI-Satz „hamburguesas“ ist in allen Sprachen weg.
 - Postiz Do 19.11.: erledigt.
 - **App-Icon Google Play: zurückgestellt** – Frank will das Logo/Icon erst nochmal überarbeiten.
-- Gefunden: Cloudflare zeigt ~100 Serverfehler (5xx) pro Tag. Ursache: Share-Worker liefert 500 bei IDs, die keine Zahl sind (z. B. `/e/abc`, vermutlich auch Serientermine `/e/120::2026-11-21`). Korrektur geplant (Worker).
+- Behoben: Cloudflare zeigte ~100 Serverfehler (5xx) pro Tag. Ursache: Die App teilte Serien-Events als `/e/120::2026-11-21`, der Share-Worker lieferte dafür 500 (auch keine WhatsApp-/Facebook-Vorschau). Worker zeigt jetzt das Master-Event, ungültige IDs → 404 (von Frank deployt, live geprüft 19.11.); App teilt `/e/<master_id>` (Cache v25, live 19.11.). In 1–2 Tagen Cloudflare → Analytics → 5xx-Rate kontrollieren.
 
 ## SEO-Etappe (17.11.2026) – LIVE, Search Console erledigt 19.11.
 
