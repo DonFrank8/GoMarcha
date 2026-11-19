@@ -5214,7 +5214,8 @@ function buildEventAppUrl(eventId) {
 }
 
 function buildEventShareUrl(eventId) {
-  const normalizedEventId = String(eventId || "").trim();
+  // Serientermine ("<master_id>::<YYYY-MM-DD>") teilen die Master-Seite; sie zeigt den nächsten Termin.
+  const normalizedEventId = String(eventId || "").split("::")[0].trim();
   if (!normalizedEventId) return buildEventAppUrl("");
   const url = new URL(`/e/${encodeURIComponent(normalizedEventId)}`, PUBLIC_SITE_URL);
   if (state.lang && state.lang !== "de") url.searchParams.set("lang", state.lang);
