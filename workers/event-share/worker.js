@@ -728,8 +728,19 @@ function renderRootHtml(siteUrl) {
 
 function eventIdFromRequest(url) {
   const match = url.pathname.match(/^\/e\/([^/?#]+)/);
-  const idFromPath = match ? decodeURIComponent(match[1]) : "";
-  return String(idFromPath || url.searchParams.get("id") || url.searchParams.get("event_id") || "").trim();
+  let idFromPath = "";
+  try {
+    idFromPath = match ? decodeURIComponent(match[1]) : "";
+  } catch {
+    idFromPath = match ? match[1] : "";
+  }
+  const rawId = String(idFromPath || url.searchParams.get("id") || url.searchParams.get("event_id") || "").trim();
+  // Serientermine kommen aus der App als "<master_id>::<YYYY-MM-DD>" → Master-Event zeigen (nächster Termin).
+  return rawId.split("::")[0].trim();
+}
+
+function isValidEventId(eventId) {
+  return /^\d{1,12}$/.test(eventId);
 }
 
 function isRootRequest(url) {
@@ -772,6 +783,18 @@ export default {
     if (!eventId) return new Response("Missing event id", { status: 400 });
 
     const fallbackImageUrl = absoluteHttpsUrl(env.DEFAULT_OG_IMAGE_URL, siteUrl) || DEFAULT_OG_IMAGE_URL;
+    if (!isValidEventId(eventId)) {
+      return htmlResponse(
+        renderNoticePage({
+          siteUrl,
+          heading: "Evento no encontrado",
+          text: "Este evento no existe o ya no está publicado. Mira lo que hay hoy y los próximos días en la Costa del Sol.",
+          imageUrl: fallbackImageUrl,
+          ogUrl: `${siteUrl}/`,
+        }),
+        404
+      );
+    }
     const appUrl = buildEventAppUrl(eventId, siteUrl, requestUrl);
     const shareUrl = buildEventShareUrl(eventId, requestUrl, siteUrl);
     const canonicalUrl = buildCanonicalUrl(eventId, siteUrl);
