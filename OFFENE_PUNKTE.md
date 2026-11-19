@@ -3,6 +3,15 @@
 Merkliste für die nächsten Sessions. Stand: 19.11.2026.
 Erledigtes hier streichen bzw. nach „Erledigt“ verschieben.
 
+## ▶ Nächste Sitzung (Frank, 19.11.2026) – in dieser Reihenfolge
+
+1. **Übersetzung `smart-action` absichern** (bisher ohne Login aufrufbar → fremde OpenAI-Kosten). Nur angemeldete Veranstalter/Admins + Längengrenze. Erst Plan vorlegen, dann bauen.
+2. **Edge Function `event-share` für Google sperren** (noindex, S6) – doppelte Vorschau neben dem Worker; schließt die SEO-Etappe technisch ab.
+3. **3 Instagram-Beiträge zum Anheften** bauen (Canva): Was ist Marcha · aktueller Wochenpost · schönes Event-Foto.
+4. **Logo + App-Icon überarbeiten** – Frank gefällt das jetzige nicht. Zuerst fragen, was genau stört. Danach erst App-Icon in Google Play.
+
+Hinweis: KI-Schnelleintrag (`admin-quick-entry.js`, 13.11.) und Social → „Diese Woche“ mit Not-Aus (`admin-social-week.js`, 16.11.) sind **schon gebaut und live** – ältere Einträge unten, die sie noch als offen nennen, sind überholt.
+
 ## Erledigt am 19.11.2026 (Frank mit Claude)
 
 - Google Search Console: Domain `gomarcha.com` bestätigt (über Cloudflare), beide Sitemaps eingereicht → „Erfolgreich“ (22 Event-Seiten + 4 feste Seiten).
