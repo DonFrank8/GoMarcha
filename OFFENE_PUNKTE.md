@@ -1,7 +1,17 @@
 # Offene Punkte — Marcha
 
-Merkliste für die nächsten Sessions. Stand: 16.11.2026.
+Merkliste für die nächsten Sessions. Stand: 23.11.2026.
 Erledigtes hier streichen bzw. nach „Erledigt“ verschieben.
+
+## ⭐ MORGEN ZUERST (Auftrag Frank 23.11.2026): Reichweite auf Social Media verbessern + automatisieren
+
+Problem (Frank): „Unsere Posts werden nicht gesehen.“ Außerdem baut Canva seit 21.11. keine Stories mehr (Fehler `quota_exceeded` = Canva-Guthaben leer) → 21.–23.11. keine Tages-Story.
+Plan für die Session:
+1. **Ist-Zustand messen:** Reichweite/Aufrufe der letzten Posts und Stories (Instagram/Facebook-Statistik bzw. Postiz-Analytics), Klicks aus `event_analytics` (`?source=`). Was funktioniert, was nicht?
+2. **Ursachen prüfen:** Posting-Zeiten, Format (Reels/Karussell vs. Einzelbild), Hashtags/Ort-Tags, Künstler und Lokale markieren (@-Erwähnung → die teilen es), Facebook-Ortsgruppen, Instagram-Profil (Bio-Link, angeheftete Posts), Häufigkeit.
+3. **Maßnahmen + Automatik vorschlagen** (Plan zur Freigabe), z. B.: Bands/Lokale automatisch markieren und per Link zum Teilen einladen, Reels/kurze Videos, Karussell für Sammelposts, feste Zeiten nach Statistik.
+4. **Bilder ohne Canva:** eigener Story-/Post-Bildbaukasten auf dem Server (Foto + Text + Marcha-Farben, kostenlos, keine KI-Bilder) – oder Canva-Tarif. Entscheidung Frank.
+Noch offen dazu: Regel „keine Stockfotos mit erkennbarer Person neben Künstlernamen“? Sind „que-es-marcha-A/B“ brauchbare Fotos?
 
 ## Social-Wochenplaner auf dem Server (16.11.2026) – LIVE (stündlich, SQL #30)
 
