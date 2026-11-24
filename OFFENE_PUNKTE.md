@@ -1,9 +1,30 @@
 # Offene Punkte — Marcha
 
-Merkliste für die nächsten Sessions. Stand: 19.11.2026.
+Merkliste für die nächsten Sessions. Stand: 24.11.2026.
 Erledigtes hier streichen bzw. nach „Erledigt“ verschieben.
 
-## ▶ Nächste Sitzung (Frank, 19.11.2026) – in dieser Reihenfolge
+## ⭐ AKTUELL (Auftrag Frank 23.11.2026): Reichweite auf Social Media verbessern + automatisieren
+
+Problem (Frank): „Unsere Posts werden nicht gesehen.“ Außerdem baut Canva seit 21.11. keine Stories mehr (Fehler `quota_exceeded` = Canva-Guthaben leer) → 21.–23.11. keine Tages-Story.
+Plan für die Session:
+1. **Ist-Zustand messen:** Reichweite/Aufrufe der letzten Posts und Stories (Instagram/Facebook-Statistik bzw. Postiz-Analytics), Klicks aus `event_analytics` (`?source=`). Was funktioniert, was nicht?
+2. **Ursachen prüfen:** Posting-Zeiten, Format (Reels/Karussell vs. Einzelbild), Hashtags/Ort-Tags, Künstler und Lokale markieren (@-Erwähnung → die teilen es), Facebook-Ortsgruppen, Instagram-Profil (Bio-Link, angeheftete Posts), Häufigkeit.
+3. **Maßnahmen + Automatik vorschlagen** (Plan zur Freigabe), z. B.: Bands/Lokale automatisch markieren und per Link zum Teilen einladen, Reels/kurze Videos, Karussell für Sammelposts, feste Zeiten nach Statistik.
+4. **Bilder ohne Canva:** eigener Story-/Post-Bildbaukasten auf dem Server (Foto + Text + Marcha-Farben, kostenlos, keine KI-Bilder) – oder Canva-Tarif. Entscheidung Frank.
+**Analyse 24.11.2026 (Claude):**
+- Website-Besuche aus Social Media ≈ 0: in 6 Wochen ~70 Event-Aufrufe insgesamt, kein einziger mit `?source=` aus Instagram/Facebook (nur Tests). Zählung funktioniert (letzter Eintrag 21.11.).
+- Posts erscheinen technisch korrekt auf Facebook + Instagram (Postiz: PUBLISHED). Ein IG-Post 14.11. mit Fehler.
+- Nur ~2–3 Feed-Posts/Woche, alle Einzelbild, kein Reel, kein Karussell, keine @-Markierung von Bands/Lokalen, kein Ort-Tag, kein Link (IG: „link en bio“), Hashtags allgemein.
+- Seit 21.11. keine Stories (Canva-Guthaben leer).
+- Mo-Sammelpost 23.11. enthielt nur 1 Event (Joolz), Zoe (23.11.) und Debra Stacey (26.11.) fehlten: Post wurde am 18.11. freigegeben, die Events kamen am 19.11. dazu → Freigabe friert den Inhalt ein. Lösung: erst am Tag freigeben bzw. Hinweis „neue Events seit Freigabe“ im Admin.
+**Umgesetzt 24.11.2026 (Freigabe Frank):** (a) Admin „Diese Woche“ warnt, wenn nach der Freigabe neue Events im Post fehlen (Button „Mit neuen Events neu anlegen“). (b) @-Markierung: SQL #32 ausgeführt, Versender `social-queue-runner` deployt (fügt „🎤 @band · 📍 @lokal“ vor den Hashtags ein, übernimmt Namen von Events mit gleichem Künstler/Lokal), Felder „Instagram Artist/Lokal“ im Event-Editor. Eingetragen: Lokale El Rincón de Cuba, La Sala Banús, Lömbok, Central Park, Bandido Burgers, El Gusto de La Cala; Bands Yoel Barz, Debra Stacey, Magasax, Choconilla, Jochen Janz, Amy Amy Amy, Bojan Turkic.
+- **Frank:** unsicher/fehlend – La Placita (@laplacitacalahonda?), Mojo Train (@themojotrain?), Shiaoko (@shiaoko?), Alain Guerra, Guillermo Olvera, Joolz, Spencer, Johnny G., MAYDAY, Yailo & Chepe, Blue Stompers, Zoe → im Event-Editor eintragen.
+- **Als Nächstes:** eigener Bild-Baukasten ohne Canva (Stories + Bilderstrecken).
+
+Noch offen dazu: Regel „keine Stockfotos mit erkennbarer Person neben Künstlernamen“? Sind „que-es-marcha-A/B“ brauchbare Fotos?
+
+
+## ▶ Liste vom 19.11.2026 (Frank) – in dieser Reihenfolge
 
 0. **NEU, Vorrang in den nächsten Tagen: Veranstalter-Ansprache (Strategie + Material)** – Ziel: Tempo, die ersten Veranstalter tragen selbst Events ein und teilen sie.
    - Ablauf erarbeiten: Frank spricht Veranstalter persönlich an → zeigt Marcha kurz am Handy (Demo, 1–2 Min.) → schickt danach per WhatsApp eine kurze Erklärung und/oder kleine Präsentation (Spanisch, ggf. EN/DE) → Nachfassen.
@@ -50,7 +71,9 @@ Rat (4 Prüfer) + Freigabe Frank: Jedes Event erscheint auf der Website + im Sam
   - 16.11.: erste Canva-Story (KI-Bild) passte nicht → aus Postiz gelöscht (action `delete_post`). Entscheidung Frank: **nur echte Fotos** (Event-Foto → Franks Fotos → Canva-Stockfoto), keine KI-Bilder; ohne Event eine Story über Marcha. Canva-Ordner „Marcha Story-Fotos“ (FAHbGct6aLs) für Franks Fotos angelegt. Kein Canva-Brand-Kit vorhanden.
   - Kalender: täglich 9:15 „Tages-Story mit Claude bauen + freigeben“.
   - **Story-Stil freigegeben (Frank 16.11.):** Canva-Design DAHbGZYsVow (Joolz, 18.11.) = Vorlage: echtes Foto vollflächig, oben „HOY EN LA COSTA · <Wochentag> <Tag> <Monat>“, unten dunkler Balken mit Name groß, Genre „en directo“, „Uhrzeit · Lokal“, Ort, „gomarcha.com“; Akzent #FF7A3D auf Dunkelblau. Als Story-Entwurf für Mi 18.11. 12:00 in Postiz (postId cmwjjhhee…) – Frank gibt frei.
-- Nächste Schritte: (2) Versender: nur freigegebene Posts an Postiz, Prüfung vor Versand; (3) Admin „Social → Diese Woche“ mit Not-Aus; (4) Story „Hoy en la Costa“ als Entwurf (prüfen, ob Postiz Stories per Schnittstelle kann); (5) Veranstalter-Hinweis + Teil-Paket.
+- **LIVE 16.11.2026 abends (Freigabe Frank, PR #145):** Admin → Social → „📅 Diese Woche“ (Freigeben / Text ändern / Neu berechnen / Zurückziehen / Not-Aus / Nur-Story-Liste). Versender verschickt nur noch im Admin Freigegebenes, plant es in Postiz fest ein (kein Klick in Postiz), nicht Freigegebenes verfällt, freigegebener Text wird nicht mehr von der KI umgeschrieben. SQL #31 ausgeführt (event_id optional). Story-Agent legt Stories in den Admin (`story_queue`). Test: Cron-Lauf verschickt 0, Posts W48 warten auf Freigabe.
+- **Frank:** Posts für Mo 23.11., Mi 25.11., Do 26.11., Sa 28.11. im Admin freigeben. Diese Woche liegende Postiz-Entwürfe (Mi 18.11., Do 19.11., Sa 21.11., Joolz-Story) entweder im Admin „Freigeben“ (ersetzt den Postiz-Entwurf) oder wie bisher in Postiz.
+- Nächste Schritte: Veranstalter-Hinweis „Dein Event erscheint am …“ + Teil-Paket; Werbepost für Bands/Bars/Restaurants. Erledigt aus der alten Liste: (2) Versender: nur freigegebene Posts an Postiz, Prüfung vor Versand; (3) Admin „Social → Diese Woche“ mit Not-Aus; (4) Story „Hoy en la Costa“ als Entwurf (prüfen, ob Postiz Stories per Schnittstelle kann); (5) Veranstalter-Hinweis + Teil-Paket.
 - Auffällig: viele alte „last_call“-Einzelposts (bis 18.12.) liegen schon bei Postiz – mit Konzept v2 prüfen (max. 1 Feed-Post/Tag).
 
 ## KI-Hilfe im Formular „Event hinzufügen“ (16.11.2026) – LIVE

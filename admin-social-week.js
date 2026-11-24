@@ -9,6 +9,7 @@
  *   🔄 Neu berechnen → Wochenplaner neu rechnen lassen (bzw. Postiz-Entwurf erneuern)
  *   ↩︎ Zurückziehen  → aus Postiz löschen, Eintrag „skipped“
  *   🛑 Not-Aus       → social_planner_settings.paused (Planer + Versender stoppen)
+ * ⚠️ Hinweis an freigegebenen Posts, wenn seitdem neue Events dazugekommen sind (Button „Neu anlegen“).
  * Darunter: Events, die diese/nächste Woche in keinem Post stehen (nur Story/Website).
  * Rechte: nur angemeldete Admins (RLS + Admin-Prüfung in den Edge Functions). Kein Secret im Browser.
  */
@@ -71,6 +72,8 @@
       .sw-actions button, .sw-actions a { font-size:.85rem; }
       .sw-card details { font-size:.85rem; }
       .sw-card textarea { width:100%; min-height:140px; box-sizing:border-box; font:inherit; font-size:14px; border-radius:10px; padding:8px; }
+      .sw-missing { margin:6px 0; padding:8px 10px; border-radius:10px; border:1px solid rgba(255,191,103,.6); background:rgba(255,191,103,.12); font-size:.88rem; }
+      .sw-missing p { margin:0 0 6px; }
       .sw-uncovered { margin-top:12px; font-size:.9rem; }
       @media (max-width:560px){ .sw-card { grid-template-columns:72px 1fr; } .sw-card img { width:72px; height:90px; } }
     `;
@@ -225,6 +228,7 @@
     if (!target) return;
     try {
       const plan = await callFn("social-week-planner", { dry_run: true });
+      void markMissing(Array.isArray(plan.slots) ? plan.slots : []);
       const list = Array.isArray(plan.story_only) ? plan.story_only : [];
       target.innerHTML = "";
       if (!list.length) {
@@ -241,6 +245,39 @@
     } catch (err) {
       target.textContent = "";
     }
+  }
+
+  // Freigegebene (eingefrorene) Posts, in denen inzwischen neue Events fehlen (24.11.2026):
+  // Der Planer meldet sie als „frozen“ mit missing_events. Hinweis + „Neu anlegen“ an der Karte.
+  async function markMissing(slots) {
+    const hits = slots.filter((s) => s && s.action === "frozen" && s.queue_id && Array.isArray(s.missing_events) && s.missing_events.length);
+    if (!hits.length) return;
+    const ids = [...new Set(hits.flatMap((s) => s.missing_events.map((r) => String(r).split("::")[0])).filter((x) => /^\d+$/.test(x)))];
+    const names = {};
+    if (ids.length) {
+      const { data } = await getClient().from("events").select("id,name").in("id", ids.map(Number));
+      (data || []).forEach((e) => { names[String(e.id)] = e.name; });
+    }
+    hits.forEach((s) => {
+      const card = document.querySelector(`.sw-card[data-queue-id="${CSS.escape(String(s.queue_id))}"]`);
+      const body = card?.children?.[1];
+      // Nur noch nicht erschienene Posts (mind. 15 Min. Vorlauf) – „Neu anlegen“ löscht den Postiz-Eintrag.
+      if (!(Date.parse(card?.dataset?.scheduledAt || "") > Date.now() + 15 * 60 * 1000)) return;
+      if (!body || body.querySelector(".sw-missing")) return;
+      const label = s.missing_events.map((r) => names[String(r).split("::")[0]] || `Event ${r}`).join(" · ");
+      const n = s.missing_events.length;
+      const box = el("div", { class: "sw-missing" }, [
+        el("p", { text: `⚠️ ${n === 1 ? "1 neues Event fehlt" : `${n} neue Events fehlen`} in diesem Post (seit deiner Freigabe dazugekommen): ${label}` })
+      ]);
+      const b = el("button", { type: "button", class: "btn-pill btn-pill--hero", text: "🔄 Mit neuen Events neu anlegen" });
+      b.addEventListener("click", () => run(b, async () => {
+        if (!window.confirm("Post mit allen aktuellen Events neu anlegen?\nDer bisherige Postiz-Eintrag wird gelöscht, danach musst du den Post noch einmal freigeben.")) return "";
+        await callFn("social-postiz-admin", { action: "refresh", queue_id: s.queue_id });
+        return "Neu angelegt mit allen Events. Bitte jetzt noch einmal „Freigeben“ klicken.";
+      }));
+      box.append(b);
+      body.insertBefore(box, body.querySelector(".sw-actions"));
+    });
   }
 
   // ── Anzeige ─────────────────────────────────────────────────────────────────
@@ -299,7 +336,7 @@
     if (row.status !== "posted") btn("↩︎ Zurückziehen", "btn-pill--soft btn-pill--danger", () => withdraw(row));
     body.append(actions);
     const thumb = img ? el("img", { src: img, alt: "", loading: "lazy" }) : el("div");
-    return el("div", { class: "sw-card", "data-queue-id": row.id }, [thumb, body]);
+    return el("div", { class: "sw-card", "data-queue-id": row.id, "data-scheduled-at": row.scheduled_at || "" }, [thumb, body]);
   }
 
   // ── Aktionen ────────────────────────────────────────────────────────────────
