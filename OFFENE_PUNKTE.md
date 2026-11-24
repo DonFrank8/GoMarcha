@@ -11,6 +11,12 @@ Plan für die Session:
 2. **Ursachen prüfen:** Posting-Zeiten, Format (Reels/Karussell vs. Einzelbild), Hashtags/Ort-Tags, Künstler und Lokale markieren (@-Erwähnung → die teilen es), Facebook-Ortsgruppen, Instagram-Profil (Bio-Link, angeheftete Posts), Häufigkeit.
 3. **Maßnahmen + Automatik vorschlagen** (Plan zur Freigabe), z. B.: Bands/Lokale automatisch markieren und per Link zum Teilen einladen, Reels/kurze Videos, Karussell für Sammelposts, feste Zeiten nach Statistik.
 4. **Bilder ohne Canva:** eigener Story-/Post-Bildbaukasten auf dem Server (Foto + Text + Marcha-Farben, kostenlos, keine KI-Bilder) – oder Canva-Tarif. Entscheidung Frank.
+**Analyse 24.11.2026 (Claude):**
+- Website-Besuche aus Social Media ≈ 0: in 6 Wochen ~70 Event-Aufrufe insgesamt, kein einziger mit `?source=` aus Instagram/Facebook (nur Tests). Zählung funktioniert (letzter Eintrag 21.11.).
+- Posts erscheinen technisch korrekt auf Facebook + Instagram (Postiz: PUBLISHED). Ein IG-Post 14.11. mit Fehler.
+- Nur ~2–3 Feed-Posts/Woche, alle Einzelbild, kein Reel, kein Karussell, keine @-Markierung von Bands/Lokalen, kein Ort-Tag, kein Link (IG: „link en bio“), Hashtags allgemein.
+- Seit 21.11. keine Stories (Canva-Guthaben leer).
+- Mo-Sammelpost 23.11. enthielt nur 1 Event (Joolz), Zoe (23.11.) und Debra Stacey (26.11.) fehlten: Post wurde am 18.11. freigegeben, die Events kamen am 19.11. dazu → Freigabe friert den Inhalt ein. Lösung: erst am Tag freigeben bzw. Hinweis „neue Events seit Freigabe“ im Admin.
 Noch offen dazu: Regel „keine Stockfotos mit erkennbarer Person neben Künstlernamen“? Sind „que-es-marcha-A/B“ brauchbare Fotos?
 
 ## Social-Wochenplaner auf dem Server (16.11.2026) – LIVE (stündlich, SQL #30)
