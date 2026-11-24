@@ -6,8 +6,8 @@
 --   * events.artist_instagram – Instagram-Name des Künstlers, ohne @ (z. B. joolz_music)
 --   * events.venue_instagram  – Instagram-Name des Lokals, ohne @
 --   Beide optional. Erlaubt: Buchstaben, Ziffern, Punkt, Unterstrich, max. 30 Zeichen
---   (Instagram-Regel). Öffentliche Angaben, daher keine RLS-Änderung nötig:
---   es gelten die bestehenden Regeln der Tabelle events.
+--   (Instagram-Regel). Öffentliche Angaben: Leserecht wie artist_name (GRANT SELECT auf die 2 Spalten),
+--   keine RLS-Änderung; Schreiben nach den bestehenden Regeln der Tabelle events.
 -- Ändert keine bestehenden Zeilen. Idempotent.
 -- Abhängig von: Tabelle events.
 -- ============================================================================
@@ -26,6 +26,11 @@ begin
       check (venue_instagram is null or venue_instagram ~ '^[A-Za-z0-9._]{1,30}$');
   end if;
 end $$;
+
+-- Leserecht: events hat Spalten-Rechte (SELECT je Spalte). Die Instagram-Namen sind öffentlich
+-- (stehen ohnehin in den Posts) → wie artist_name lesbar für anon und authenticated.
+-- Schreiben bleibt wie bisher über die bestehenden RLS-Regeln (nur Admin bzw. eigene Events).
+grant select (artist_instagram, venue_instagram) on public.events to anon, authenticated;
 
 comment on column public.events.artist_instagram is 'Instagram-Name des Künstlers ohne @ (für automatische Markierung in Social-Posts).';
 comment on column public.events.venue_instagram is 'Instagram-Name des Lokals ohne @ (für automatische Markierung in Social-Posts).';
