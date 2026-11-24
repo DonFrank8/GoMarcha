@@ -1474,6 +1474,100 @@ async function buildAiCaptionFacts(
   };
 }
 
+// ── @-Markierung von Künstler und Lokal (24.11.2026, SQL #32) ────────────────────
+const IG_HANDLE_RE = /^[A-Za-z0-9._]{1,30}$/;
+const MAX_MENTIONS = 20; // Instagram erlaubt höchstens 20 @-Markierungen pro Post
+
+type MentionEventRow = {
+  id: number | string;
+  artist_name?: string | null;
+  location_name?: string | null;
+  artist_instagram?: string | null;
+  venue_instagram?: string | null;
+};
+
+function cleanHandle(v: unknown): string {
+  const h = String(v || "").trim().replace(/^@/, "");
+  return IG_HANDLE_RE.test(h) ? h : "";
+}
+
+function nameKey(v: unknown): string {
+  return String(v || "").trim().toLowerCase();
+}
+
+/**
+ * Zeile „🎤 @band … · 📍 @lokal …“ für alle Events des Posts (Hauptevent + Sammelpost-Mitglieder).
+ * Fehlt beim Event ein Name, wird er von einem anderen Event mit gleichem Künstler- bzw. Lokalnamen
+ * übernommen. Ohne Spalten (SQL #32 noch nicht ausgeführt) oder bei Fehlern: leere Zeile.
+ */
+async function buildMentionLine(supabase: SupabaseClient, refs: string[]): Promise<string> {
+  try {
+    const ids = [...new Set(refs.map((r) => String(r).split("::")[0]).filter((x) => /^\d+$/.test(x)))].map(Number);
+    if (!ids.length) return "";
+    const cols = "id,artist_name,location_name,artist_instagram,venue_instagram";
+    const { data, error } = await supabase.from("events").select(cols).in("id", ids);
+    if (error || !data?.length) return "";
+    const rows = data as MentionEventRow[];
+    const byId = new Map(rows.map((r) => [String(r.id), r]));
+    const ordered = ids.map((id) => byId.get(String(id))).filter(Boolean) as MentionEventRow[];
+
+    // Fehlende Namen von anderen Events mit gleichem Künstler/Lokal übernehmen
+    const needArtists = [...new Set(ordered.filter((r) => !cleanHandle(r.artist_instagram) && nameKey(r.artist_name)).map((r) => String(r.artist_name).trim()))];
+    const needVenues = [...new Set(ordered.filter((r) => !cleanHandle(r.venue_instagram) && nameKey(r.location_name)).map((r) => String(r.location_name).trim()))];
+    const artistMap = new Map<string, string>();
+    const venueMap = new Map<string, string>();
+    if (needArtists.length) {
+      const { data: a } = await supabase.from("events").select("artist_name,artist_instagram")
+        .in("artist_name", needArtists).not("artist_instagram", "is", null).limit(200);
+      for (const r of (a || []) as MentionEventRow[]) {
+        const h = cleanHandle(r.artist_instagram);
+        if (h && !artistMap.has(nameKey(r.artist_name))) artistMap.set(nameKey(r.artist_name), h);
+      }
+    }
+    if (needVenues.length) {
+      const { data: v } = await supabase.from("events").select("location_name,venue_instagram")
+        .in("location_name", needVenues).not("venue_instagram", "is", null).limit(200);
+      for (const r of (v || []) as MentionEventRow[]) {
+        const h = cleanHandle(r.venue_instagram);
+        if (h && !venueMap.has(nameKey(r.location_name))) venueMap.set(nameKey(r.location_name), h);
+      }
+    }
+
+    const seen = new Set<string>();
+    const artists: string[] = [];
+    const venues: string[] = [];
+    const add = (list: string[], h: string) => {
+      const k = h.toLowerCase();
+      if (!h || seen.has(k) || seen.size >= MAX_MENTIONS) return;
+      seen.add(k);
+      list.push(`@${h}`);
+    };
+    for (const r of ordered) {
+      add(artists, cleanHandle(r.artist_instagram) || artistMap.get(nameKey(r.artist_name)) || "");
+      add(venues, cleanHandle(r.venue_instagram) || venueMap.get(nameKey(r.location_name)) || "");
+    }
+    const parts = [artists.length ? `🎤 ${artists.join(" ")}` : "", venues.length ? `📍 ${venues.join(" ")}` : ""].filter(Boolean);
+    return parts.join(" · ");
+  } catch (err) {
+    slog("mention_line_failed", { error: String((err as Error)?.message || err) });
+    return "";
+  }
+}
+
+/** Markierungszeile vor den Hashtags einfügen (bzw. anhängen); nichts doppelt. */
+function appendMentionLine(caption: string, line: string): string {
+  if (!line) return caption;
+  const handles = line.match(/@[A-Za-z0-9._]+/g) || [];
+  if (handles.length && handles.every((h) => caption.toLowerCase().includes(h.toLowerCase()))) return caption;
+  const paras = caption.split(/\n\n/);
+  const last = paras[paras.length - 1] || "";
+  if (paras.length > 1 && /^(\s*#\S+\s*)+$/.test(last)) {
+    paras.splice(paras.length - 1, 0, line);
+    return paras.join("\n\n");
+  }
+  return `${caption}\n\n${line}`;
+}
+
 /** Prefer admin-edited caption from Marcha when present. */
 function buildCaptionForQueueRow(
   row: QueueRow,
@@ -2201,7 +2295,10 @@ Deno.serve(async (req) => {
           postAtMs: scheduleResult.effectiveMs,
           timeZone: eventTimeZone
         });
-    const { caption, template_id } = captionBuilt;
+    const { template_id } = captionBuilt;
+    // Reichweite (24.11.2026): Band und Lokal per @ markieren (events.artist_instagram / venue_instagram).
+    const mentionLine = await buildMentionLine(supabase, [String(ev.id), ...collectionEventIds.map(String)]);
+    const caption = appendMentionLine(captionBuilt.caption, mentionLine);
 
     slog("post_prepare", {
       queue_id: claimed.id,

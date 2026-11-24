@@ -2,13 +2,13 @@ const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
 const ADMIN_REQUIRED_ROLE = "admin";
 const ADMIN_ALLOWED_EMAILS = [];
-const ADMIN_DASHBOARD_BUILD = "2026.11.16-server-planner";
+const ADMIN_DASHBOARD_BUILD = "2026.11.24-instagram-markierung";
 // Spalten der Tabelle events, die der Admin-Bereich direkt liest. Einreicher-Daten
 // (contact_email, submitted_by, verification_notes) kommen über die Admin-Funktion
 // marcha_admin_event_private (supabase-security-hardening-6.sql) dazu.
 // Neue Spalte in events? Hier, in app.js (EVENT_PUBLIC_COLUMNS) und in den SQL-Dateien ergänzen.
 const ADMIN_EVENT_COLUMNS =
-  "id,name,location_name,city,country,event_date,event_time,genre,price_text,description,image_url,lat,lng,is_published,created_at,status,address,postal_code,geocoding_query,featured,promoted,is_recurring,recurrence_type,recurrence_interval,recurrence_days,recurrence_end_date,recurrence_until,recurrence_rule,recurrence_start_date,recurrence_weekday,recurrence_day_of_month,artist_name,title_de,title_en,title_es,description_de,description_en,description_es,artist_bio_de,artist_bio_en,artist_bio_es,image_urls,archived_at,original_event_id,is_featured,recurring_social_enabled,recurring_social_opt_out,end_time,organizer_id";
+  "id,name,location_name,city,country,event_date,event_time,genre,price_text,description,image_url,lat,lng,is_published,created_at,status,address,postal_code,geocoding_query,featured,promoted,is_recurring,recurrence_type,recurrence_interval,recurrence_days,recurrence_end_date,recurrence_until,recurrence_rule,recurrence_start_date,recurrence_weekday,recurrence_day_of_month,artist_name,title_de,title_en,title_es,description_de,description_en,description_es,artist_bio_de,artist_bio_en,artist_bio_es,image_urls,archived_at,original_event_id,is_featured,recurring_social_enabled,recurring_social_opt_out,end_time,organizer_id,artist_instagram,venue_instagram";
 const ADMIN_EVENT_PRIVATE_FIELDS = ["contact_email", "submitted_by", "verification_notes"];
 if (typeof window !== "undefined") {
   window.PARTYRADAR_ADMIN_BUILD = ADMIN_DASHBOARD_BUILD;
@@ -181,6 +181,8 @@ const adminEventActionLocks = new Set();
  */
 const ADMIN_EVENT_SAVE_COLUMN_WHITELIST = new Set([
   "name",
+  "artist_instagram",
+  "venue_instagram",
   "description",
   "description_es",
   "description_de",
@@ -9159,6 +9161,17 @@ async function regenerateAdminEventTranslations(eventData, form, { forceOverwrit
   };
 }
 
+/** Instagram-Name aus Eingabe („@name“, „instagram.com/name“ oder „name“) → „name“ bzw. null. Ungültig → Fehler. */
+function adminInstagramHandle(raw) {
+  let v = String(raw || "").trim();
+  if (!v) return null;
+  v = v.replace(/^https?:\/\/(www\.)?instagram\.com\//i, "").replace(/^@/, "").split(/[/?#]/)[0].trim();
+  if (!/^[A-Za-z0-9._]{1,30}$/.test(v)) {
+    throw new Error(`Instagram-Name „${String(raw).trim()}“ ist ungültig (nur Buchstaben, Ziffern, Punkt, Unterstrich).`);
+  }
+  return v;
+}
+
 function adminOptionalFormString(formData, name) {
   const value = String(formData.get(name) || "").trim();
   return value || null;
@@ -9233,6 +9246,8 @@ function eventEditPayloadFromForm(form, overlay = null) {
     city: adminOptionalFormString(formData, "city"),
     country: adminOptionalFormString(formData, "country"),
     artist_name: adminOptionalFormString(formData, "artist_name"),
+    artist_instagram: adminInstagramHandle(formData.get("artist_instagram")),
+    venue_instagram: adminInstagramHandle(formData.get("venue_instagram")),
     price_text: adminOptionalFormString(formData, "price_text"),
     image_url: adminOptionalFormString(formData, "image_url"),
     image_urls: readJsonFieldFromFormLoose(formData.get("image_urls"), null),
@@ -10615,6 +10630,7 @@ function openEventEditorModal(eventDataInput) {
           <label class="field"><span>Titel</span><input name="title" value="${escapeHtml(eventData.title || eventData.name)}" required></label>
           <label class="field"><span>Kategorie / Genre</span><input name="category" value="${escapeHtml(eventData.genre || eventData.category)}"></label>
           <label class="field"><span>Artist</span><input name="artist_name" value="${escapeHtml(eventData.artist_name)}"></label>
+          <label class="field"><span>Instagram Artist (ohne @)</span><input name="artist_instagram" autocomplete="off" placeholder="z. B. joolz_music" value="${escapeHtml(eventData.artist_instagram)}"></label>
           <label class="field"><span>Tags (Komma)</span><input name="tags" value="${escapeHtml(Array.isArray(eventData.tags) ? eventData.tags.join(", ") : String(eventData.tags || ""))}"></label>
           <label class="field"><span>Preis</span><input name="price_text" value="${escapeHtml(eventData.price_text)}"></label>
           <label class="field"><span>Datum</span><input name="event_date" type="date" value="${escapeHtml(eventData.event_date)}"></label>
@@ -10637,6 +10653,7 @@ function openEventEditorModal(eventDataInput) {
         <div class="admin-editor-panel-page" data-editor-panel="location" hidden>
           <div class="admin-editor-fields">
           <label class="field admin-editor-places-field"><span>Venue</span><input name="location_name" data-editor-venue-input data-editor-loc-field autocomplete="off" value="${escapeHtml(eventData.location_name)}"></label>
+          <label class="field"><span>Instagram Lokal (ohne @)</span><input name="venue_instagram" autocomplete="off" placeholder="z. B. lasalabanus" value="${escapeHtml(eventData.venue_instagram)}"></label>
           <label class="field admin-editor-span-2 admin-editor-location-autocomplete-field admin-editor-places-field"><span>Adresse</span><input name="address" data-editor-address-input autocomplete="off" aria-expanded="false" aria-haspopup="listbox" value="${escapeHtml(eventData.address)}"></label>
           <label class="field"><span>PLZ</span><input name="postal_code" data-editor-loc-field autocomplete="off" value="${escapeHtml(eventData.postal_code)}"></label>
           <label class="field"><span>Stadt</span><input name="city" data-editor-loc-field autocomplete="off" value="${escapeHtml(eventData.city)}"></label>
