@@ -5214,7 +5214,8 @@ function buildEventAppUrl(eventId) {
 }
 
 function buildEventShareUrl(eventId) {
-  const normalizedEventId = String(eventId || "").trim();
+  // Serientermine ("<master_id>::<YYYY-MM-DD>") teilen die Master-Seite; sie zeigt den nächsten Termin.
+  const normalizedEventId = String(eventId || "").split("::")[0].trim();
   if (!normalizedEventId) return buildEventAppUrl("");
   const url = new URL(`/e/${encodeURIComponent(normalizedEventId)}`, PUBLIC_SITE_URL);
   if (state.lang && state.lang !== "de") url.searchParams.set("lang", state.lang);
@@ -8424,6 +8425,15 @@ function findEventById(eventId) {
   return state.filteredEvents.find((item) => item.id === normalizedId) || state.allEvents.find((item) => item.id === normalizedId) || null;
 }
 
+function findNextOccurrenceOfSeries(seriesId) {
+  const normalizedId = String(seriesId || "").trim();
+  if (!normalizedId) return null;
+  const occurrences = state.allEvents
+    .filter((item) => item.is_recurring_occurrence && String(item.parent_event_id) === normalizedId)
+    .sort((a, b) => String(a.event_date || "").localeCompare(String(b.event_date || "")));
+  return occurrences[0] || null;
+}
+
 function resolveSelectEventData(eventData) {
   if (!eventData) return null;
   if (typeof eventData === "object") {
@@ -9611,15 +9621,11 @@ async function startApp() {
   syncHeroControlsFromSidebar();
   applyFilters();
   if (query.eventId) {
-    const sharedEvent = findEventById(query.eventId);
+    // Event-Link (?event_id=…, z. B. Knopf „Ver en Marcha“ auf /e/<id>): Detailansicht öffnen wie beim Tippen auf die Karte.
+    // Serien stehen in der Liste nur als Termine (<id>::<YYYY-MM-DD>) → nächsten Termin der Serie nehmen.
+    const sharedEvent = findEventById(query.eventId) || findNextOccurrenceOfSeries(query.eventId);
     if (sharedEvent) {
-      selectEvent(sharedEvent, {
-        flyTo: false,
-        openPopup: false,
-        scrollIntoView: true,
-        preferMapOnMobile: false,
-        expandSheet: false
-      });
+      openEventFromCard(sharedEvent);
     }
   }
   updateMapBottomSheetLayout();

@@ -18,6 +18,7 @@ Der Inhaber (Frank) ist **kein Programmierer**. Er gibt Aufgaben vor, prüft Erg
 2. **Minimale Änderungen.** Nur das ändern, was für die Aufgabe nötig ist. Kein Umbau, kein „Aufräumen" nebenbei.
 3. **Ein Thema pro Commit**, mit klarer Commit-Message im Stil `fix: …` / `feat: …`.
 4. **Kein Push auf `main`, kein Deploy, keine SQL-Ausführung auf der Live-Datenbank ohne ausdrückliche Freigabe.** Das gilt auch für `supabase functions deploy` und `wrangler deploy`.
+   Ausnahme (Frank, 19.11.2026): **Am Ende jeder Sitzung `OFFENE_PUNKTE.md` (Merkliste) auf `main` bringen – ohne Rückfrage.** Nur diese Datei (keine Code-Änderungen mitnehmen, die noch nicht freigegeben sind). Sonst findet die nächste Sitzung die Merkliste nicht.
    Ausnahme (Frank, 11.11.2026): **Arbeits-Branches (alles außer `main`) dürfen ohne Rückfrage gepusht werden**, damit keine Arbeit verloren geht, wenn eine Session endet. Sie gehen dadurch nicht live (GitHub Pages veröffentlicht nur `main`). Nie mit `--force` auf fremde Branches, nie direkt auf `main`.
 5. **Nach jeder Änderung:** kurz zusammenfassen, was geändert wurde, wie man es testet, und welche Risiken es gibt.
 6. Bei Unsicherheit: nachfragen statt raten.

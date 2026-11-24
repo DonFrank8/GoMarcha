@@ -1,9 +1,9 @@
 # Offene Punkte — Marcha
 
-Merkliste für die nächsten Sessions. Stand: 23.11.2026.
+Merkliste für die nächsten Sessions. Stand: 24.11.2026.
 Erledigtes hier streichen bzw. nach „Erledigt“ verschieben.
 
-## ⭐ MORGEN ZUERST (Auftrag Frank 23.11.2026): Reichweite auf Social Media verbessern + automatisieren
+## ⭐ AKTUELL (Auftrag Frank 23.11.2026): Reichweite auf Social Media verbessern + automatisieren
 
 Problem (Frank): „Unsere Posts werden nicht gesehen.“ Außerdem baut Canva seit 21.11. keine Stories mehr (Fehler `quota_exceeded` = Canva-Guthaben leer) → 21.–23.11. keine Tages-Story.
 Plan für die Session:
@@ -22,6 +22,41 @@ Plan für die Session:
 - **Als Nächstes:** eigener Bild-Baukasten ohne Canva (Stories + Bilderstrecken).
 
 Noch offen dazu: Regel „keine Stockfotos mit erkennbarer Person neben Künstlernamen“? Sind „que-es-marcha-A/B“ brauchbare Fotos?
+
+
+## ▶ Liste vom 19.11.2026 (Frank) – in dieser Reihenfolge
+
+0. **NEU, Vorrang in den nächsten Tagen: Veranstalter-Ansprache (Strategie + Material)** – Ziel: Tempo, die ersten Veranstalter tragen selbst Events ein und teilen sie.
+   - Ablauf erarbeiten: Frank spricht Veranstalter persönlich an → zeigt Marcha kurz am Handy (Demo, 1–2 Min.) → schickt danach per WhatsApp eine kurze Erklärung und/oder kleine Präsentation (Spanisch, ggf. EN/DE) → Nachfassen.
+   - Material bauen: Gesprächsleitfaden (Kernsätze, Einwände), WhatsApp-Nachricht (kurz) + Link auf `veranstalter.html`, Mini-Präsentation (wenige Folien/PDF, am Handy lesbar), ggf. E-Mail-Variante.
+   - Test: WhatsApp vs. E-Mail vergleichen (wer meldet sich an, wer trägt ein Event ein, wer teilt). Kleine Liste führen; Messung über `?source=` (z. B. `wa_pitch`, `mail_pitch`).
+   - Was Veranstalter davon haben klar machen: kostenlos, eigene Events selbst eintragen, Event-Seite mit Vorschau zum Teilen, Posts bei Marcha auf Instagram/Facebook.
+   - Rahmen: Frank schickt alles selbst und persönlich (kein automatischer Versand).
+1. **Übersetzung `smart-action` absichern** (bisher ohne Login aufrufbar → fremde OpenAI-Kosten). Nur angemeldete Veranstalter/Admins + Längengrenze. Erst Plan vorlegen, dann bauen.
+2. **Edge Function `event-share` für Google sperren** (noindex, S6) – doppelte Vorschau neben dem Worker; schließt die SEO-Etappe technisch ab.
+3. **3 Instagram-Beiträge zum Anheften** bauen (Canva): Was ist Marcha · aktueller Wochenpost · schönes Event-Foto.
+4. **Logo + App-Icon überarbeiten** – Frank gefällt das jetzige nicht. Zuerst fragen, was genau stört. Danach erst App-Icon in Google Play.
+
+Hinweis: KI-Schnelleintrag (`admin-quick-entry.js`, 13.11.) und Social → „Diese Woche“ mit Not-Aus (`admin-social-week.js`, 16.11.) sind **schon gebaut und live** – ältere Einträge unten, die sie noch als offen nennen, sind überholt.
+
+## Erledigt am 19.11.2026 (Frank mit Claude)
+
+- Google Search Console: Domain `gomarcha.com` bestätigt (über Cloudflare), beide Sitemaps eingereicht → „Erfolgreich“ (22 Event-Seiten + 4 feste Seiten).
+- Cloudflare: Besucherzahlen unter gomarcha.com → Analytics → Visitors (serverseitig, zählt auch Bots; USA-Anteil = v. a. Crawler). Separates „Web Analytics“ (JS-Snippet) nicht nötig.
+- Instagram: Bio-Link `https://www.gomarcha.com/?source=ig_bio` („Todos los eventos“). Alten Link „gomarcha“ entfernen (Frank). Angeheftete Posts: später, Claude baut passende Beiträge.
+- Event 120 (Chilled Live Music): KI-Satz „hamburguesas“ ist in allen Sprachen weg.
+- Postiz Do 19.11.: erledigt.
+- **App-Icon Google Play: zurückgestellt** – Frank will das Logo/Icon erst nochmal überarbeiten.
+- Behoben: Cloudflare zeigte ~100 Serverfehler (5xx) pro Tag. Ursache: Die App teilte Serien-Events als `/e/120::2026-11-21`, der Share-Worker lieferte dafür 500 (auch keine WhatsApp-/Facebook-Vorschau). Worker zeigt jetzt das Master-Event, ungültige IDs → 404 (von Frank deployt, live geprüft 19.11.); App teilt `/e/<master_id>` (Cache v25, live 19.11.). In 1–2 Tagen Cloudflare → Analytics → 5xx-Rate kontrollieren.
+
+## SEO-Etappe (17.11.2026) – LIVE, Search Console erledigt 19.11.
+
+Freigabe Frank 17.11.: echte Event-Seiten statt Weiterleitung, Sitemaps, Search Console. Details: `ROADMAP_KI_AUTOMATIK.md` S1–S7.
+- Gebaut (Branch `claude/upbeat-noether-1a10lk`): Worker `workers/event-share/worker.js` – `/e/<id>` zeigt jetzt eine echte Event-Seite (Bild, Titel, Datum/Serie + nächster Termin, Lokal/Adresse, Preis, Beschreibung, Knöpfe „Ver en Marcha“ + „Cómo llegar“), keine automatische Weiterleitung mehr, JSON-LD `Event` (ohne Flyer-Bild), canonical ohne `?v`/`?source`; vergangene/archivierte Events → 410 + noindex; nicht gefunden → 404-Seite; `/e/sitemap.xml` mit allen kommenden Events. OG-Vorschau für WhatsApp/Facebook bleibt.
+- Dazu: `sitemap.xml` (feste Seiten), beide Sitemaps in `robots.txt`, canonical von legal/privacy/data-deletion auf www.
+- Getestet lokal mit echten Daten (Handy + Computer) und 26 Einzelprüfungen (Serien, Zeitzone, Preis, 410, Schutz vor Schadcode).
+- **Reihenfolge Live-Gang:** 1. Frank spielt den Worker im Cloudflare-Dashboard ein → 2. Claude prüft live (Googlebot + Facebook-Vorschau mit `?v=`) → 3. Branch auf `main` (robots.txt/sitemap.xml) → 4. Frank: Google Search Console (S7).
+- Offen: S6 (Edge Function `event-share` noindex). Hinweis: Beschreibung von Event 120 enthält KI-Text „en el cartel aparecen hamburguesas…“ → im Admin glätten.
 
 ## Social-Wochenplaner auf dem Server (16.11.2026) – LIVE (stündlich, SQL #30)
 
@@ -45,7 +80,7 @@ Rat (4 Prüfer) + Freigabe Frank: Jedes Event erscheint auf der Website + im Sam
 
 Limit-Meldung kommt jetzt in der Sprache der Seite (vorher immer deutscher Server-Text). Ohne Anmeldung zeigt das Formular oben den Hinweis „¿Eres organizador? Crea tu cuenta gratis …“ mit Link auf `veranstalter.html`. Live über PR #142 (Freigabe Frank).
 Hinweis: Veranstalter-Konten (Etappen A, B, B2, C) sind seit 13.11.2026 live – Anmeldung über `veranstalter.html` bzw. Footer-Link „Para organizadores“.
-- **Frank:** im privaten Fenster prüfen (Hinweis sichtbar, Link öffnet die Veranstalter-Seite).
+- ERLEDIGT 17.11.: Frank hat geprüft – Hinweis war da, aber schlecht sichtbar. Neu (Webdesigner-Vorschlag, live 17.11., Freigabe Frank): ruhiger grauer Kasten, Frage fett, orangefarbener Link, ganzer Kasten antippbar. Text spricht direkt an: „¿Tienes un bar o local? ¿Eres músico o DJ?“ (DE/EN entsprechend; „músico“ statt „banda“, damit auch Solokünstler gemeint sind).
 
 ## Social-Media-Konzept v2 (15.11.2026) – Etappe 1 LIVE
 
