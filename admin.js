@@ -2,7 +2,7 @@ const SUPABASE_URL = "https://dwyhpirtbjfmohcnhdak.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__H_WNdy1NIfoQbQfyNILKQ_Qb8wQfgn";
 const ADMIN_REQUIRED_ROLE = "admin";
 const ADMIN_ALLOWED_EMAILS = [];
-const ADMIN_DASHBOARD_BUILD = "2026.11.24-instagram-markierung";
+const ADMIN_DASHBOARD_BUILD = "2026.11.24-instagram-markierung-2";
 // Spalten der Tabelle events, die der Admin-Bereich direkt liest. Einreicher-Daten
 // (contact_email, submitted_by, verification_notes) kommen über die Admin-Funktion
 // marcha_admin_event_private (supabase-security-hardening-6.sql) dazu.
@@ -4898,6 +4898,8 @@ function buildRecurringChildEventInsertPayload(master, occurrenceStart) {
     lng: master.lng ?? null,
     genre: master.genre || master.category || null,
     artist_name: master.artist_name || null,
+    artist_instagram: master.artist_instagram || null,
+    venue_instagram: master.venue_instagram || null,
     price_text: master.price_text || null,
     image_url: master.image_url || null,
     image_urls: master.image_urls ?? null,
@@ -6288,6 +6290,8 @@ function normalizeEvent(event) {
     description_de: adminReadLocalizedDescriptionFromRow(event, "description_de"),
     description_en: adminReadLocalizedDescriptionFromRow(event, "description_en"),
     artist_name: event.artist_name || "",
+    artist_instagram: event.artist_instagram || "",
+    venue_instagram: event.venue_instagram || "",
     tags: event.tags ?? null,
     submitted_by: event.submitted_by || "",
     contact_email: event.contact_email || "",
@@ -8140,6 +8144,8 @@ function duplicateInsertPayloadFromEvent(source) {
     lng: source.lng ?? null,
     genre: source.genre || source.category || null,
     artist_name: source.artist_name || null,
+    artist_instagram: source.artist_instagram || null,
+    venue_instagram: source.venue_instagram || null,
     price_text: source.price_text || null,
     image_url: source.image_url || null,
     image_urls: source.image_urls ?? null,
