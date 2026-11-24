@@ -175,10 +175,11 @@
       img.src = url;
     });
   }
-  function cover(ctx, img, x, y, w, h) {
+  /** Bild füllt das Feld; focusY 0 = oberer Rand, 0.5 = Mitte (Gesichter sitzen meist oben). */
+  function cover(ctx, img, x, y, w, h, focusY = 0.5) {
     const r = Math.max(w / img.naturalWidth, h / img.naturalHeight);
     const sw = w / r, sh = h / r;
-    ctx.drawImage(img, (img.naturalWidth - sw) / 2, (img.naturalHeight - sh) / 2, sw, sh, x, y, w, h);
+    ctx.drawImage(img, (img.naturalWidth - sw) / 2, (img.naturalHeight - sh) * focusY, sw, sh, x, y, w, h);
   }
   function wrap(ctx, text, maxW) {
     const words = String(text).split(/\s+/);
@@ -222,8 +223,10 @@
     if (img) {
       const ratio = img.naturalWidth / img.naturalHeight;
       if (ratio <= 0.8) {
-        cover(ctx, img, 0, 0, W, H); // Hochformat: Foto über die ganze Fläche
-        photoBottom = 1150;
+        // Hochformat (oft Flyer mit eigener Schrift): Foto nur oben, Ausschnitt oben angesetzt;
+        // unten feste dunkle Fläche, damit nichts durch die Schrift scheint.
+        photoBottom = 1180;
+        cover(ctx, img, 0, 0, W, photoBottom, 0.15);
       } else {
         // Querformat: weicher Hintergrund (winzig gezeichnet, groß gezogen) + Foto in voller Breite
         const tiny = el("canvas");
@@ -237,21 +240,32 @@
         const ph = Math.min(1000, Math.round(W / ratio));
         cover(ctx, img, 0, 420, W, ph);
         photoBottom = 420 + ph;
+        // weicher Übergang an der Oberkante des Fotos
+        const gt = ctx.createLinearGradient(0, 420, 0, 520);
+        gt.addColorStop(0, "rgba(11,18,40,0.55)");
+        gt.addColorStop(1, "rgba(11,18,40,0)");
+        ctx.fillStyle = gt;
+        ctx.fillRect(0, 420, W, 100);
       }
     }
-    // Verlauf unten für die Schrift
-    const g = ctx.createLinearGradient(0, Math.min(photoBottom - 300, 1000), 0, H);
-    g.addColorStop(0, "rgba(11,18,40,0)");
-    g.addColorStop(0.35, "rgba(11,18,40,0.85)");
-    g.addColorStop(1, "rgba(11,18,40,0.98)");
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, W, H);
+    // Übergang Foto → feste dunkle Fläche (darunter liegt nur noch die Schrift)
+    if (img) {
+      const fadeTop = photoBottom - 320;
+      const g = ctx.createLinearGradient(0, fadeTop, 0, photoBottom - 40);
+      g.addColorStop(0, "rgba(11,18,40,0)");
+      g.addColorStop(1, NAVY);
+      ctx.fillStyle = g;
+      ctx.fillRect(0, fadeTop, W, photoBottom - 40 - fadeTop);
+      ctx.fillStyle = NAVY;
+      ctx.fillRect(0, photoBottom - 40, W, H - (photoBottom - 40));
+    }
     // Verlauf oben für den Aufhänger
-    const g2 = ctx.createLinearGradient(0, 0, 0, 520);
-    g2.addColorStop(0, "rgba(11,18,40,0.75)");
+    const g2 = ctx.createLinearGradient(0, 0, 0, 560);
+    g2.addColorStop(0, "rgba(11,18,40,0.85)");
+    g2.addColorStop(0.6, "rgba(11,18,40,0.6)");
     g2.addColorStop(1, "rgba(11,18,40,0)");
     ctx.fillStyle = g2;
-    ctx.fillRect(0, 0, W, 520);
+    ctx.fillRect(0, 0, W, 560);
 
     // Aufhänger oben (unterhalb der Instagram-Kopfzeile)
     const [es, en] = hook(ymd, ev.event_time);
@@ -259,13 +273,14 @@
     ctx.textBaseline = "alphabetic";
     ctx.font = `700 96px ${head}`;
     ctx.fillStyle = "#fff";
-    ctx.shadowColor = "rgba(0,0,0,0.45)";
-    ctx.shadowBlur = 18;
+    ctx.shadowColor = "rgba(0,0,0,0.7)";
+    ctx.shadowBlur = 24;
     ctx.fillText(es, W / 2, 330);
     ctx.font = `600 40px ${head}`;
     ctx.fillStyle = ORANGE;
     ctx.fillText(`${en} · LIVE MUSIC`, W / 2, 392);
     ctx.shadowBlur = 0;
+    ctx.shadowColor = "transparent";
 
     // Infoblock unten (unterer Rand bleibt frei für Sticker)
     ctx.textAlign = "left";
