@@ -17,6 +17,10 @@ Plan für die Session:
 - Nur ~2–3 Feed-Posts/Woche, alle Einzelbild, kein Reel, kein Karussell, keine @-Markierung von Bands/Lokalen, kein Ort-Tag, kein Link (IG: „link en bio“), Hashtags allgemein.
 - Seit 21.11. keine Stories (Canva-Guthaben leer).
 - Mo-Sammelpost 23.11. enthielt nur 1 Event (Joolz), Zoe (23.11.) und Debra Stacey (26.11.) fehlten: Post wurde am 18.11. freigegeben, die Events kamen am 19.11. dazu → Freigabe friert den Inhalt ein. Lösung: erst am Tag freigeben bzw. Hinweis „neue Events seit Freigabe“ im Admin.
+**Umgesetzt 24.11.2026 (Freigabe Frank):** (a) Admin „Diese Woche“ warnt, wenn nach der Freigabe neue Events im Post fehlen (Button „Mit neuen Events neu anlegen“). (b) @-Markierung: SQL #32 ausgeführt, Versender `social-queue-runner` deployt (fügt „🎤 @band · 📍 @lokal“ vor den Hashtags ein, übernimmt Namen von Events mit gleichem Künstler/Lokal), Felder „Instagram Artist/Lokal“ im Event-Editor. Eingetragen: Lokale El Rincón de Cuba, La Sala Banús, Lömbok, Central Park, Bandido Burgers, El Gusto de La Cala; Bands Yoel Barz, Debra Stacey, Magasax, Choconilla, Jochen Janz, Amy Amy Amy, Bojan Turkic.
+- **Frank:** unsicher/fehlend – La Placita (@laplacitacalahonda?), Mojo Train (@themojotrain?), Shiaoko (@shiaoko?), Alain Guerra, Guillermo Olvera, Joolz, Spencer, Johnny G., MAYDAY, Yailo & Chepe, Blue Stompers, Zoe → im Event-Editor eintragen.
+- **Als Nächstes:** eigener Bild-Baukasten ohne Canva (Stories + Bilderstrecken).
+
 Noch offen dazu: Regel „keine Stockfotos mit erkennbarer Person neben Künstlernamen“? Sind „que-es-marcha-A/B“ brauchbare Fotos?
 
 ## Social-Wochenplaner auf dem Server (16.11.2026) – LIVE (stündlich, SQL #30)
