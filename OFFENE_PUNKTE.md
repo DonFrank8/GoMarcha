@@ -1,9 +1,21 @@
 # Offene Punkte — Marcha
 
-Merkliste für die nächsten Sessions. Stand: 24.11.2026.
+Merkliste für die nächsten Sessions. Stand: 25.11.2026.
 Erledigtes hier streichen bzw. nach „Erledigt“ verschieben.
 
-## ⭐ AKTUELL (Auftrag Frank 23.11.2026): Reichweite auf Social Media verbessern + automatisieren
+## ▶ MORGEN ZUERST (Stand 25.11.2026 abends)
+
+1. **Sicherheit (Frank):** Instagram-Mails vom 25.11. waren echt (DKIM ok), betrafen aber **fremde** Konten „hawk.18119254“ (Passwort geändert) und „bacalao.tranquilo.en.el.mar“ (Login Mac/Safari, Mijas), bei denen Franks GMX-Adresse eingetragen ist. @go.marcha nicht betroffen.
+   - ERLEDIGT: GMX-Passwort geändert.
+   - OFFEN: GMX Zwei-Faktor + Weiterleitungen/Filterregeln prüfen · Meta-Passwörter (Instagram go.marcha + Facebook) über Kontenübersicht → Passwort und Sicherheit ändern (im Browser, Passwortmanager „starkes Passwort“) · Zweistufige Authentifizierung + „Wo du angemeldet bist“ · in der Mail „New login…“ unten „Remove your email“ (Link führt zu instagram.com).
+   - **Danach Claude:** prüfen, ob Postiz noch mit Instagram + Facebook verbunden ist (ggf. in Postiz „Reconnect“).
+2. **Teil-Pakete nutzen (Frank):** Admin → Social → „📤 Bands & Lokale – Teil-Pakete“ → pro Event Bild + Text per WhatsApp an Band/Lokal. Facebook-Gruppen-Text (Englisch) Do/Fr in 2–4 Expat-Gruppen. Erste Nachrichten an Bands (Entwürfe im Admin).
+3. **Claude, Stufe 2 (Rat):** Bilderstrecke (Karussell) „Planes de finde“ als Collab-Post statt Text-Liste · Montagsbericht mit Klicks je `?source=` (wa_band, wa_venue, fbgroup, ig_bio) · später Reels mit Clips der Bands.
+
+**Rat 24.11.2026 (4 Prüfer: Social-Media-Manager, Zielgruppe Costa del Sol, Content-Creator, Realist):** Problem ist Verteilung, nicht Design – @go.marcha hat 291 Follower, Posts 0–1 Likes; Stories/Posts sehen nur Follower. Hebel: Bands/Lokale teilen lassen (Teil-Pakete, Collab-Posts), Facebook-Expat-Gruppen auf Englisch, Karussell statt Text-Listen, alles mit `?source=` messen; tägliche Info-Story niedrigste Priorität. Tests nach 2–4 Wochen auswerten, Unwirksames streichen.
+**Umgesetzt 24.11. (live, Freigabe Frank):** PR #148/#149 Teil-Pakete im Admin (`admin-share-kit.js`: Story-Bild im Browser aus echtem Foto, Texte Band ES/EN + Lokal ES, Facebook-Gruppen-Text). **Täglicher Story-Agent pausiert** (geplante Aufgabe „Marcha Tages-Story“ deaktiviert; Kalender-Termin 9:15 kann weg). Instagram-Konto heißt **@go.marcha**. Server-Bildbaukasten-Prototyp (satori/resvg, ~1 s/Bild) liegt nur im Scratchpad – nicht weiterverfolgt, da Teil-Pakete im Browser zeichnen.
+
+## ⭐ Reichweite (Auftrag Frank 23.11.2026): Reichweite auf Social Media verbessern + automatisieren
 
 Problem (Frank): „Unsere Posts werden nicht gesehen.“ Außerdem baut Canva seit 21.11. keine Stories mehr (Fehler `quota_exceeded` = Canva-Guthaben leer) → 21.–23.11. keine Tages-Story.
 Plan für die Session:
